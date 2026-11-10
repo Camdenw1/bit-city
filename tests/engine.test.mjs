@@ -100,7 +100,7 @@ test('config: shape, roads, every type complete, balance targets', () => {
   assert.equal(config.isRoad(3, 0), true); assert.equal(config.isRoad(0, 2), true); assert.equal(config.isRoad(0, 0), false);
   assert.equal(lots().length, 90);
   const ids = Object.keys(BUILDINGS);
-  assert.equal(ids.length, 54);
+  assert.equal(ids.length, 55);
   assert.equal(ids.filter((id) => BUILDINGS[id].kind === 'biz').length, 38);
   assert.deepEqual([...config.BUILD_ORDER].sort(), [...ids].sort());
   for (const id of ids) {
@@ -108,7 +108,7 @@ test('config: shape, roads, every type complete, balance targets', () => {
     assert.equal(d.id, id);
     assert.ok(d.name && d.blurb && d.cost > 0 && d.buildSecs > 0 && d.unlockAt >= 0, id);
     if (d.kind === 'home') { assert.ok(d.capacity >= 1 && d.rentPerTenant > 0); assert.equal(d.category, null); }
-    else if (d.kind === 'trade') { assert.equal(d.category, null); }
+    else if (d.kind === 'trade' || d.kind === 'yard') { assert.equal(d.category, null); }
     else if (d.kind === 'civic' || d.kind === 'park') {
       assert.equal(d.category, null); assert.ok(config.NEEDS.some((n) => n.id === d.provides.need) && d.provides.serves > 0, id);
     } else {
@@ -1763,4 +1763,49 @@ test('goal progress: goals with a number show how far along they are', () => {
   assert.deepEqual(sim.goalProgress(s, g('pop10'), T0), { have: 0, need: 10 });
   assert.equal(sim.goalProgress(s, g('tent'), T0), null, 'yes/no goals have no number');
   assert.equal(config.RECIPES[0].needs.veggies, 30);
+});
+
+test('upgrades and the Construction Yard', () => {
+  const s = fresh();
+  s.coins = 1e6;
+  const tent = put(s, 'tent', T0);
+  // the crew makes everything build faster
+  const plain = sim.build(s, 'tent', 4, 4, T0).building;
+  assert.equal(plain.readyAt - T0, config.BUILDINGS.tent.buildSecs * 1000);
+  assert.equal(sim.buyUpgrade(s, 'crew', T0).ok, true);
+  assert.equal(sim.upLevel(s, 'crew'), 1);
+  const quick = sim.build(s, 'tent', 5, 4, T0).building;
+  assert.equal(quick.readyAt - T0, Math.round(config.BUILDINGS.tent.buildSecs * 1000 * (1 - config.UPGRADES.crew.per)));
+  // a Construction Yard halves build time within its reach
+  const yard = put(s, 'yard', T0);
+  assert.equal(sim.yardNear(s, yard.x, yard.y, T0), true);
+  assert.ok(Math.abs(sim.buildFactor(s, yard.x, yard.y, T0) - (1 - config.UPGRADES.crew.per) * TUNING.yardFactor) < 1e-9);
+  // ladders end, and cost what they say
+  s.coins = 0;
+  assert.match(sim.buyUpgrade(s, 'trucks', T0).reason, /more coins/);
+  s.coins = 1e7;
+  for (let i = 0; i < config.UPGRADES.trucks.costs.length; i++) assert.ok(sim.buyUpgrade(s, 'trucks', T0).ok);
+  assert.match(sim.buyUpgrade(s, 'trucks', T0).reason, /fully/);
+  // interviews narrow newcomers' skill ranges to exact at the top level
+  for (let i = 0; i < 3; i++) sim.buyUpgrade(s, 'interview', T0);
+  const a = S.makeApplicant(s);
+  assert.ok(CATEGORIES.every((c) => a.seen[c][0] === a.skills[c] && a.seen[c][1] === a.skills[c]));
+  // old saves start with none; bad values are cleaned
+  const old = JSON.parse(JSON.stringify(s)); delete old.upgrades;
+  assert.deepEqual(S.migrate(old).upgrades, {});
+  const odd = JSON.parse(JSON.stringify(s)); odd.upgrades = { crew: 99, nope: 3, trucks: -1 };
+  assert.deepEqual(S.migrate(odd).upgrades, { crew: config.UPGRADES.crew.costs.length });
+  assert.ok(tent);
+});
+
+test('jobs pop up on the map, at most two, never while busy', () => {
+  const { s } = smallTown();
+  allGoalsDone(s);
+  const spots = sim.jobSpots(s, s.lastTick);
+  assert.ok(spots.length >= 1 && spots.length <= TUNING.jobSpots);
+  for (const j of spots) assert.ok(s.buildings.some((b) => b.id === j.buildingId));
+  assert.equal(new Set(spots.map((j) => j.buildingId)).size, spots.length, 'one bubble per building');
+  assert.deepEqual(sim.jobSpots(s, s.lastTick), spots, 'stable within the hour');
+  s.job = { kind: 'odd' };
+  assert.deepEqual(sim.jobSpots(s, s.lastTick), [], 'none while busy');
 });

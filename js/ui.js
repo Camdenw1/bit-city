@@ -159,7 +159,7 @@ export function createUI(root, api) {
     <div class="toasts" data-h="toasts" aria-live="polite"></div>
     <nav class="bottom-bar">
       <button class="bar-btn" data-act="nav-build">${icon('hammer', 2)}<span>Build</span></button>
-      <button class="bar-btn" data-act="nav-jobs">${icon('taxi', 2)}<span>Jobs</span><i class="bar-dot bar-count" data-h="jobsCount" hidden></i></button>
+      <button class="bar-btn" data-act="nav-upgrades">${icon('star', 2)}<span>Upgrades</span><i class="bar-dot bar-count" data-h="jobsCount" hidden></i></button>
       <button class="bar-btn" data-act="nav-people">${icon('person', 2)}<span>People</span><i class="bar-dot" data-h="peopleDot" hidden></i></button>
       <button class="bar-btn" data-act="nav-menu">${icon('heart', 2)}<span>Menu</span></button>
     </nav>
@@ -293,14 +293,16 @@ export function createUI(root, api) {
     for (const t of s.tenants) { if (betterJob(t)) { nudge = true; break; } }
     if (h.peopleDot.hidden === nudge) h.peopleDot.hidden = !nudge;
 
-    // Jobs: a count of jobs you can start right now, and a toast when a resting job is ready again.
+    // Upgrades: a count of upgrades you can afford right now.
+    const ups = Object.keys(config.UPGRADES || {}).filter((id) => { const c = call('upgradeNextCost', s, id); return c > 0 && c <= s.coins; }).length
+      + (call('nextCar', s) && call('nextCar', s).cost <= s.coins ? 1 : 0);
+    setText(h.jobsCount, String(ups));
+    if (h.jobsCount.hidden === (ups > 0)) h.jobsCount.hidden = ups === 0;
+    // jobs pop up on the map; a toast says when a resting one is back
     const board = call('jobBoard', s, now) || [];
-    const ready = board.filter((j) => j.ok);
-    setText(h.jobsCount, String(ready.length));
-    if (h.jobsCount.hidden === (ready.length > 0)) h.jobsCount.hidden = ready.length === 0;
     const back = board.filter((j) => j.ok && (jobRest.get(j.kind) || 0) > 0);
     if (jobRest.size && back.length) {
-      toast(back.length === 1 ? `${back[0].name} is ready again · ${formatCoins(back[0].pay)} coins` : `${back.length} jobs are ready again: ${back.map((j) => j.name).join(', ')}`);
+      toast(back.length === 1 ? `${back[0].name} popped up on the map · ${formatCoins(back[0].pay)} coins` : `${back.length} jobs popped up on the map`);
     }
     jobRest.clear();
     for (const j of board) jobRest.set(j.kind, j.readyIn);
@@ -338,7 +340,7 @@ export function createUI(root, api) {
       if (api.renderer && api.renderer.setSelection) api.renderer.setSelection(tile);
       // a town building shows the area it serves while its sheet is open
       const b = tile && sheet && sheet.kind === 'building' ? byId(sheet.id) : null;
-      const reach = b && def(b.type).provides ? { x: b.x, y: b.y, r: call('reachOf', b) || 0 } : null;
+      const reach = b && (def(b.type).provides || def(b.type).kind === 'yard') ? { x: b.x, y: b.y, r: call('reachOf', b) || 0 } : null;
       if (api.renderer && api.renderer.setReach) api.renderer.setReach(reach);
     } catch (e) { /* cosmetic */ }
   }
@@ -369,7 +371,7 @@ export function createUI(root, api) {
   const coinAmt = (n, s = 1) => `<span class="amt">${icon('coin', s, s === 1 ? 'i12' : '')}${formatCoins(n)}</span>`;
   const skillBadge = (cat, value, big) =>
     `<span class="skill${big ? ' big' : ''}" style="--c:${catColor(cat)}">${icon('cat_' + cat, 1, 'i12')}<b>${value}</b></span>`;
-  const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : { icon: 'star', name: 'Town' });
+  const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : d.kind === 'yard' ? { icon: 'hammer', name: 'Faster building' } : { icon: 'star', name: 'Town' });
   const cropName = (crop) => ((config.CROPS || {})[crop] || crop).toLowerCase();
 
   /** Everything the Trading Post does: sell, import, and neighbour orders. */
@@ -589,7 +591,7 @@ export function createUI(root, api) {
             : `<span class="price">${icon('coin', 1, 'i12')}${formatCoins(cost)}</span>`}</button>`;
       };
       const homes = order.filter((id) => BUILDINGS[id].kind === 'home');
-      const town = order.filter((id) => !BUILDINGS[id].gov && ['park', 'trade'].includes(BUILDINGS[id].kind));
+      const town = order.filter((id) => !BUILDINGS[id].gov && ['park', 'trade', 'yard'].includes(BUILDINGS[id].kind));
       const unlocked = (id) => call('isUnlocked', s, id);
       const openCat = (cat) => call('categoryUnlocked', s, cat);
       if (d.wish) {
@@ -681,6 +683,7 @@ export function createUI(root, api) {
           if (c.gov && fixes) lines.push(`${icon('star', 1, 'i12')}Fixes shop problems within ${reach} lots for free`);
         }
         if (c.fav) lines.push(`${icon('heart', 1, 'i12')}A mayor's favourite: ${c.provides ? 'serves' : 'does'} ${favPct}% more`);
+        if (c.kind === 'yard') lines.push(`${icon('hammer', 1, 'i12')}Anything built within ${call('reachOf', b) || 0} lots goes up twice as fast`);
         if (c.lessons) lines.push(`${icon('star', 1, 'i12')}Teaches ${c.lessons} skill ${c.lessons === 1 ? 'point' : 'points'} an hour`);
         if (c.rentBoost) {
           const near = s.buildings.filter((h) => def(h.type).kind === 'home' && Math.max(Math.abs(h.x - b.x), Math.abs(h.y - b.y)) <= (config.TUNING?.parkRadius ?? 2)).length;
@@ -880,6 +883,23 @@ export function createUI(root, api) {
           ${next ? `<button class="btn btn-small ${next.cost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="upgrade-car">${esc(next.name)} · ${formatCoins(next.cost)} ${icon('coin', 1, 'i12')}</button>` : `<span class="tag tag-ok">Best car</span>`}</div>
         <p class="note up-note">${next ? `${esc(next.name)}: ${Math.round((next.speed / car.speed - 1) * 100)}% faster, fares +${Math.round((next.pay / car.pay - 1) * 100)}%. ` : ''}Hold GAS while driving to go faster and earn up to +${Math.round((config.TUNING?.gasBonus ?? 0.5) * 100)}%.</p>`;
       return { title: 'Jobs', html: `<p class="note">Jobs pay more as your town grows. Each one rests a little after you do it.</p>${rows}${carRow}` };
+    },
+
+    /* --- Upgrades: the car and short ladders that make the town run better --- */
+    upgrades() {
+      const s = S();
+      const car = call('carOf', s) || { name: 'Taxi', speed: 1, pay: 1 }; const next = call('nextCar', s);
+      const carRow = `<div class="up-card" data-key="car"><div class="up-head">${icon('taxi', 2)}<b>${esc(car.name)}</b>
+          ${next ? `<button class="btn btn-small ${next.cost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="upgrade-car">${esc(next.name)} · ${formatCoins(next.cost)} ${icon('coin', 1, 'i12')}</button>` : '<span class="tag tag-ok">Best car</span>'}</div>
+        <p class="note">${next ? `Next: ${Math.round((next.speed / car.speed - 1) * 100)}% faster and fares +${Math.round((next.pay / car.pay - 1) * 100)}%.` : 'The fastest car in town.'} Hold GAS while driving for up to +${Math.round((config.TUNING?.gasBonus ?? 0.5) * 100)}%.</p></div>`;
+      const rows = Object.entries(config.UPGRADES || {}).map(([id, u]) => {
+        const lvl = call('upLevel', s, id) || 0; const max = u.costs.length; const cost = call('upgradeNextCost', s, id) || 0;
+        return `<div class="up-card" data-key="u-${id}"><div class="up-head">${icon(u.icon, 2)}<b>${esc(u.name)}</b><span class="up-pips">${'●'.repeat(lvl)}${'○'.repeat(max - lvl)}</span>
+            ${cost ? `<button class="btn btn-small ${cost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="buy-upgrade" data-id="${id}">${formatCoins(cost)} ${icon('coin', 1, 'i12')}</button>` : '<span class="tag tag-ok">Max</span>'}</div>
+          <p class="note">${lvl ? `Now: ${esc(u.says(lvl))}.` : 'Not bought yet.'}${cost ? ` Next: ${esc(u.says(lvl + 1))}.` : ''}</p></div>`;
+      }).join('');
+      return { title: 'Upgrades', html: `<h3 class="sec">Your car</h3>${carRow}<h3 class="sec">Running the town</h3>${rows}
+        <p class="note">Jobs now pop up on the map as gold bubbles: tap one to play. A Construction Yard (in Build) makes anything built near it go up twice as fast.</p>` };
     },
 
     /* --- A job played inside a sheet: Lunch Rush and Odd Jobs --- */
@@ -1169,6 +1189,26 @@ export function createUI(root, api) {
 
   /* ----- public: open things ----- */
   function openLand(id) { openSheet({ kind: 'land', id }); }
+  /** Start a job from the map (its bubble's building) or a list. */
+  function startJob(kind, anchorId) {
+    const s = S();
+    if (kind === 'taxi' || kind === 'delivery') {
+      const r = act('startBoardRide', kind);
+      if (!r.ok) { if (r.reason) toast(r.reason); return; }
+      closeSheet();
+      if (r.driving) { try { api.startDrive(); } catch (e) { /* the ride still pays when it ends */ } return; }
+      try { if (kind === 'delivery' && r.destination) api.renderer.focusTile(r.destination); } catch (e) { /* cosmetic */ }
+      showRide(S().ride);
+      return;
+    }
+    const shops = (call('townJobOptions', s, N()) || {}).shops || [];
+    const shop = shops.find((b) => b.id === anchorId) || shops[Math.floor(Math.random() * shops.length)];
+    const r = act('startTownJob', kind, shop ? shop.id : null);
+    if (!r.ok) { if (r.reason) toast(r.reason); return; }
+    if (kind === 'rush' || kind === 'odd') { openSheet({ kind: 'job' }); return; }
+    closeSheet();
+    try { const at = byId(r.job.shopId) || r.job; if (at) api.renderer.focusTile({ x: at.x, y: at.y }); } catch (e) { /* cosmetic */ }
+  }
   function openNewcomers() { openSheet({ kind: 'newcomers' }); }
   function openLot(x, y) {
     const existing = call('tileAt', S(), x, y);
@@ -1223,6 +1263,12 @@ export function createUI(root, api) {
       toast(r && r.ok ? 'All fixed!' : (r && r.reason) || '');
     },
     'nav-menu': () => openSheet({ kind: 'menu', reset: 0 }),
+    'nav-upgrades': () => openSheet({ kind: 'upgrades' }),
+    'buy-upgrade': (el) => {
+      const r = act('buyUpgrade', el.dataset.id);
+      const u = (config.UPGRADES || {})[el.dataset.id];
+      toast(r && r.ok ? `${u.name} level ${r.level}! ${u.says(r.level)}.` : (r && r.reason) || '');
+    },
     'nav-jobs': () => openSheet(S().job && ['rush', 'odd'].includes(S().job.kind) ? { kind: 'job' } : { kind: 'jobs' }),
     'open-job': () => openSheet({ kind: 'job' }),
     'welcome-skip': () => { welcomeOffer = null; renderRide(); },
@@ -1236,34 +1282,16 @@ export function createUI(root, api) {
       refresh();
     },
     'upgrade-car': () => { const r = act('upgradeCar'); if (r.ok) toast(`New car: the ${r.car.name}!`); },
-    'start-job': (el) => {
-      const kind = el.dataset.kind; const s = S();
-      if (kind === 'taxi' || kind === 'delivery') {
-        const r = act('startBoardRide', kind);
-        if (!r.ok) return;
-        closeSheet();
-        if (r.driving) { try { api.startDrive(); } catch (e) { /* the ride still pays when it ends */ } return; }
-        try { if (kind === 'delivery' && r.destination) api.renderer.focusTile(r.destination); } catch (e) { /* cosmetic */ }
-        showRide(S().ride);
-        return;
-      }
-      const shops = (call('townJobOptions', s, N()) || {}).shops || [];
-      const shop = shops[Math.floor(Math.random() * shops.length)];
-      const r = act('startTownJob', kind, shop ? shop.id : null);
-      if (!r.ok) return;
-      if (kind === 'rush' || kind === 'odd') { openSheet({ kind: 'job' }); return; }
-      closeSheet();
-      try { const at = kind === 'courier' ? byId(r.job.shopId) : byId(r.job.shopId) || r.job; if (at) api.renderer.focusTile({ x: at.x, y: at.y }); } catch (e) { /* cosmetic */ }
-    },
-    'skip-job': () => { act('skipTownJob'); if (sheet && sheet.kind === 'job') openSheet({ kind: 'jobs' }); },
+    'start-job': (el) => startJob(el.dataset.kind, null),
+    'skip-job': () => { act('skipTownJob'); closeSheet(); },
     serve: (el) => {
       const j = S().job; if (!j) return;
       const r = act('serveOrder', j.index, Number(el.dataset.i));
-      if (r.ok && r.done) { toast(`Lunch Rush done! +${formatCoins(r.pay)} coins`); openSheet({ kind: 'jobs' }); }
+      if (r.ok && r.done) { toast(`Lunch Rush done! +${formatCoins(r.pay)} coins`); closeSheet(); }
     },
     'send-helper': (el) => {
       const r = act('sendHelper', Number(el.dataset.id));
-      if (r.ok) { toast(`Job done! +${formatCoins(r.pay)} coins`); openSheet({ kind: 'jobs' }); }
+      if (r.ok) { toast(`Job done! +${formatCoins(r.pay)} coins`); closeSheet(); }
     },
     'nav-town': () => { wishBuild = null; openSheet({ kind: 'town' }); refreshHUD(); },
     'follow-wish': (el) => {
@@ -1491,7 +1519,7 @@ export function createUI(root, api) {
   refresh();
 
   return {
-    refresh, openLot, openLand, openNewcomers, openBuilding, showAway, showRide, hideRide, celebrateDream, toast,
+    refresh, openLot, openLand, openNewcomers, startJob, openBuilding, showAway, showRide, hideRide, celebrateDream, toast,
     isModalOpen: () => !!sheet || !!celeb || queue.length > 0,
   };
 }

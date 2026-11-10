@@ -130,7 +130,19 @@ covers running and publishing. This file holds the design decisions and the road
   player pays `problemFee`. The Mayor's desk (from the Town sheet) lists problems, the
   unhappiest residents with reasons, and what each government building serves.
 - A town building's sheet shows its reach as a square on the map.
-- Jobs board (fourth bottom-bar button, `jobBoard` in sim, `TOWN_JOBS` in config): Taxi Ride,
+- Jobs pop up on the map (Camden, 2026-11-10: "like the Tiny Tower jobs"): each ready job is a
+  gold-rimmed bubble on a building that fits it (`jobSpots`: Lunch Rush on a staffed food shop,
+  Odd Jobs on a home, Courier at a Post Office...), at most `TUNING.jobSpots` (2), none while
+  busy, map-only jobs before taxi and parcels. Tapping that building starts the job
+  (`ui.startJob`). A toast says when one pops up. There is no Jobs list any more.
+- Upgrades tab (fourth bottom-bar button, replaces Jobs; badge = upgrades you can afford): the
+  car (`CARS`) plus `UPGRADES` ladders: Construction crew (-12% build time a level, 4 levels),
+  Faster trucks (+25%), Interviews (newcomer ranges 1 narrower a level, exact at 3), Welcome
+  center (arrivals -20%), Repair team (problem fee -20%, stations 20% faster), Marketing (ads
+  +30 min). Levels in `state.upgrades` (migrated, clamped). Prestige upgrades belong here later.
+- Construction Yard (`yard`, kind 'yard', 1,500 coins, opens at 8 residents, reach 4): anything
+  built within reach takes half the time (`buildFactor` = crew x yard). Its sheet shows the reach.
+- Jobs board rules (the old fourth button, `jobBoard` in sim, `TOWN_JOBS` in config): Taxi Ride,
   Package Delivery, Lunch Rush, Odd Jobs, Lost & Found, Courier Route. Pay is `minutes` of the
   town's base shop income with a small floor; each job rests for its `cooldownMs` after it is
   taken (skipping clears the rest). Board taxi and delivery pay exactly like street rides.
@@ -219,7 +231,8 @@ change when these are built.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (49 passing).
+- Tests: `node --test` from the project root (51 passing). `node --check js/x.js` does not
+  catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
 

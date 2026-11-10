@@ -1,7 +1,7 @@
 // Mini Mayor — state: new game, save/load (with backup copy), export/import, local day.
 // Pure: the only platform access is localStorage inside save()/load(), always guarded.
 
-import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats, TRAITS, HINTS } from './config.js';
+import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats, TRAITS, HINTS, UPGRADES } from './config.js';
 
 export const SAVE_KEY = 'bitcity.save.v1';
 const EXPORT_PREFIX = 'BITCITY1:';
@@ -80,7 +80,7 @@ export function makeApplicant(state, opts = {}) {
   // first impression: a trait always shows its hint; half of everyone else gets a hint too
   const hint = trait ? TRAITS[trait].hint : rand(state) < 0.5 ? pick(state, ['sharp', 'friendly']) : 'nice';
   // what you can see before they move in: each skill as a range around the real one
-  const w = star ? 1 : TUNING.skillRangeWidth;
+  const w = star ? 1 : Math.max(0, TUNING.skillRangeWidth - ((state.upgrades || {}).interview || 0));   // interviews narrow it
   const seen = {};
   for (const c of CATEGORIES) {
     const lo = Math.max(0, Math.min(9 - w, skills[c] - randInt(state, w + 1)));
@@ -125,7 +125,8 @@ export function newGame(now) {
     tenants: [],
     applicants: [],
     nextApplicantAt: now + TUNING.applicantEveryMs,
-    slowArrivalsUntil: 0,              // after asking someone to move out, newcomers come slower until then
+    slowArrivalsUntil: 0,
+    upgrades: {},                      // Upgrades tab: id -> level bought (0 if missing)              // after asking someone to move out, newcomers come slower until then
     ride: null,
     job: null,
     nextRideAt: now + TUNING.rideFirstDelayMs,
@@ -273,6 +274,10 @@ export function migrate(state) {
     for (const o of [...state.buildings, ...state.tenants, ...state.applicants, ...(Array.isArray(state.orders) ? state.orders : []).filter((x) => x && isNum(x.id)), ...(Array.isArray(state.trucks) ? state.trucks : []).filter((x) => x && isNum(x.id))]) maxId = Math.max(maxId, o.id);
     state.nextId = Math.max(isNum(state.nextId) ? state.nextId : 1, maxId + 1);
     if (!isNum(state.slowArrivalsUntil)) state.slowArrivalsUntil = 0;
+    // the Upgrades tab (2026-11-10): older saves have bought none
+    const ups = state.upgrades && typeof state.upgrades === 'object' ? state.upgrades : {};
+    state.upgrades = {};
+    for (const id of Object.keys(UPGRADES)) if (isNum(ups[id]) && ups[id] > 0) state.upgrades[id] = Math.min(UPGRADES[id].costs.length, Math.round(ups[id]));
 
     if (!isNum(state.nextApplicantAt)) state.nextApplicantAt = state.lastTick + TUNING.applicantEveryMs;
     if (!isNum(state.nextRideAt)) state.nextRideAt = state.lastTick + TUNING.rideGapMinMs;

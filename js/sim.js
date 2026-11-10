@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick } from './state.js';
 
@@ -409,7 +409,7 @@ export function build(state, type, x, y, now, opts = {}) {
   if (!check.ok) return { ok: false, reason: check.reason, building: null };
   const cost = cat ? categoryCost(state, cat) : costOf(state, type);
   state.coins -= cost;
-  const building = { id: state.nextId++, type, x, y, readyAt: now + def.buildSecs * 1000, paid: cost, level: 1 };
+  const building = { id: state.nextId++, type, x, y, readyAt: now + Math.round(def.buildSecs * 1000 * buildFactor(state, x, y, now)), paid: cost, level: 1 };
   if (cat) {
     building.cat = cat;
     building.tier = shopsIn(state, cat);
@@ -653,7 +653,7 @@ export function runAd(state, now) {
   const cost = adCost(state, now);
   if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins for an ad.`);
   state.coins -= cost;
-  state.adUntil = now + TUNING.adMs;
+  state.adUntil = now + TUNING.adMs + UPGRADES.marketing.per * 3600000 * upLevel(state, 'marketing');
   events.emit('spend', { amount: cost, reason: 'ad' });
   events.emit('ad', { until: state.adUntil });
   return { ok: true, reason: '', cost };
@@ -838,7 +838,8 @@ export function truckRoute(state, now) {
 export function truckTripMs(state, now) {
   const path = truckRoute(state, now);
   const lots = path ? path.length - 1 : 15;
-  return Math.round(Math.min(TUNING.truckMaxMs, Math.max(TUNING.truckMinMs, (lots / TUNING.truckSpeed) * 1000)));
+  const speed = TUNING.truckSpeed * (1 + UPGRADES.trucks.per * upLevel(state, 'trucks'));
+  return Math.round(Math.min(TUNING.truckMaxMs, Math.max(TUNING.truckMinMs, (lots / speed) * 1000)));
 }
 
 /** Trucks the town has: one per level of each Trading Post. */
@@ -1072,7 +1073,7 @@ function fixerFor(state, shop, kind, now) {
 }
 
 export function problemFee(state, now) {
-  return Math.round(Math.max(TUNING.problemMinFee, townRatePerMin(state, now) * TUNING.problemFeeMinutes));
+  return Math.round(Math.max(TUNING.problemMinFee, townRatePerMin(state, now) * TUNING.problemFeeMinutes) * (1 - UPGRADES.repair.per * upLevel(state, 'repair')));
 }
 
 function maybeProblem(state, now) {
@@ -1087,7 +1088,7 @@ function maybeProblem(state, now) {
   const b = pickWeighted(state, open, (s) => (workersOf(state, s.id).some((t) => t.trait === 'genius') ? 2 : 1));
   const kind = pick(state, Object.keys(PROBLEMS));
   const fixer = fixerFor(state, b, kind, now);
-  const problem = { buildingId: b.id, kind, at: now, fixAt: fixer ? now + TUNING.problemAutoFixMs : null, fixerId: fixer ? fixer.id : null };
+  const problem = { buildingId: b.id, kind, at: now, fixAt: fixer ? now + fixMs(state) : null, fixerId: fixer ? fixer.id : null };
   state.problems.push(problem);
   events.emit('problem', { building: b, problem });
 }
@@ -1103,7 +1104,7 @@ function resolveProblems(state, t) {
       if (shop) events.emit('problemFixed', { building: shop, problem: p, auto: true });
     } else if (p.fixAt == null) {
       const fixer = fixerFor(state, shop, p.kind, t);
-      if (fixer) { p.fixAt = t + TUNING.problemAutoFixMs; p.fixerId = fixer.id; }
+      if (fixer) { p.fixAt = t + fixMs(state); p.fixerId = fixer.id; }
     }
   }
   return changed;
@@ -1350,6 +1351,39 @@ export function bestJobs(state, tenantId, now) {
   return out.slice(0, 3);
 }
 
+// ---- upgrades -------------------------------------------------------------------
+// The Upgrades tab: short ladders bought with coins that make the town run better.
+
+export function upLevel(state, id) {
+  return Math.max(0, Math.min(UPGRADES[id].costs.length, (state.upgrades || {})[id] || 0));
+}
+/** What the next level of an upgrade costs, or 0 when it is maxed. */
+export function upgradeNextCost(state, id) {
+  return UPGRADES[id] ? UPGRADES[id].costs[upLevel(state, id)] || 0 : 0;
+}
+export function buyUpgrade(state, id, now) {
+  const u = UPGRADES[id];
+  if (!u) return fail("We don't know that upgrade.");
+  const cost = upgradeNextCost(state, id);
+  if (!cost) return fail(`${u.name} is fully upgraded.`);
+  if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins.`);
+  state.coins -= cost;
+  state.upgrades = { ...(state.upgrades || {}), [id]: upLevel(state, id) + 1 };
+  events.emit('spend', { amount: cost, reason: 'upgrade' });
+  events.emit('upgradeBought', { id, level: state.upgrades[id] });
+  return { ok: true, reason: '', level: state.upgrades[id], cost };
+}
+const fixMs = (state) => TUNING.problemAutoFixMs * (1 - UPGRADES.repair.per * upLevel(state, 'repair'));
+
+/** Is there a built Construction Yard whose reach covers (x, y)? */
+export function yardNear(state, x, y, now) {
+  return state.buildings.some((b) => b.type === 'yard' && isBuilt(b, now) && Math.max(Math.abs(b.x - x), Math.abs(b.y - y)) <= reachOf(b));
+}
+/** Share of the usual build time: the crew upgrade, and half again near a Construction Yard. */
+export function buildFactor(state, x, y, now) {
+  return (1 - UPGRADES.crew.per * upLevel(state, 'crew')) * (yardNear(state, x, y, now) ? TUNING.yardFactor : 1);
+}
+
 // ---- newcomers -----------------------------------------------------------------
 // Newcomers drive in on the entry road and wait at the Welcome sign. You see their skills
 // as ranges and a first-impression hint; their real skills and trait show when they move in.
@@ -1363,7 +1397,7 @@ function pickWeighted(state, list, weight) {
 
 /** Time until the next newcomer: arriveMs, half that during an ad, twice that after a move-out. */
 function arrivalGap(state, at) {
-  let gap = TUNING.arriveMs;
+  let gap = TUNING.arriveMs * (1 - UPGRADES.welcome.per * upLevel(state, 'welcome'));
   if (at < (state.adUntil || 0)) gap /= 2;
   if (at < (state.slowArrivalsUntil || 0)) gap *= 2;
   return gap;
@@ -1537,6 +1571,37 @@ const restJob = (state, kind, now) => { state.jobCooldowns[kind] = now + TOWN_JO
 const waitText = (ms) => `Ready again in ${Math.ceil(ms / 1000)}s.`;
 
 /** The jobs board, one row per job: { kind, name, icon, hint, pay, readyIn, ok, why }. */
+/**
+ * Jobs pop up on the map, like Tiny Tower: each ready job sits as a bubble on a building that
+ * fits it (Lunch Rush on a shop, Odd Jobs on a home...). At most TUNING.jobSpots at once, and
+ * none while you are busy. [{ kind, buildingId }]. Pure: the same town and hour give the same spots.
+ */
+export function jobSpots(state, now) {
+  if (state.job || (state.ride && state.ride.state !== 'waiting')) return [];
+  const o = townJobOptions(state, now);
+  const homes = occupiedHomes(state, now);
+  const food = o.shops.filter((b) => catOf(b) === 'food' && workersOf(state, b.id).length);
+  const places = {
+    taxi: homes, delivery: o.shops, rush: food.length ? food : o.shops,
+    odd: homes, lost: o.shops, courier: o.shops.filter((b) => b.type === 'post').length ? o.shops.filter((b) => b.type === 'post') : o.shops,
+  };
+  const hour = Math.floor(now / 3600000);
+  const taken = new Set(state.ride ? [state.ride.fromId] : []);
+  const out = [];
+  // the jobs only found here come first; taxi rides and parcels also turn up on their own
+  const order = ['rush', 'odd', 'lost', 'courier', 'delivery', 'taxi'];
+  for (const j of jobBoard(state, now).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))) {
+    if (out.length >= TUNING.jobSpots) break;
+    if (!j.ok) continue;
+    const list = (places[j.kind] || []).filter((b) => !taken.has(b.id)).sort((a, b) => a.id - b.id);
+    if (!list.length) continue;
+    const b = list[(hour * 7 + j.kind.length * 13) % list.length];
+    taken.add(b.id);
+    out.push({ kind: j.kind, buildingId: b.id, icon: j.icon, name: j.name, pay: j.pay });
+  }
+  return out;
+}
+
 export function jobBoard(state, now) {
   const o = townJobOptions(state, now);
   const busy = !!state.job || (state.ride && state.ride.state !== 'waiting');

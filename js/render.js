@@ -5,7 +5,7 @@
 import { MAP_W, MAP_H, TILE, isRoad, DAY_LENGTH_MS, BUILDINGS, WORLD, PARCELS, TUNING, parcelAt } from './config.js';
 import { initSprites, getSprite, getPerson, buildingSpriteId } from './sprites.js';
 import { makeWorld, terrainAt } from './terrain.js';
-import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot } from './sim.js';
+import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots } from './sim.js';
 
 const SPRITE_H = 16;                 // building sprites are 16 x 16: each one fits its own lot
 const OVERLAP = SPRITE_H - TILE;     // 0: nothing pokes into the tile above
@@ -394,6 +394,12 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       if (!inMap(b.x, b.y)) continue;
       const icon = bubbleFor(b, f);
       if (icon) f.bubbles.set(b, icon);
+    }
+    // jobs that pop up on the map: a bubble on the building, tap it to play
+    f.jobs = new Map();
+    for (const j of safe(() => jobSpots(state, now), [])) {
+      const b = (state.buildings || []).find((x) => x.id === j.buildingId);
+      if (b && !f.bubbles.has(b)) f.jobs.set(b, j);
     }
     return f;
   }
@@ -990,6 +996,16 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       }
       if (selection && inMap(selection.x, selection.y)) drawSelection(selection, rt);
 
+      // job bubbles: a gold-rimmed bubble with the job's picture, gently bobbing
+      for (const [b, j] of f.jobs) {
+        const by = bubbleTop(b) + bobOf(b, rt);
+        const bubble = getSprite('bubble'), ic = getSprite(j.icon);
+        const bx = b.x * TILE + (TILE - bubble.width) / 2;
+        drawOutline(bx - 1, by - 1, bubble.width + 2, bubble.height + 2, '#f2c14e', 0.9);
+        blit(bubble, bx, by);
+        blit(ic, b.x * TILE + Math.floor((TILE - ic.width) / 2), by + Math.max(0, Math.floor((12 - ic.height) / 2)) + 1);
+      }
+
       // a key bubble over the Welcome spot while newcomers are waiting there
       const spot2 = (f.state.applicants || []).some((a) => now - (a.arrivedAt || 0) >= ARRIVE_DRIVE_MS) ? safe(() => welcomeSpot(f.state), null) : null;
       if (spot2) {
@@ -1059,6 +1075,9 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       const top = bubbleTop(b) + bobOf(b, clock());
       if (ax >= b.x * TILE + 1 && ax < b.x * TILE + 15 && ay >= top - 1 && ay < top + 13) return { ...hit(b), activity: kind };
     }
+    // 1b. a job bubble sits on its building: tapping that building starts the job
+    const jb = at(tx, ty);
+    if (jb && f.jobs.has(jb)) return { ...hit(jb), activity: 'job', kind: f.jobs.get(jb).kind };
     // 2. the tall sprite of the building just below pokes 8 px into this tile
     const below = at(tx, ty + 1);
     if (below) {

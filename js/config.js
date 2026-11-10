@@ -52,6 +52,8 @@ export const TUNING = {
   startGems: 2,
   stepMs: 60000,                 // largest simulation step
   maxOfflineMs: 14 * 86400000,   // offline catch-up cap
+  yardFactor: 0.5,               // build time near a Construction Yard
+  jobSpots: 2,                   // jobs that can sit on the map as bubbles at once
   applicantCount: 3,             // newcomers waiting at the Welcome sign at most
   applicantEveryMs: 4 * 60000,   // (older saves) kept for the first arrival time of a new game
   arriveMs: 60000,               // an open spot at the Welcome sign fills this long after it opens
@@ -180,6 +182,24 @@ export const ODD_JOBS = {
   service: 'Fix a squeaky gate',
   farming: 'Plant a garden',
   creative: 'Paint a shop sign',
+};
+
+// ---- Upgrades (the Upgrades tab) ---------------------------------------------
+// Each is a short ladder paid in coins. `per` is how much one level changes things.
+// The car (CARS) sits at the top of the same tab.
+export const UPGRADES = {
+  crew:      { name: 'Construction crew', icon: 'hammer', per: 0.12, costs: [600, 3000, 15000, 75000],
+               says: (l) => `Everything builds ${Math.round(l * 12)}% faster` },
+  trucks:    { name: 'Faster trucks',     icon: 'box',    per: 0.25, costs: [1500, 8000, 40000],
+               says: (l) => `Trade trucks drive ${Math.round(l * 25)}% faster` },
+  interview: { name: 'Interviews',        icon: 'person', per: 1,    costs: [1000, 6000, 30000],
+               says: (l) => (l >= 3 ? "Newcomers' skills are exact" : `Newcomers' skill ranges are ${l} narrower`) },
+  welcome:   { name: 'Welcome center',    icon: 'key',    per: 0.2,  costs: [1200, 7000, 35000],
+               says: (l) => `Newcomers arrive ${Math.round(l * 20)}% sooner` },
+  repair:    { name: 'Repair team',       icon: 'star',   per: 0.2,  costs: [2000, 10000, 50000],
+               says: (l) => `Shop problems cost ${Math.round(l * 20)}% less and stations fix them ${Math.round(l * 20)}% faster` },
+  marketing: { name: 'Marketing',         icon: 'coin',   per: 0.5,  costs: [1500, 9000, 45000],
+               says: (l) => `Ads run ${l * 30} minutes longer` },
 };
 
 // ---- Traits -------------------------------------------------------------------
@@ -313,6 +333,7 @@ export const BUILDINGS = {
 BUILDINGS.university = town('university', 'University', 'civic', 1500, 600, 20, { gov: true, fav: true, provides: { need: 'education', serves: 30 }, lessons: 3 }, 'Big ideas, late nights and a very good library.');
 BUILDINGS.track = town('track', 'Running Track', 'park', 2000, 300, 10, { fav: true, provides: { need: 'beauty', serves: 8 }, rentBoost: 0.1 }, 'Laps before breakfast. Nearby homes pay more rent.');
 BUILDINGS.trail = town('trail', 'Hiking Trail', 'park', 2500, 300, 12, { fav: true, near: ['forest', 'mountain'], provides: { need: 'beauty', serves: 12 }, rentBoost: 0.15 }, 'A path up into the hills. Nearby homes pay more rent.');
+BUILDINGS.yard = town('yard', 'Construction Yard', 'yard', 1500, 120, 8, { reach: 4 }, 'Cranes and hard hats. Anything built near it goes up twice as fast.');
 BUILDINGS.trade = town('trade', 'Trading Post', 'trade', 2000, 300, 10, {}, 'Sell your harvest, import what you lack, and fill orders from neighbour towns.');
 BUILDINGS.fountain.unlockGoal = 'happy90';  // a milestone opens this one
 

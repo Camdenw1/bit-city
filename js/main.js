@@ -202,11 +202,12 @@ function resumeRide() {
 }
 
 // ---------- map taps ----------
-renderer.onTap(({ x, y, building, parcel, activity }) => {
+renderer.onTap(({ x, y, building, parcel, activity, kind }) => {
   audio.unlock();
   if (ui.isModalOpen()) return;
   if (parcel) { if (state.ride?.state !== 'choosing') { audio.play('tap'); ui.openLand(parcel); } return; }
   if (activity === 'newcomers') { audio.play('tap'); ui.openNewcomers(); return; }
+  if (activity === 'job' && building) { audio.play('tap'); ui.startJob(kind, building.id); return; }
   const now = getNow();
   const ride = state.ride;
 

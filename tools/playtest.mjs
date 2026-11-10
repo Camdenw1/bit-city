@@ -69,6 +69,10 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
     for (const p of config.PARCELS) { const info = sim.parcelInfo(s, p.id); if (info.canBuy && s.coins >= info.price * 1.2) { sim.buyLand(s, p.id, now); mark(`bought ${info.name} (${info.lots} lots) for ${info.price}`); } }
     const ups = s.buildings.filter((b) => sim.isBuilt(b, now) && sim.upgradeCost(s, b) > 0).sort((a, b) => sim.upgradeCost(s, a) - sim.upgradeCost(s, b));
     if (ups.length && s.coins >= sim.upgradeCost(s, ups[0]) * 3) sim.upgrade(s, ups[0].id, now);
+    // the Upgrades tab: the cheapest ladder step when it costs under a third of the bank; one Construction Yard
+    const tab = Object.keys(config.UPGRADES).map((id) => [id, sim.upgradeNextCost(s, id)]).filter(([, c]) => c > 0).sort((a, b) => a[1] - b[1])[0];
+    if (tab && s.coins >= tab[1] * 3) { sim.buyUpgrade(s, tab[0], now); mark(`upgrade ${tab[0]} to ${sim.upLevel(s, tab[0])}`); }
+    if (!s.buildings.some((b) => b.type === 'yard') && sim.isUnlocked(s, 'yard') && s.coins >= sim.costOf(s, 'yard') * 3) tryBuild('yard');
     const wanted = sim.mostWanted(s, now);
     // Buy at most one government or green space project at a time.
     const civic = wanted.find((w) => w.cat === 'gov' || BUILDINGS[w.type]?.kind === 'park');
