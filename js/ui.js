@@ -152,7 +152,7 @@ export function createUI(root, api) {
     <div class="toasts" data-h="toasts" aria-live="polite"></div>
     <nav class="bottom-bar">
       <button class="bar-btn" data-act="nav-build">${icon('hammer', 2)}<span>Build</span></button>
-      <button class="bar-btn" data-act="nav-jobs">${icon('taxi', 2)}<span>Jobs</span></button>
+      <button class="bar-btn" data-act="nav-jobs">${icon('taxi', 2)}<span>Jobs</span><i class="bar-dot bar-count" data-h="jobsCount" hidden></i></button>
       <button class="bar-btn" data-act="nav-people">${icon('person', 2)}<span>People</span><i class="bar-dot" data-h="peopleDot" hidden></i></button>
       <button class="bar-btn" data-act="nav-menu">${icon('heart', 2)}<span>Menu</span></button>
     </nav>
@@ -240,6 +240,7 @@ export function createUI(root, api) {
     return { label: `${h12}:${mn < 10 ? '0' + mn : mn}${hr < 12 ? 'am' : 'pm'}`, night: hr < 6 || hr >= 19 };
   }
 
+  const jobRest = new Map();   // job kind → ms it was still resting at the last refresh
   function refreshHUD() {
     const s = S(); const now = N();
     h.saveWarning.hidden = !api.saveFailed();
@@ -283,6 +284,18 @@ export function createUI(root, api) {
     let nudge = false;
     for (const t of s.tenants) { if (betterJob(t)) { nudge = true; break; } }
     if (h.peopleDot.hidden === nudge) h.peopleDot.hidden = !nudge;
+
+    // Jobs: a count of jobs you can start right now, and a toast when a resting job is ready again.
+    const board = call('jobBoard', s, now) || [];
+    const ready = board.filter((j) => j.ok);
+    setText(h.jobsCount, String(ready.length));
+    if (h.jobsCount.hidden === (ready.length > 0)) h.jobsCount.hidden = ready.length === 0;
+    const back = board.filter((j) => j.ok && (jobRest.get(j.kind) || 0) > 0);
+    if (jobRest.size && back.length) {
+      toast(back.length === 1 ? `${back[0].name} is ready again · ${formatCoins(back[0].pay)} coins` : `${back.length} jobs are ready again: ${back.map((j) => j.name).join(', ')}`);
+    }
+    jobRest.clear();
+    for (const j of board) jobRest.set(j.kind, j.readyIn);
   }
 
   /* ----- sheets ----- */

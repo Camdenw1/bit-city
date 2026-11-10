@@ -126,6 +126,9 @@ covers running and publishing. This file holds the design decisions and the road
   taken (skipping clears the rest). Board taxi and delivery pay exactly like street rides.
   Lunch Rush and Odd Jobs are played in a sheet; Pip the dog and the courier homes are tapped
   on the map, with a banner in the ride banner's spot. One job or ride at a time.
+- Job alerts (Camden: notify me, don't make me open the list): the Jobs button shows a count of
+  jobs you can start now, and a toast says when a resting job is ready again (`jobRest` in ui).
+  In-app only: the game makes no network calls, so there are no phone notifications while closed.
 - Roads are not tappable, except the one tile Pip is sitting on (`hitTest` in render).
 - Driving: the car moves by itself at `TUNING.carBaseSpeed` lots a second and always arrives.
   Camden found it fast on the phone and wants it to start really slow and speed up through
@@ -173,7 +176,7 @@ a jobs board with six ways to earn, the gas pedal, car upgrades and the welcome 
 Batch 1 (worker skill and count) is done. Moving in will change (Camden picked newcomers who
 arrive on the entry road, with some luck in how good a tenant turns out, and a way to deal with
 residents you don't want); design not settled yet. He also wants a new name that copies nothing
-on the App Store ("Bit City" is a NimbleBit game).
+on the App Store ("Bit City" is a NimbleBit game; "My City" is a big kids' series, so not that).
 Suggested order for the rest (he has not confirmed it): visitors and a social feed; moving
 buildings and terrain-only buildings; raw materials and a construction crew; prestige trees.
 His calls on the contested ideas (2026-11-10), still to build:
