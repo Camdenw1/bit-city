@@ -54,6 +54,9 @@ covers running and publishing. This file holds the design decisions and the road
   big picture of what they sell (`EMBLEM`); the second shop of a category has a striped
   roof. Homes have pitched neutral roofs. Farms look like fields. Ground stays plain.
 - The map opens zoomed in 1.5x on the town (about 48pt lots); pinch out for the whole map.
+  A pinch follows the fingers at any scale, then eases to a whole scale so pixels stay crisp;
+  a swipe glides on after the finger lifts. The map draws under the iPhone status bar and
+  camera (`black-translucent`); the renderer measures that height (`safeTop`) for its edges.
 - Time: one real hour = one cosmetic game day (day/night tint only).
 - Rent: a 24th of `rentPerDay` (+ happy bonus) at the top of every clock hour
   (`state.lastRentHour`, fractions kept in `state.rentCarry`). Live rent is a toast, not a
@@ -114,6 +117,8 @@ covers running and publishing. This file holds the design decisions and the road
   on the map, with a banner in the ride banner's spot. One job or ride at a time.
 - Roads are not tappable, except the one tile Pip is sitting on (`hitTest` in render).
 - Driving: the car moves by itself at `TUNING.carBaseSpeed` lots a second and always arrives.
+  Camden found it fast on the phone and wants it to start really slow and speed up through
+  upgrades (cars now, prestige later): base 0.75 lots/s, gas x2.5, cars x1 / 1.6 / 2.4 / 3.5.
   A big GAS button shows during any drive; holding it multiplies speed by `gasSpeed` and the
   view follows the car. The share of the trip with gas held (`rideGas`) adds up to `gasBonus`
   (+50%) to the fare in `completeRide`. Never make the pedal required.
@@ -166,8 +171,9 @@ change when these are built.
 
 ## Known gaps at handoff
 
-- Live on GitHub Pages since 2026-11-10, but not yet confirmed on Camden's iPhone (he has a
-  checklist to report back on). Before that, tested only in a 390x844 headless Chrome.
+- Live on GitHub Pages since 2026-11-10. Camden's first phone report: taps, text and edges
+  fine; zoom and scrolling not smooth, blue strip under the camera, taxi too fast (all three
+  addressed the same day, not yet rechecked on the phone). Sound and away time not checked.
 - ChatGPT (Codex) finished the surprise-shop menu and added deliveries and restock-all. It
   also wrote jobs-board rules with no screens; the screens were built on 2026-11-10.
 - Removing a surprise shop refunds 75%, so a reroll costs 25%. Left as is.

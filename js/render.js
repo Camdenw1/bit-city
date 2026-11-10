@@ -101,6 +101,10 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   let scale = 1, fitScale = 1, minScale = 1, maxScale = 5;
   let ox = 0, oy = 0;                  // device px of the map's top-left corner
   let userMoved = false;               // has the player panned/zoomed away from the default view?
+  let safeTop = 0;                     // CSS px under the status bar / camera (the map draws there too)
+  let snap = null;                     // { x, y }: after a pinch, ease to a whole scale around this point
+  let fling = null;                    // { vx, vy } device px per ms: the map keeps gliding after a swipe
+  let fCache = null, fAt = -1e9;       // frameInfo is rebuilt a few times a second, not every frame
 
   // cached static ground
   let ground = null, groundPad = 0, bgColor = '#8ecf7c';
@@ -134,13 +138,16 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     if (mw <= W) ox = Math.round((W - mw) / 2) - wx;
     else ox = clamp(Math.round(ox + wx), W - mw - over, over) - wx;
     // vertically the map may slide out from under the top bar and the bottom buttons
-    const top = Math.round(HUD_TOP * ratio), bottom = Math.round(HUD_BOTTOM * ratio);
+    const top = Math.round((HUD_TOP + safeTop) * ratio), bottom = Math.round(HUD_BOTTOM * ratio);
     if (mh <= H - top - bottom) oy = Math.round((H + top - bottom - mh) / 2) - wy;
     else oy = clamp(Math.round(oy + wy), H - mh - bottom - over, top + over) - wy;
   }
 
   function setScale(next, anchorDevX, anchorDevY) {
-    next = clamp(Math.round(next), minScale, maxScale);
+    zoomAt(clamp(Math.round(next), minScale, maxScale), anchorDevX, anchorDevY);
+  }
+  /** Set the scale (whole or not) keeping the art under (anchorDevX, anchorDevY) in place. */
+  function zoomAt(next, anchorDevX, anchorDevY) {
     if (next === scale) return;
     const ax = (anchorDevX - ox) / scale, ay = (anchorDevY - oy) / scale;
     scale = next;
@@ -154,6 +161,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
     const cssW = rect.width || canvas.clientWidth || 300;
     const cssH = rect.height || canvas.clientHeight || 150;
+    safeTop = measureSafeTop();
     const w = Math.max(1, Math.round(cssW * dpr));
     const h = Math.max(1, Math.round(cssH * dpr));
     const centreArt = userMoved ? { x: (W / 2 - ox) / scale, y: (H / 2 - oy) / scale } : null;
@@ -173,11 +181,23 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       scale = clamp(Math.round(fitScale * HOME_ZOOM), fitScale, maxScale);
       const c = townCentre();
       ox = W / 2 - c.x * scale;
-      oy = (H + (HUD_TOP - HUD_BOTTOM) * ratio) / 2 - c.y * scale;
+      oy = (H + (HUD_TOP + safeTop - HUD_BOTTOM) * ratio) / 2 - c.y * scale;
     }
     clampView();
     ctx.imageSmoothingEnabled = false;
     buildGround();
+  }
+
+  /** Height of the status bar / camera area in CSS px (0 outside a home-screen app). */
+  function measureSafeTop() {
+    return safe(() => {
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none';
+      document.body.appendChild(probe);
+      const h = probe.getBoundingClientRect().height || 0;
+      probe.remove();
+      return h;
+    }, 0);
   }
 
   /** Middle of everything built so far (art px); the middle of the map for an empty town. */
@@ -729,13 +749,37 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
 
   // ---------- the frame ----------
 
+  /** Easing that runs every frame: the snap to a whole scale after a pinch, and the glide after a swipe. */
+  function stepView(dt) {
+    if (snap && pointers.size < 2) {
+      const target = clamp(Math.round(scale), minScale, maxScale);
+      const next = Math.abs(target - scale) < 0.02 ? target : scale + (target - scale) * Math.min(1, dt / 70);
+      zoomAt(next, snap.x, snap.y);
+      if (scale === target) snap = null;
+    }
+    if (fling && pointers.size === 0) {
+      const bx = ox, by = oy;
+      ox += fling.vx * dt; oy += fling.vy * dt;
+      clampView();
+      if (ox === bx) fling.vx = 0;           // stopped by the edge of the map
+      if (oy === by) fling.vy = 0;
+      const k = Math.exp(-dt / 280);
+      fling.vx *= k; fling.vy *= k;
+      if (Math.hypot(fling.vx, fling.vy) < 0.03) fling = null;
+    }
+  }
+
   function draw(now) {
     if (now == null) now = getNow ? getNow() : Date.now();
     const rt = clock();
     const dt = clamp(rt - lastRt, 0, 250);
     lastRt = rt;
     if (!ground) resize();
-    else { const st = getState && getState(); if (st && `${st.worldSeed ?? 0}|${(st.land || ['home']).join(',')}` !== groundKey) buildGround(); }   // new town or new land
+    else {
+      stepView(dt);
+      const st = getState && getState();
+      if (st && `${st.worldSeed ?? 0}|${(st.land || ['home']).join(',')}` !== groundKey) buildGround();   // new town or new land
+    }
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
@@ -751,7 +795,14 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     const state = getState ? getState() : null;
     const day = gameClock(now);
     const darkness = day.darkness;
-    const f = state ? frameInfo(state, now) : null;
+    let f = null;
+    if (state) {
+      const n = (state.buildings || []).length;
+      if (!fCache || fCache.state !== state || fCache.count !== n || rt - fAt > 200) {
+        fCache = frameInfo(state, now); fCache.count = n; fAt = rt;
+      }
+      f = fCache;
+    }
 
     if (f) {
       // empty-lot markers
@@ -932,11 +983,13 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     const p = devPoint(e);
     pointers.set(e.pointerId, p);
     safe(() => canvas.setPointerCapture(e.pointerId));
+    fling = null;
     if (pointers.size === 1) {
-      gesture = { kind: 'pan', lastX: p.x, lastY: p.y };
+      gesture = { kind: 'pan', lastX: p.x, lastY: p.y, lastT: clock(), vx: 0, vy: 0 };
       tapCandidate = { id: e.pointerId, x: p.x, y: p.y, time: clock(), moved: false };
     } else if (pointers.size === 2) {
       tapCandidate = null;
+      snap = null;
       startPinch();
     }
     if (e.cancelable) e.preventDefault();
@@ -951,8 +1004,9 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       const [a, b] = [...pointers.values()];
       const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
-      const next = clamp(Math.round(gesture.startScale * dist / gesture.startDist), minScale, maxScale);
-      scale = next;
+      // follow the fingers smoothly; the scale settles on a whole number (crisp pixels) after the pinch
+      scale = clamp(gesture.startScale * dist / gesture.startDist, minScale - 0.4, maxScale + 0.4);
+      gesture.midX = mx; gesture.midY = my;
       ox = mx - gesture.artX * scale;
       oy = my - gesture.artY * scale;
       clampView();
@@ -962,8 +1016,13 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         if (Math.hypot(q.x - tapCandidate.x, q.y - tapCandidate.y) > TAP_MOVE_PX * ratio) tapCandidate.moved = true;
         else return;                         // don't jitter the map under a tap
       }
-      ox += q.x - gesture.lastX; oy += q.y - gesture.lastY;
-      gesture.lastX = q.x; gesture.lastY = q.y;
+      const t = clock(), dtm = Math.max(1, t - gesture.lastT);
+      const dx = q.x - gesture.lastX, dy = q.y - gesture.lastY;
+      ox += dx; oy += dy;
+      // smoothed finger speed, for the glide when the finger lifts
+      gesture.vx = gesture.vx * 0.6 + (dx / dtm) * 0.4;
+      gesture.vy = gesture.vy * 0.6 + (dy / dtm) * 0.4;
+      gesture.lastX = q.x; gesture.lastY = q.y; gesture.lastT = t;
       clampView();
       userMoved = true;
     }
@@ -977,14 +1036,24 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     pointers.delete(e.pointerId);
     safe(() => canvas.releasePointerCapture(e.pointerId));
     const tc = tapCandidate;
+    if (gesture && gesture.kind === 'pinch' && pointers.size < 2) {
+      snap = { x: gesture.midX ?? W / 2, y: gesture.midY ?? H / 2 };
+    }
     if (pointers.size === 1) {
       // one finger left after a pinch: carry on panning from where it is, never a tap
       const rest = [...pointers.values()][0];
-      gesture = { kind: 'pan', lastX: rest.x, lastY: rest.y };
+      gesture = { kind: 'pan', lastX: rest.x, lastY: rest.y, lastT: clock(), vx: 0, vy: 0 };
       tapCandidate = null;
       return;
     }
-    if (pointers.size === 0) gesture = null;
+    if (pointers.size === 0) {
+      // a swipe that was still moving when the finger lifted keeps gliding
+      if (gesture && gesture.kind === 'pan' && e.type === 'pointerup' && clock() - gesture.lastT < 80
+          && Math.hypot(gesture.vx, gesture.vy) > 0.15 * ratio) {
+        fling = { vx: gesture.vx, vy: gesture.vy };
+      }
+      gesture = null;
+    }
     if (e.type !== 'pointerup' || !tc || tc.id !== e.pointerId) { tapCandidate = null; return; }
     tapCandidate = null;
     const moved = tc.moved || Math.hypot(q.x - tc.x, q.y - tc.y) > TAP_MOVE_PX * ratio;

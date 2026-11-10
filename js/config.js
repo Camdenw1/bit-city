@@ -76,8 +76,8 @@ export const TUNING = {
   rideMinFare: 15,
   rideFareMinutes: 8,            // fare = this many minutes of town income (before tip)
   gasBonus: 0.5,                 // extra fare for holding the gas the whole trip (in proportion if less)
-  gasSpeed: 3.5,                 // how much faster the car goes while the gas is held
-  carBaseSpeed: 1.5,             // lots per second with no gas, in the first car
+  gasSpeed: 2.5,                 // how much faster the car goes while the gas is held
+  carBaseSpeed: 0.75,            // lots per second with no gas, in the first car
   welcomeFareMinutes: 4,         // driving a new resident home pays this many minutes of shop income
   rideDistanceBonus: 0.1,        // every lot of distance adds this much to a fare
   activeBoost: 10,               // shop sales pay this many times more while the game is open
@@ -131,9 +131,9 @@ export const PROBLEMS = {
 // Your car. Each one is faster and earns a little more on every ride, delivery and welcome drive.
 export const CARS = [
   { name: 'Old Taxi',    speed: 1,   pay: 1,    cost: 0 },
-  { name: 'City Cab',    speed: 1.4, pay: 1.1,  cost: 2500 },
-  { name: 'Sports Car',  speed: 1.9, pay: 1.2,  cost: 15000 },
-  { name: 'Rocket Taxi', speed: 2.6, pay: 1.35, cost: 80000 },
+  { name: 'City Cab',    speed: 1.6, pay: 1.1,  cost: 2500 },
+  { name: 'Sports Car',  speed: 2.4, pay: 1.2,  cost: 15000 },
+  { name: 'Rocket Taxi', speed: 3.5, pay: 1.35, cost: 80000 },
 ];
 
 // The jobs board: things to do for coins whenever you like. `minutes` = pay in minutes of the
