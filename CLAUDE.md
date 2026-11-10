@@ -41,7 +41,8 @@ covers running and publishing. This file holds the design decisions and the road
   (`isRoad` in `js/config.js`); the player never draws roads.
 - Platform: home-screen web app (PWA). Plain ES modules, canvas map, HTML menus,
   no build step, no dependencies, no network calls. The folder is the game.
-- Hosting plan: GitHub Pages (not set up yet; no git repo yet).
+- Hosting plan: GitHub Pages (not set up yet). Local git repo on `main`, no remote yet.
+  Commit after each finished batch so any tool's work can be reviewed with `git diff`.
 - Art: simple pixel art drawn in code in `js/sprites.js` from one shared palette.
   Camden left art direction to our judgement, then asked for "clean, easy to understand".
 - Map art rules (map cleanup pass): every building sprite is 16x16 and fits its own lot,
