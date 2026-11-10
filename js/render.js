@@ -2,7 +2,7 @@
 // Draws the town on one canvas and turns touches into pan / zoom / tap.
 // It only ever READS game state; all animation state here is cosmetic and local.
 
-import { MAP_W, MAP_H, TILE, isRoad, DAY_LENGTH_MS, BUILDINGS, WORLD, PARCELS, parcelAt } from './config.js';
+import { MAP_W, MAP_H, TILE, isRoad, DAY_LENGTH_MS, BUILDINGS, WORLD, PARCELS, TUNING, parcelAt } from './config.js';
 import { initSprites, getSprite, getPerson, buildingSpriteId } from './sprites.js';
 import { makeWorld, terrainAt } from './terrain.js';
 import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt } from './sim.js';
@@ -491,16 +491,22 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     job.done = true;
     clearTimeout(job.timer);
     if (taxi === job) taxi = null;
-    if (typeof job.onDone === 'function') job.onDone();
+    gasHeld = false;
+    if (typeof job.onDone === 'function') job.onDone(gasShare(job));
   }
 
-  function driveTaxi(fromTile, toTile, onDone, delivery = false) {
+  // The car crawls along by itself and always arrives. Holding the gas makes it much faster.
+  let gasHeld = false;
+  function setGas(on) { gasHeld = !!on; }
+
+  function driveTaxi(fromTile, toTile, onDone, delivery = false, carSpeed = 1) {
     if (taxi) finishTaxi(taxi);              // never leave an earlier ride hanging
     const path = bfsPath(nearestRoad(fromTile), nearestRoad(toTile));
     const steps = path ? path.length - 1 : 0;
+    const base = Math.max(0.2, (TUNING.carBaseSpeed || 1.5) * carSpeed);       // lots per second, no gas
     const job = {
-      path, onDone, delivery, done: false, start: clock(),
-      duration: Math.max(TAXI_MIN_MS, (steps / TAXI_SPEED) * 1000),
+      path, steps, onDone, delivery, done: false, last: clock(), progress: 0,
+      base, fast: base * (TUNING.gasSpeed || 3), v: base, gasMs: 0, totalMs: 0,
       dir: 'e',
     };
     if (path && steps > 0) {
@@ -508,18 +514,29 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       job.dir = dx > 0 ? 'e' : dx < 0 ? 'w' : dy > 0 ? 's' : 'n';
     }
     // safety net: onDone still fires if drawing stops (e.g. the tab is hidden)
-    job.timer = setTimeout(() => finishTaxi(job), job.duration + 400);
+    job.timer = setTimeout(() => finishTaxi(job), Math.max(TAXI_MIN_MS, (steps / base) * 1000) + 1500);
+    gasHeld = false;
     taxi = job;
   }
+  const gasShare = (job) => (job && job.totalMs > 0 ? job.gasMs / job.totalMs : 0);
 
   function taxiPos(job, rt) {
     if (!job.path) return null;
-    const steps = job.path.length - 1;
-    const p = clamp((rt - job.start) / job.duration, 0, 1);
-    if (steps <= 0) return { x: job.path[0].x * TILE + 8, y: job.path[0].y * TILE + 6, dir: job.dir };
-    // ease in/out a little so it feels like a car, not a cursor
-    const e = p < 0.5 ? 2 * p * p : 1 - 2 * (1 - p) * (1 - p);
-    const f = Math.min(steps - 1e-6, e * steps);
+    const steps = job.steps;
+    if (steps <= 0) {
+      if (!job.arrived) { job.arrived = true; setTimeout(() => finishTaxi(job), TAXI_MIN_MS); }
+      return { x: job.path[0].x * TILE + 8, y: job.path[0].y * TILE + 6, dir: job.dir };
+    }
+    const dt = Math.max(0, Math.min(250, rt - job.last));   // a slow frame may not stall the car much
+    job.last = rt;
+    if (!job.arrived) {
+      const target = gasHeld ? job.fast : job.base;
+      job.v += (target - job.v) * Math.min(1, dt / 220);       // the car takes a moment to pick up speed
+      job.progress = Math.min(steps, job.progress + (job.v * dt) / 1000);
+      job.totalMs += dt; if (gasHeld) job.gasMs += dt;
+      if (job.progress >= steps) { job.arrived = true; setTimeout(() => finishTaxi(job), 0); }
+    }
+    const f = Math.min(steps - 1e-6, job.progress);
     const i = Math.floor(f), t = f - i;
     const a = job.path[i], b = job.path[i + 1];
     const dx = b.x - a.x, dy = b.y - a.y;
@@ -753,15 +770,17 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         const p = walkerPos(w);
         movers.push({ y: p.y, draw: () => drawWalker(w, rt) });
       }
-      if (taxi && taxi.path) {
-        if (rt - taxi.start >= taxi.duration) finishTaxi(taxi);
-        else {
+      if (taxi && taxi.path) {      // a ride with no road to follow just ends on its timer
+        {
           const pos = taxiPos(taxi, rt);
+          if (pos && gasHeld) {                  // while you hold the gas the view follows the car
+            ox += (W / 2 - pos.x * scale - ox) * 0.08;
+            oy += (H / 2 - pos.y * scale - oy) * 0.08;
+            clampView();
+          }
           const s = getSprite(`taxi_${pos.dir}`);
           movers.push({ y: pos.y + s.height / 2, draw: () => drawTaxi(pos, darkness) });
         }
-      } else if (taxi && rt - taxi.start >= taxi.duration) {
-        finishTaxi(taxi);
       }
       movers.sort((a, b) => a.y - b.y);
 
@@ -775,8 +794,6 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         while (mi < movers.length && movers[mi].y < limit) movers[mi++].draw();
       }
       while (mi < movers.length) movers[mi++].draw();
-    } else if (taxi && rt - taxi.start >= taxi.duration) {
-      finishTaxi(taxi);
     }
 
     // night: a gentle blue multiply over everything drawn so far (never darker than ~45% brightness)
@@ -1019,7 +1036,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   resize();
 
   return {
-    resize, draw, onTap, floatText, burst, driveTaxi, setSelection, setReach, focusTile, tileToScreen,
+    resize, draw, onTap, floatText, burst, driveTaxi, setGas, setSelection, setReach, focusTile, tileToScreen,
     // extras beyond the spec
     gameClock,
     resetView() { userMoved = false; scale = fitScale; clampView(); },

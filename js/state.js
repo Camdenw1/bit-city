@@ -1,7 +1,7 @@
 // Bit City — state: new game, save/load (with backup copy), export/import, local day.
 // Pure: the only platform access is localStorage inside save()/load(), always guarded.
 
-import { BUILDINGS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats } from './config.js';
+import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats } from './config.js';
 
 export const SAVE_KEY = 'bitcity.save.v1';
 const EXPORT_PREFIX = 'BITCITY1:';
@@ -117,6 +117,7 @@ export function newGame(now) {
     orders: [],                        // standing orders from neighbour towns
     trade: { sold: 0, filled: 0 },
     adUntil: 0,
+    car: 1,                            // which of CARS you drive (1 = the first)
     jobCooldowns: {},                  // jobs board: kind -> time it can be taken again
     problems: [],                      // shop troubles: { buildingId, kind, at, fixAt|null, fixerId|null }
     nextProblemAt: now + TUNING.problemGapMaxMs,
@@ -240,7 +241,9 @@ export function migrate(state) {
     if (!isNum(state.nextApplicantAt)) state.nextApplicantAt = state.lastTick + TUNING.applicantEveryMs;
     if (!isNum(state.nextRideAt)) state.nextRideAt = state.lastTick + TUNING.rideGapMinMs;
     const r = state.ride;
-    const rideOk = r && typeof r === 'object' && byId.has(r.fromId) && byId.has(r.toId) &&
+    state.car = isNum(state.car) ? Math.max(1, Math.min(CARS.length, Math.round(state.car))) : 1;
+    const fromOk = r && (byId.has(r.fromId) || (r.kind === 'welcome' && r.from && isNum(r.from.x) && isNum(r.from.y)));
+    const rideOk = r && typeof r === 'object' && fromOk && byId.has(r.toId) &&
       state.tenants.some((t) => t.id === r.tenantId) && ['waiting', 'choosing', 'driving'].includes(r.state);
     if (!rideOk) state.ride = null;
     else if (r.kind === 'delivery' && r.state !== 'waiting' && (!isNum(r.fare) || r.fare < 0)) state.ride = null;

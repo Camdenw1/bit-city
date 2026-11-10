@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick } from './state.js';
 
@@ -1064,6 +1064,7 @@ export function moveIn(state, applicantIndex, homeId, now) {
   const tenant = person;
   tenant.homeId = home.id;
   tenant.jobId = null;
+  tenant.welcome = true;            // can be driven home once for a bonus (optional)
   state.tenants.push(tenant);
   state.applicants[applicantIndex] = makeApplicant(state);
   events.emit('moveIn', { tenant });
@@ -1384,7 +1385,7 @@ export function acceptRide(state, now) {
     ride.acceptedAt = now;
     if (ride.kind === 'delivery') {
       ride.fare = Math.round(Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.deliveryFareMinutes));
-      ride.fare = Math.round(ride.fare * distancePay(state, ride));
+      ride.fare = Math.round(ride.fare * distancePay(state, ride) * carOf(state).pay);
     }
   }
   return { ok: true, reason: '', tenant, destination };
@@ -1392,13 +1393,71 @@ export function acceptRide(state, now) {
 
 /** Lots driven, door to door. */
 export function rideDistance(state, ride) {
-  const a = buildingById(state, ride.fromId), b = buildingById(state, ride.toId);
+  const a = ride.from || buildingById(state, ride.fromId), b = buildingById(state, ride.toId);
   return a && b ? Math.abs(a.x - b.x) + Math.abs(a.y - b.y) : 0;
 }
 
 /** Longer trips pay more: +rideDistanceBonus per lot. */
 function distancePay(state, ride) {
   return 1 + TUNING.rideDistanceBonus * rideDistance(state, ride);
+}
+
+// ---- the car ----
+export function carOf(state) {
+  return CARS[Math.max(1, Math.min(CARS.length, state.car || 1)) - 1];
+}
+export function nextCar(state) {
+  return CARS[state.car || 1] || null;
+}
+export function upgradeCar(state, now) {
+  const next = nextCar(state);
+  if (!next) return fail('You already drive the best car in town!');
+  if (state.coins < next.cost) return fail(`You need ${next.cost - Math.floor(state.coins)} more coins for the ${next.name}.`);
+  state.coins -= next.cost;
+  state.car = (state.car || 1) + 1;
+  events.emit('spend', { amount: next.cost, reason: 'car' });
+  return { ok: true, reason: '', car: next };
+}
+
+/** How much of the trip the gas was held (0..1). Sets the bonus paid when the ride ends. */
+export function rideGas(state, share, now) {
+  const ride = state.ride;
+  if (!ride || ride.state !== 'driving') return fail('There is no ride on the road right now.');
+  ride.gas = Math.max(0, Math.min(1, Number(share) || 0));
+  return { ok: true, reason: '' };
+}
+
+// ---- welcome drive: take a new resident home from the edge of town for a bonus ----
+function edgeRoad(state, home) {
+  const p = PARCELS[0];
+  let best = null, bestD = -1;
+  for (let y = p.y0; y <= p.y1; y++) for (let x = p.x0; x <= p.x1; x++) {
+    if (x !== p.x0 && x !== p.x1 && y !== p.y0 && y !== p.y1) continue;
+    if (!isRoadAt(state, x, y)) continue;
+    const d = Math.abs(x - home.x) + Math.abs(y - home.y);
+    if (d > bestD) { bestD = d; best = { x, y }; }
+  }
+  return best;
+}
+export function welcomeFare(state, tenantId, now) {
+  const t = tenantById(state, tenantId); const home = t && buildingById(state, t.homeId);
+  const from = home && edgeRoad(state, home);
+  if (!t || !t.welcome || !from) return 0;
+  const base = Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.welcomeFareMinutes);
+  return Math.round(base * distancePay(state, { from, toId: home.id }) * carOf(state).pay);
+}
+export function startWelcome(state, tenantId, now) {
+  if (state.job || state.ride) return fail('Finish or skip your current job first.');
+  const tenant = tenantById(state, tenantId);
+  const home = tenant && buildingById(state, tenant.homeId);
+  if (!tenant || !home || !tenant.welcome) return fail('They are already settled in.');
+  const from = edgeRoad(state, home);
+  if (!from) return fail('There is no road to drive in on.');
+  const fare = welcomeFare(state, tenantId, now);
+  delete tenant.welcome;
+  state.ride = { kind: 'welcome', tenantId, fromId: null, from, toId: home.id, state: 'driving', requestedAt: now, acceptedAt: now, fare, tries: 0 };
+  events.emit('rideStart', { ride: state.ride, fare });
+  return { ok: true, reason: '', ride: state.ride };
 }
 
 function tipFor(ride, now) {
@@ -1425,7 +1484,7 @@ export function chooseDestination(state, buildingId, now) {
   }
   if (ride.kind !== 'delivery') {
     const base = Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.rideFareMinutes);
-    ride.fare = Math.round(base * distancePay(state, ride) * tipFor(ride, now));
+    ride.fare = Math.round(base * distancePay(state, ride) * tipFor(ride, now) * carOf(state).pay);
   }
   ride.state = 'driving';
   events.emit('rideStart', { ride, fare: ride.fare });
@@ -1448,7 +1507,7 @@ export function skipBoardRide(state, now) {
 export function completeRide(state, now) {
   const ride = state.ride;
   if (!ride || ride.state !== 'driving') return fail('There is no ride on the road right now.', { fare: 0 });
-  const fare = ride.fare;
+  const fare = Math.round(ride.fare * (1 + TUNING.gasBonus * (ride.gas || 0)));   // holding the gas pays extra
   state.ride = null;
   state.nextRideAt = now + rideGap(state);
   if (ride.kind !== 'delivery') state.stats.rides++;

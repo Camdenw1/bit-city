@@ -111,6 +111,15 @@ covers running and publishing. This file holds the design decisions and the road
   Lunch Rush and Odd Jobs are played in a sheet; Pip the dog and the courier homes are tapped
   on the map, with a banner in the ride banner's spot. One job or ride at a time.
 - Roads are not tappable, except the one tile Pip is sitting on (`hitTest` in render).
+- Driving: the car moves by itself at `TUNING.carBaseSpeed` lots a second and always arrives.
+  A big GAS button shows during any drive; holding it multiplies speed by `gasSpeed` and the
+  view follows the car. The share of the trip with gas held (`rideGas`) adds up to `gasBonus`
+  (+50%) to the fare in `completeRide`. Never make the pedal required.
+- Cars (`CARS` in config, `state.car`): four, bought on the Jobs sheet, each faster and paying
+  more on every ride, delivery and welcome drive.
+- Welcome drive: moving in is still instant. For 90 seconds afterwards a banner offers to drive
+  the new resident home from a road at the edge of the first town (`startWelcome`, a ride of
+  kind 'welcome' with `from` as a tile and no `fromId`). Once per resident, never required.
 - Camden's own places are marked `fav: true` in `BUILDINGS` and do 25% more (`TUNING.favBonus`:
   sales for shops, residents served for town buildings) and turn up a little more often in
   draws: Taco Shop, Ice Cream Shop, Gym, Music Shop, Basketball Gym, Concert Venue, Bike Shop,
@@ -131,15 +140,12 @@ covers running and publishing. This file holds the design decisions and the road
 Done from it: hourly rent and rent/hour display, 10x play boost, distance fares, any-tent rides,
 range for town buildings, per-resident happiness with reasons, happiness moving rent both ways,
 shop problems the government solves, the Mayor's desk, his own places, land-bound buildings,
-and a jobs board with six ways to earn.
+a jobs board with six ways to earn, the gas pedal, car upgrades and the welcome drive.
 Suggested order for the rest (he has not confirmed it): visitors and a social feed; moving
 buildings and terrain-only buildings; raw materials and a construction crew; prestige trees.
 His calls on the contested ideas (2026-11-10), still to build:
 - Demolition costs coins instead of refunding 75%.
 - The stock market can lose coins.
-- Hold-the-gas driving is an optional bonus: rides still finish on their own, holding the gas
-  is faster and tips more, and car upgrades raise the speed.
-- Driving a new resident home is an optional welcome bonus; tapping Move still works at once.
 The tests "nothing ever takes coins away" and the 75% refund test encode the old rule and
 change when these are built.
 
@@ -152,7 +158,7 @@ change when these are built.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (43 passing).
+- Tests: `node --test` from the project root (44 passing).
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
 

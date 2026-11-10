@@ -141,6 +141,7 @@ export function createUI(root, api) {
       <button class="goal-chip" data-h="goal" data-act="nav-town" hidden></button>
       <div class="ride-wrap" data-h="ride"></div>
     </div>
+    <button class="gas" data-h="gas" hidden aria-label="Hold for gas"><b>GAS</b><span>hold</span></button>
     <div class="toasts" data-h="toasts" aria-live="polite"></div>
     <nav class="bottom-bar">
       <button class="bar-btn" data-act="nav-build">${icon('hammer', 2)}<span>Build</span></button>
@@ -159,6 +160,11 @@ export function createUI(root, api) {
   const $ = (sel) => root.querySelector(sel);
   const h = {};
   root.querySelectorAll('[data-h]').forEach((el) => { h[el.getAttribute('data-h')] = el; });
+  // The gas pedal: held down, the car goes much faster and the fare gets a bonus.
+  const gas = (on) => { h.gas.classList.toggle('down', on); try { api.renderer.setGas(on); } catch (e) { /* cosmetic */ } };
+  h.gas.addEventListener('pointerdown', (e) => { e.preventDefault(); try { h.gas.setPointerCapture(e.pointerId); } catch (err) { /* fine */ } gas(true); });
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) h.gas.addEventListener(type, () => gas(false));
+  h.gas.addEventListener('contextmenu', (e) => e.preventDefault());
   const els = { backdrop: $('.backdrop'), sheet: $('.sheet'), head: $('.sheet-head'), body: $('.sheet-body'), celebrate: $('.celebrate') };
   const tpl = document.createElement('template');
   const setText = (el, text) => { if (el && el.textContent !== text) el.textContent = text; };
@@ -230,6 +236,8 @@ export function createUI(root, api) {
   function refreshHUD() {
     const s = S(); const now = N();
     h.saveWarning.hidden = !api.saveFailed();
+    const driving = !!(s.ride && s.ride.state === 'driving');
+    if (h.gas.hidden === driving) { h.gas.hidden = !driving; if (!driving) h.gas.classList.remove('down'); }
     setCoins(Math.floor(s.coins || 0));
     setText(h.gems, formatCoins(s.gems || 0));
     const pop = call('population', s); const cap = call('capacity', s);
@@ -765,7 +773,11 @@ export function createUI(root, api) {
           <span class="wish-copy"><b>${esc(j.name)}</b><span>${esc(note)}</span></span>
           <span class="price">${icon('coin', 1, 'i12')}${j.kind === 'taxi' || j.kind === 'odd' ? 'from ' : ''}${formatCoins(j.pay)}</span></button>`;
       }).join('');
-      return { title: 'Jobs', html: `<p class="note">Jobs pay more as your town grows. Each one rests a little after you do it.</p>${rows}` };
+      const car = call('carOf', s) || { name: 'Taxi', speed: 1, pay: 1 }; const next = call('nextCar', s);
+      const carRow = `<div class="up-row"><span class="up-level">${icon('taxi', 2)} <b>${esc(car.name)}</b></span>
+          ${next ? `<button class="btn btn-small ${next.cost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="upgrade-car">${esc(next.name)} · ${formatCoins(next.cost)} ${icon('coin', 1, 'i12')}</button>` : `<span class="tag tag-ok">Best car</span>`}</div>
+        <p class="note up-note">${next ? `${esc(next.name)}: ${Math.round((next.speed / car.speed - 1) * 100)}% faster, fares +${Math.round((next.pay / car.pay - 1) * 100)}%. ` : ''}Hold GAS while driving to go faster and earn up to +${Math.round((config.TUNING?.gasBonus ?? 0.5) * 100)}%.</p>`;
+      return { title: 'Jobs', html: `<p class="note">Jobs pay more as your town grows. Each one rests a little after you do it.</p>${rows}${carRow}` };
     },
 
     /* --- A job played inside a sheet: Lunch Rush and Odd Jobs --- */
@@ -908,6 +920,18 @@ export function createUI(root, api) {
 
   /* ----- ride banner ----- */
   let rideView = null;  // { ride, mode, delay }
+  let welcomeOffer = null;   // { id, until }: a resident who just moved in and can be driven home for a bonus
+  function welcomeBanner() {
+    const s = S(); const o = welcomeOffer;
+    if (!o) return '';
+    const t = tenantById(o.id);
+    const fare = t ? call('welcomeFare', s, o.id, N()) || 0 : 0;
+    if (!t || !fare || s.ride || s.job || N() > o.until) { if (!t || !fare || N() > o.until) welcomeOffer = null; return ''; }
+    return `<div class="ride panel" data-key="welcome-${o.id}"><span class="avatar">${person(t.look, 4)}</span>
+      <div class="ride-mid"><p><b>${esc(t.name)}</b> is at the edge of town.</p><p class="note">Drive them home? +${formatCoins(fare)} ${icon('coin', 1, 'i12')}</p></div>
+      <button class="btn btn-small btn-go" data-act="welcome-drive">Drive</button>
+      <button class="icon-btn" data-act="welcome-skip" aria-label="No thanks">✕</button></div>`;
+  }
   function jobBanner() {
     const s = S(); const j = s.job;
     if (!j) return '';
@@ -923,7 +947,7 @@ export function createUI(root, api) {
   }
   function renderRide() {
     if (!rideView) {
-      const banner = sheet && sheet.kind === 'job' ? '' : jobBanner();
+      const banner = sheet && sheet.kind === 'job' ? '' : jobBanner() || welcomeBanner();
       if (cache.ride !== banner) setHTML(h.ride, banner, 'ride');
       return;
     }
@@ -1098,6 +1122,17 @@ export function createUI(root, api) {
     'nav-menu': () => openSheet({ kind: 'menu', reset: 0 }),
     'nav-jobs': () => openSheet(S().job && ['rush', 'odd'].includes(S().job.kind) ? { kind: 'job' } : { kind: 'jobs' }),
     'open-job': () => openSheet({ kind: 'job' }),
+    'welcome-skip': () => { welcomeOffer = null; renderRide(); },
+    'welcome-drive': () => {
+      if (!welcomeOffer) return;
+      const r = act('startWelcome', welcomeOffer.id);
+      if (!r.ok) return;
+      welcomeOffer = null;
+      closeSheet();
+      try { api.renderer.focusTile(r.ride.from); api.startDrive(); } catch (e) { /* the ride still pays when it ends */ }
+      refresh();
+    },
+    'upgrade-car': () => { const r = act('upgradeCar'); if (r.ok) toast(`New car: the ${r.car.name}!`); },
     'start-job': (el) => {
       const kind = el.dataset.kind; const s = S();
       if (kind === 'taxi' || kind === 'delivery') {
@@ -1210,7 +1245,7 @@ export function createUI(root, api) {
       const homeId = Number(el.dataset.id);
       const r = act('moveIn', Number(el.dataset.i), homeId);
       if (r && r.ok !== false) {
-        if (r.tenant) toast(`${r.tenant.name} moved in! Welcome!`);
+        if (r.tenant) { toast(`${r.tenant.name} moved in! Welcome!`); welcomeOffer = { id: r.tenant.id, until: N() + 90000 }; }
         const back = buildingSheet(homeId);
         if (back) openSheet(back); else closeSheet();
       }

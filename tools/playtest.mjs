@@ -104,6 +104,7 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
         sim.acceptRide(s, now);
         now += 4000; sim.advance(s, now, { live: true, active: true });
         sim.chooseDestination(s, s.ride.toId, now);
+        sim.rideGas(s, 0.7, now);                       // a player who mostly holds the pedal
         now += 2000; sim.advance(s, now, { live: true, active: true });
         sim.completeRide(s, now);
       }

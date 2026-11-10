@@ -243,6 +243,14 @@ body { position: fixed; inset: 0; }
 .ride-mid { flex: 1; min-width: 0; }
 .ride-mid p { font-size: 14px; line-height: 1.25; }
 .ride-hint { display: block; font-size: 11px; opacity: .7; }
+.gas { position: absolute; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 6;
+  width: 104px; height: 104px; border-radius: 50%; border: 3px solid var(--ink); background: #5bb450; color: #fff6e0;
+  box-shadow: 0 6px 0 var(--ink); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.gas[hidden] { display: none; }
+.gas b { font-size: 24px; letter-spacing: 1px; }
+.gas span { font-size: 12px; opacity: .9; }
+.gas.down { transform: translateX(-50%) translateY(5px); box-shadow: 0 1px 0 var(--ink); background: #3d8848; }
 .job-row .price { margin-left: auto; white-space: nowrap; }
 .job-row.is-off { opacity: .55; }
 .rush-want { display: flex; flex-direction: column; align-items: center; gap: 4px; margin: 10px 0; padding: 12px; border: 2px solid var(--ink); border-radius: 14px; background: var(--coin-soft); }

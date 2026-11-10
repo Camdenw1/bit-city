@@ -38,6 +38,7 @@ function act(name, ...args) {
 
 const api = {
   getState, getNow, sim, config, sprites, renderer, act,
+  startDrive: () => startDrive(),
   saveFailed: () => saveFailed,
   exportSave: () => store.exportSave(state),
   importSave: (str) => {
@@ -159,20 +160,25 @@ sim.events.on('unlock', ({ type, name }) => {
 // ---------- the ride (Uber) mini-game ----------
 function startDrive() {
   const ride = state.ride;
-  const from = tileOf(ride.fromId);
+  const from = ride.from || tileOf(ride.fromId);     // a welcome drive starts from a road at the edge of town
   const to = tileOf(ride.toId);
   ui.hideRide();
-  const finish = () => {
+  const finish = (gas = 0) => {
     if (state.ride !== ride || ride.state !== 'driving') return;
+    if (gas > 0) sim.rideGas(state, gas, getNow());   // how much of the trip the pedal was held
+    const who = sim.tenantById(state, ride.tenantId);
     const res = act('completeRide');
     if (res?.ok && to) {
       renderer.floatText(to.x, to.y, `+${res.fare}`, COIN);
       renderer.burst(to.x, to.y, 'coins');
       audio.play('coin');
-      if (ride.kind === 'delivery') ui.toast(`Delivered · +${formatCoins(res.fare)} coins`);
+      const speedy = gas >= 0.5 ? ' Speedy!' : '';
+      if (ride.kind === 'delivery') ui.toast(`Delivered · +${formatCoins(res.fare)} coins.${speedy}`);
+      else if (ride.kind === 'welcome') ui.toast(`Welcome home, ${who ? who.name : 'friend'}! +${formatCoins(res.fare)} coins.${speedy}`);
+      else if (speedy) ui.toast(`Speedy driving! +${formatCoins(res.fare)} coins`);
     }
   };
-  if (from && to) renderer.driveTaxi(from, to, finish, ride.kind === 'delivery'); else finish();
+  if (from && to) renderer.driveTaxi(from, to, finish, ride.kind === 'delivery', sim.carOf(state).speed); else finish();
 }
 
 function resumeRide() {

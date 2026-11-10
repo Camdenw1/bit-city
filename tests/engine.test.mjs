@@ -1545,3 +1545,44 @@ test('jobs board: every job can be played, pays with the town, and rests afterwa
   const old = JSON.parse(JSON.stringify(s)); delete old.jobCooldowns;
   assert.deepEqual(S.migrate(old).jobCooldowns, {});
 });
+
+test('car: gas bonus, upgrades, and the optional welcome drive', () => {
+  const { s } = rideTown();
+  sim.advance(s, T0 + 2000);
+  sim.acceptRide(s, T0 + 3000);
+  const fare = sim.chooseDestination(s, s.ride.toId, T0 + 4000).fare;
+  // holding the gas for half the trip pays half the bonus; nothing held pays the plain fare
+  const plain = structuredClone(s);
+  assert.equal(sim.completeRide(plain, T0 + 9000).fare, fare);
+  assert.ok(sim.rideGas(s, 0.5, T0 + 8000).ok);
+  assert.equal(sim.completeRide(s, T0 + 9000).fare, Math.round(fare * (1 + TUNING.gasBonus * 0.5)));
+  assert.equal(sim.rideGas(s, 1, T0 + 9000).ok, false, 'no ride on the road');
+
+  // a better car costs coins and lifts every fare
+  assert.equal(sim.carOf(s).name, config.CARS[0].name);
+  const poor = structuredClone(s); poor.coins = 0;
+  assert.equal(sim.upgradeCar(poor, T0).ok, false); assert.equal(poor.car, 1);
+  s.coins = 1e9; const coins = s.coins;
+  assert.ok(sim.upgradeCar(s, T0).ok); assert.equal(s.car, 2); assert.equal(s.coins, coins - config.CARS[1].cost);
+  while (sim.nextCar(s)) sim.upgradeCar(s, T0);
+  assert.equal(s.car, config.CARS.length); assert.equal(sim.upgradeCar(s, T0).ok, false);
+
+  // welcome drive: moving in is instant; the drive is extra, once, and never required
+  const t = fresh();
+  const home = put(t, 'tent', T0);
+  const r = sim.moveIn(t, 0, home.id, T0);
+  assert.ok(r.ok); assert.equal(t.tenants.length, 1, 'already living there');
+  const offer = sim.welcomeFare(t, r.tenant.id, T0);
+  assert.ok(offer >= TUNING.rideMinFare);
+  const w = sim.startWelcome(t, r.tenant.id, T0 + 1000);
+  assert.ok(w.ok); assert.equal(t.ride.state, 'driving'); assert.equal(t.ride.fare, offer);
+  assert.ok(sim.isRoadAt(t, t.ride.from.x, t.ride.from.y));
+  const before = t.coins;
+  const saved = S.migrate(JSON.parse(JSON.stringify(t))); assert.ok(saved.ride, 'a welcome drive survives a reload');
+  sim.rideGas(t, 1, T0 + 2000);
+  const done = sim.completeRide(t, T0 + 5000);
+  assert.equal(done.fare, Math.round(offer * (1 + TUNING.gasBonus))); assert.ok(t.coins >= before + done.fare);
+  assert.equal(sim.startWelcome(t, r.tenant.id, T0 + 6000).ok, false, 'only once');
+  assert.equal(sim.welcomeFare(t, r.tenant.id, T0 + 6000), 0);
+  const old = JSON.parse(JSON.stringify(t)); delete old.car; assert.equal(S.migrate(old).car, 1);
+});
