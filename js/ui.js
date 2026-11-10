@@ -158,7 +158,6 @@ export function createUI(root, api) {
     <button class="gas" data-h="gas" hidden aria-label="Hold for gas"><b>GAS</b><span>hold</span></button>
     <div class="toasts" data-h="toasts" aria-live="polite"></div>
     <nav class="bottom-bar">
-      <button class="bar-btn" data-act="nav-build">${icon('hammer', 2)}<span>Build</span></button>
       <button class="bar-btn" data-act="nav-upgrades">${icon('star', 2)}<span>Upgrades</span><i class="bar-dot bar-count" data-h="jobsCount" hidden></i></button>
       <button class="bar-btn" data-act="nav-people">${icon('person', 2)}<span>People</span><i class="bar-dot" data-h="peopleDot" hidden></i></button>
       <button class="bar-btn" data-act="nav-menu">${icon('heart', 2)}<span>Menu</span></button>

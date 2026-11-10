@@ -135,7 +135,9 @@ covers running and publishing. This file holds the design decisions and the road
   Odd Jobs on a home, Courier at a Post Office...), at most `TUNING.jobSpots` (2), none while
   busy, map-only jobs before taxi and parcels. Tapping that building starts the job
   (`ui.startJob`). A toast says when one pops up. There is no Jobs list any more.
-- Upgrades tab (fourth bottom-bar button, replaces Jobs; badge = upgrades you can afford): the
+- Bottom bar (2026-11-10): Upgrades, People, Menu. Camden removed the Build button (it only
+  said "tap an empty lot"); building is tapping a lot, and the first goal says so.
+- Upgrades tab (bottom-bar button, replaces Jobs; badge = upgrades you can afford): the
   car (`CARS`) plus `UPGRADES` ladders: Construction crew (-12% build time a level, 4 levels),
   Faster trucks (+25%), Interviews (newcomer ranges 1 narrower a level, exact at 3), Welcome
   center (arrivals -20%), Repair team (problem fee -20%, stations 20% faster), Marketing (ads

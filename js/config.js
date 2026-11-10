@@ -390,7 +390,7 @@ export const HAPPY_LINES = [
 
 // ---- Goals (ordered; conditions live in sim.js keyed by id) ---------------
 export const GOALS = [
-  { id: 'tent',    text: 'Build a Tent for your first resident',  reward: { coins: 30 } },
+  { id: 'tent',    text: 'Tap an empty lot to build a Tent',  reward: { coins: 30 } },
   { id: 'movein',  text: 'Move someone into a home',              reward: { coins: 30 } },
   { id: 'diner',   text: 'Open a Food shop',                      reward: { coins: 40 } },
   { id: 'hire',    text: 'Give a resident a job',                 reward: { coins: 40 } },
