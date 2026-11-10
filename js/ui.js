@@ -1,4 +1,4 @@
-// Bit City — UI layer (HUD, bottom sheets, celebrations, toasts).
+// Mini Mayor — UI layer (HUD, bottom sheets, celebrations, toasts).
 // Owns everything inside #ui. Never imports sim/config/sprites: it only uses `api`.
 // Every state change goes through api.act(name, ...args).
 

@@ -1,4 +1,4 @@
-# Bit City — build spec (phase 1)
+# Mini Mayor — build spec (phase 1)
 
 A cute, simple, positive-reinforcement town builder for one player on an iPhone
 (portrait, home-screen web app). Inspired by Tiny Tower. You are the landlord.

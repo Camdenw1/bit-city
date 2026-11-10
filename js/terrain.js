@@ -1,4 +1,4 @@
-// Bit City — terrain. Pure: the landscape is a function of the town's worldSeed and a
+// Mini Mayor — terrain. Pure: the landscape is a function of the town's worldSeed and a
 // tile position, so it never needs saving and looks the same every time the town opens.
 //
 // For now the landscape is scenery around the town (the town itself is all grass).

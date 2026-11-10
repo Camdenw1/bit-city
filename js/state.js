@@ -1,4 +1,4 @@
-// Bit City — state: new game, save/load (with backup copy), export/import, local day.
+// Mini Mayor — state: new game, save/load (with backup copy), export/import, local day.
 // Pure: the only platform access is localStorage inside save()/load(), always guarded.
 
 import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats } from './config.js';
@@ -177,7 +177,7 @@ function fixPerson(p) {
 
 /**
  * Bring any saved object up to the current shape. Returns the (mutated) state,
- * or null if it isn't a Bit City save at all. Never throws.
+ * or null if it isn't a Mini Mayor save at all. Never throws.
  */
 export function migrate(state) {
   try {
@@ -366,7 +366,7 @@ export function importSave(str) {
   }
   const text = str.replace(/\s+/g, '');
   if (!text.startsWith(EXPORT_PREFIX)) {
-    throw new Error("That doesn't look like a Bit City backup. It should start with BITCITY1:");
+    throw new Error("That doesn't look like a Mini Mayor backup. It should start with BITCITY1:");
   }
   let data;
   try {

@@ -1,4 +1,4 @@
-// Bit City — app wiring. Connects the game rules (sim), the map (render),
+// Mini Mayor — app wiring. Connects the game rules (sim), the map (render),
 // the menus (ui), sound, and saving.
 import * as config from './config.js';
 import * as store from './state.js';

@@ -1,4 +1,4 @@
-# Bit City
+# Mini Mayor
 
 A small pixel-art town builder for your phone. You're the landlord: build homes and
 shops, move people in, match them to jobs (and dream jobs), give rides for tips, and

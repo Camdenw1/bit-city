@@ -1,4 +1,4 @@
-// Bit City — config. Every balance number lives in this file. Pure data, no DOM.
+// Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
 export const MAP_W = 11;
 export const MAP_H = 14;

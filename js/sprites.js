@@ -1,4 +1,4 @@
-// Bit City — sprites. All pixel art is authored in code.
+// Mini Mayor — sprites. All pixel art is authored in code.
 //
 // Layout of this module:
 //   1. PALETTE + single-character keys used by the art

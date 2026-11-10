@@ -1,6 +1,6 @@
-# Bit City — project notes for Claude Code
+# Mini Mayor — project notes for Claude Code
 
-A personal phone game for Camden: a cute pixel-art town builder inspired by Tiny Tower.
+Mini Mayor (formerly Bit City). A personal phone game for Camden: a cute pixel-art town builder inspired by Tiny Tower.
 He is the landlord of a community of homes and shops. He plays it on his iPhone as a
 home-screen web app. It is for him only; there is no store release, no accounts, no ads.
 
@@ -73,7 +73,10 @@ covers running and publishing. This file holds the design decisions and the road
   Saves must never be lost: any change to the state shape needs a step in `migrate()`
   in `js/state.js`.
 - Premium currency (gems) is earned only by playing. No purchases.
-- Name: Bit City.
+- Name: Mini Mayor (Camden, 2026-11-10; was Bit City, which is a NimbleBit game). The only
+  other "Mini Mayor" found was a small 2025 itch.io jam game, none on the App Store. Internal
+  names stay as they were so saves and links keep working: the folder, the repo and URL
+  (camdenw1.github.io/bit-city), `SAVE_KEY`, the `BITCITY1:` backup prefix, `window.bitcity`.
 - Prices: each copy of a building you already own costs x1.35 more (`costOf` in sim).
   This is what pushes variety. Demolish refunds 75% of what was actually paid (`b.paid`).
 - A shop can't be built before the first home (it would leave a new player stuck).
@@ -175,8 +178,7 @@ shop problems the government solves, the Mayor's desk, his own places, land-boun
 a jobs board with six ways to earn, the gas pedal, car upgrades and the welcome drive.
 Batch 1 (worker skill and count) is done. Moving in will change (Camden picked newcomers who
 arrive on the entry road, with some luck in how good a tenant turns out, and a way to deal with
-residents you don't want); design not settled yet. He also wants a new name that copies nothing
-on the App Store ("Bit City" is a NimbleBit game; "My City" is a big kids' series, so not that).
+residents you don't want); design not settled yet. The game is now called Mini Mayor.
 Suggested order for the rest (he has not confirmed it): visitors and a social feed; moving
 buildings and terrain-only buildings; raw materials and a construction crew; prestige trees.
 His calls on the contested ideas (2026-11-10), still to build:

@@ -1,4 +1,4 @@
-// Bit City — map renderer.
+// Mini Mayor — map renderer.
 // Draws the town on one canvas and turns touches into pan / zoom / tap.
 // It only ever READS game state; all animation state here is cosmetic and local.
 

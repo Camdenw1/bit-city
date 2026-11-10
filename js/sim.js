@@ -1,4 +1,4 @@
-// Bit City — simulation. Pure: no DOM, no Date.now(), no Math.random().
+// Mini Mayor — simulation. Pure: no DOM, no Date.now(), no Math.random().
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 

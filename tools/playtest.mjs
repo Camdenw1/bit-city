@@ -1,4 +1,4 @@
-// Bot playtest: plays Bit City the way a person would and prints pacing numbers.
+// Bot playtest: plays Mini Mayor the way a person would and prints pacing numbers.
 // Run: node tools/playtest.mjs            (pure sim, no browser)
 // It plays an active first session, then short check-ins through three days.
 import * as config from '../js/config.js';

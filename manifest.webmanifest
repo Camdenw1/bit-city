@@ -1,6 +1,6 @@
 {
-  "name": "Bit City",
-  "short_name": "Bit City",
+  "name": "Mini Mayor",
+  "short_name": "Mini Mayor",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
