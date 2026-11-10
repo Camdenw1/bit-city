@@ -101,9 +101,8 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
       sim.advance(s, now, { live: true, active: true });
       act();
       if (s.ride?.state === 'waiting' && now + 6000 <= end) {
-        sim.acceptRide(s, now);
-        now += 4000; sim.advance(s, now, { live: true, active: true });
-        sim.chooseDestination(s, s.ride.toId, now);
+        now += 4000; sim.advance(s, now, { live: true, active: true });   // a few seconds to notice and tap the taxi
+        if (sim.pickupRide(s, now).ok && s.ride?.state === 'choosing') sim.chooseDestination(s, s.ride.toId, now);   // deliveries: tap the home
         sim.rideGas(s, 0.7, now);                       // a player who mostly holds the pedal
         now += 2000; sim.advance(s, now, { live: true, active: true });
         sim.completeRide(s, now);

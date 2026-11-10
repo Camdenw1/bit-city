@@ -64,6 +64,10 @@ covers running and publishing. This file holds the design decisions and the road
 - Play boost: `advance(state, now, { active: true })` multiplies coins per sale by
   `TUNING.activeBoost` (10). Only the game loop and the bot pass it; stock sells at the same
   speed, so it adds no restocking. The HUD and shop sheets show the boosted rate.
+- Taxi pickup (Camden, 2026-11-10: "I don't like choosing where they go"): tapping the taxi calls
+  `pickupRide`, which keeps the rider's destination, marks it with a big red pin and sets off.
+  The tip now rewards a quick pickup (`pickupTipFastMs` 10 s for the full x2, none after 60 s).
+  Deliveries still wait for a tap on the marked home. `chooseDestination` stays for deliveries.
 - Rides: fare x (1 + `rideDistanceBonus` per lot driven). A rider asks for a kind of place,
   so any building of that type and category is a right answer and the ride goes to the one
   tapped (a farther twin pays more).
@@ -196,7 +200,7 @@ change when these are built.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (46 passing).
+- Tests: `node --test` from the project root (47 passing).
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
 

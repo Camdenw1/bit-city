@@ -1183,6 +1183,7 @@ export function createUI(root, api) {
         const r = act('startBoardRide', kind);
         if (!r.ok) return;
         closeSheet();
+        if (r.driving) { try { api.startDrive(); } catch (e) { /* the ride still pays when it ends */ } return; }
         try { if (kind === 'delivery' && r.destination) api.renderer.focusTile(r.destination); } catch (e) { /* cosmetic */ }
         showRide(S().ride);
         return;

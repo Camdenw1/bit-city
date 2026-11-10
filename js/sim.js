@@ -1634,7 +1634,27 @@ export function startBoardRide(state, kind, now) {
   if (!ride) return fail('No route is available yet.');
   state.ride = ride;
   restJob(state, kind, now);
-  return acceptRide(state, now);
+  return pickupRide(state, now);
+}
+
+/**
+ * Pick up a rider and set off. The game already knows where they're going (a red pin
+ * marks it), so a taxi ride goes straight to driving; Camden didn't want to choose.
+ * Picking someone up quickly earns the best tip. A delivery still waits for you to tap
+ * the marked home.
+ */
+export function pickupRide(state, now) {
+  const r = acceptRide(state, now);
+  if (!r.ok || state.ride.kind === 'delivery') return r;
+  const ride = state.ride;
+  const { pickupTipFastMs: fast, pickupTipSlowMs: slow, rideTipMax: max } = TUNING;
+  const t = Math.max(0, now - ride.requestedAt);
+  const tip = t <= fast ? max : t >= slow ? 1 : max - ((max - 1) * (t - fast)) / (slow - fast);
+  const base = Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.rideFareMinutes);
+  ride.fare = Math.round(base * distancePay(state, ride) * tip * carOf(state).pay);
+  ride.state = 'driving';
+  events.emit('rideStart', { ride, fare: ride.fare });
+  return { ...r, fare: ride.fare, driving: true };
 }
 
 export function acceptRide(state, now) {

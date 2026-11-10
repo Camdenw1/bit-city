@@ -234,9 +234,10 @@ renderer.onTap(({ x, y, building, parcel, activity }) => {
   }
 
   if (ride?.state === 'waiting' && building?.id === ride.fromId && (ride.kind !== 'delivery' || activity === 'parcel')) {
-    const res = act('acceptRide');
+    const res = act('pickupRide');
     if (res?.ok) {
       audio.play('ride');
+      if (res.driving) { startDrive(); return; }       // a taxi rider: the red pin shows where they're going
       if (ride.kind === 'delivery') renderer.focusTile(res.destination);
       ui.showRide(ride);
     }

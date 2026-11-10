@@ -91,6 +91,8 @@ export const TUNING = {
   rideTipFastMs: 3000,
   rideTipSlowMs: 10000,
   rideWrongTryPenalty: 0.2,
+  pickupTipFastMs: 10000,        // a rider picked up this fast tips the most (the game picks where they go)
+  pickupTipSlowMs: 60000,        // ...and this slow, no tip
   rideMinBuildings: 2,
   needServes: 10,                // a shop with two average workers keeps this many residents happy with its kind of thing
   happyRentBonus: 0.5,           // extra rent from a resident who is 100% happy

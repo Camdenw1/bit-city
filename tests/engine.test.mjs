@@ -1547,8 +1547,8 @@ test('jobs board: every job can be played, pays with the town, and rests afterwa
   sim.skipTownJob(s); assert.equal(s.coins, coins); assert.equal(board().lost.readyIn, 0);
 
   // board rides pay like street rides and rest too
-  r = sim.startBoardRide(s, 'taxi', now); assert.ok(r.ok); assert.equal(s.ride.state, 'choosing');
-  const fare = sim.chooseDestination(s, s.ride.toId, now + 1000).fare;
+  r = sim.startBoardRide(s, 'taxi', now); assert.ok(r.ok); assert.equal(s.ride.state, 'driving', 'the board taxi sets off by itself');
+  const fare = r.fare;
   assert.ok(fare >= Math.round(Math.max(TUNING.rideMinFare, sim.townRatePerMin(s, now) * TUNING.rideFareMinutes)));
   sim.completeRide(s, now + 4000);
   assert.equal(sim.startBoardRide(s, 'taxi', now + 5000).ok, false, 'resting');
@@ -1682,4 +1682,23 @@ test('teams: shop sizes, team meter, hire best, better-job suggestions', () => {
   assert.ok(sim.workersOf(s, small.id).length >= 2);
   assert.ok(sim.ratePerMin(s, small) > 0);
   assert.equal(sim.bestHire(s, small.id, T0), null, 'no new hires while over');
+});
+
+test('taxi pickup: the game picks the destination and the car sets off; quick pickups tip more', () => {
+  const { s } = rideTown();
+  sim.advance(s, T0 + 2000);
+  const ride = s.ride;
+  assert.ok(ride && ride.kind !== 'delivery');
+  const quick = JSON.parse(JSON.stringify(s)), slow = JSON.parse(JSON.stringify(s));
+  const log = record(() => {
+    const r = sim.pickupRide(quick, ride.requestedAt + 5000);
+    assert.ok(r.ok && r.driving); assert.equal(quick.ride.state, 'driving'); assert.equal(quick.ride.toId, ride.toId);
+  });
+  assert.ok(log.some((e) => e.type === 'rideStart'));
+  sim.pickupRide(slow, ride.requestedAt + 80000);
+  assert.ok(quick.ride.fare > slow.ride.fare, 'a quick pickup tips more');
+  assert.ok(slow.ride.fare >= TUNING.rideMinFare);
+  const before = quick.coins;
+  assert.equal(sim.completeRide(quick, ride.requestedAt + 9000).ok, true);
+  assert.ok(quick.coins > before);
 });

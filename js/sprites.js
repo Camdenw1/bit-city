@@ -1011,6 +1011,18 @@ def('taxi_e', () => Grid.from(TAXI_E));
 def('taxi_w', () => Grid.from(TAXI_E).flipH());
 def('taxi_n', () => Grid.from(TAXI_N));
 def('taxi_s', () => Grid.from(TAXI_S));
+def('pin', () => Grid.from([        // red map pin over a taxi rider's destination
+  '..kkk..',
+  '.krrrk.',
+  'krrwrrk',
+  'krwwwrk',
+  'krrwrrk',
+  '.krrrk.',
+  '.kRrRk.',
+  '..kRk..',
+  '..kRk..',
+  '...k...',
+]));
 def('truck_e', () => Grid.from(TRUCK_E));
 def('truck_w', () => Grid.from(TRUCK_E).flipH());
 def('truck_n', () => Grid.from(TRUCK_N));

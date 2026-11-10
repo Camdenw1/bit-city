@@ -954,6 +954,18 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       }
       if (selection && inMap(selection.x, selection.y)) drawSelection(selection, rt);
 
+      // a red pin marks where the taxi is taking its rider
+      if (f.state.ride && f.state.ride.state === 'driving') {
+        const dest = f.state.buildings.find((b) => b.id === f.state.ride.toId);
+        if (dest) {
+          const pin = getSprite('pin');
+          const hop = Math.sin(rt / 1000 * Math.PI * 2 * 1.2) > 0 ? -1 : 0;
+          // twice the size of other art so it stands out from roofs and flags
+          const ax = dest.x * TILE + TILE / 2 - pin.width, ay = dest.y * TILE - pin.height * 2 + 3 + hop;
+          ctx.drawImage(pin, toDevX(ax), toDevY(ay), pin.width * 2 * scale, pin.height * 2 * scale);
+        }
+      }
+
       // status bubbles, always at full brightness so they read at night too
       const bubble = getSprite('bubble');
       for (const row of f.rows) for (const b of row) {
