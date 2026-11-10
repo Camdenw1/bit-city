@@ -1002,3 +1002,16 @@ body { position: fixed; inset: 0; }
   .starburst i { opacity: 0; }
   .sheet, .backdrop { transition: none; }
 }
+
+/* ---------- teams and job fit ---------- */
+.fit { margin-left: 4px; font-size: 12px; letter-spacing: -1px; color: #c99a1e; white-space: nowrap; }
+.fit-1 { color: #b0a6b8; }
+.team { margin: 8px 0; padding: 8px 10px; border: 2px solid var(--ink); border-radius: 12px; background: var(--cream-2, #fff6e0); }
+.team-head { display: flex; align-items: center; gap: 8px; }
+.team-stars { color: #c99a1e; letter-spacing: 1px; }
+.team-pct { margin-left: auto; font-weight: bold; }
+.team .meter { margin: 6px 0 4px; }
+.meter-team i { background: #5bb450; }
+.move-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed rgba(59, 47, 74, 0.2); }
+.move-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 14px; }
+.move-copy small { opacity: 0.8; }

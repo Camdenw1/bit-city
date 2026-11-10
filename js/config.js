@@ -57,8 +57,10 @@ export const TUNING = {
   refundRate: 0.75,              // demolish refund (of what was paid)
   copyCostGrowth: 1.35,          // each copy of a building you already own multiplies its price by this
   hurryGems: 1,
-  staffFactor: [0, 1, 1.6],      // by number of workers
-  skillDivisor: 27,              // skill factor = 1 + sum(skill) / 27
+  staffFactor: [0, 1.25, 1.85, 2.35, 2.75, 3.05],   // sales by number of workers: each one adds a little less
+  skillAvgDivisor: 13.5,         // skill factor = 1 + average skill / 13.5 (a team of 9s sells 1.67x)
+  teamStars: [0.4, 0.7, 0.95],   // team meter share for 1, 2 and 3 stars
+  slotAtLevel: 3,                // a shop at this level gets one more job
   dreamBonus: 0.25,              // dream factor = 1 + 0.25 * dreamStars
   restockMinFraction: 0.25,      // a restock always fills at least this much of the shelf
   rideFirstDelayMs: 20000,       // first ride can appear this long after a new game
@@ -90,7 +92,7 @@ export const TUNING = {
   rideTipSlowMs: 10000,
   rideWrongTryPenalty: 0.2,
   rideMinBuildings: 2,
-  needServes: 10,                // one staffed shop keeps this many residents happy with its kind of thing
+  needServes: 10,                // a shop with two average workers keeps this many residents happy with its kind of thing
   happyRentBonus: 0.5,           // extra rent from a resident who is 100% happy
   unhappyRentCut: 0.2,           // rent lost from a resident who is 0% happy (a straight line in between)
   reach: 5,                      // town buildings serve homes and shops this many lots away (+1 per level)
@@ -104,7 +106,7 @@ export const TUNING = {
   problemMinFee: 40,
   favBonus: 0.25,                // the mayor's favourite places sell (or serve) this much more
   nearRadius: 2,                 // a building that needs mountains, woods or water must be this close to some
-  cropPerHour: 10,               // crops one staffed farm grows per real hour (x staffFactor)
+  cropPerHour: 10,               // crops one farmer grows per real hour (more farmers: in step with staffFactor)
   recipeBonus: 0.1,              // extra sales for every food shop, per recipe the town knows
   parkRadius: 2,                 // parks boost homes this many lots away (2 reaches across a road)
   parkBoostMax: 0.5,             // most extra rent one home can get from parks
@@ -237,45 +239,45 @@ export const BUILDINGS = {
   diner:    biz('diner',    'Burger Diner',   ['food'],             30, 'Burgers and pancakes all day.'),
   bakery:   biz('bakery',   'Bakery',         ['food', 'retail'],   60, 'Warm bread and sticky buns every morning.'),
   noodle:   biz('noodle',   'Noodle Bar',     ['food'],             60, 'Big steaming bowls, slurping encouraged.'),
-  pizza:    biz('pizza',    'Pizzeria',       ['food'],             60, 'A slice for every mood.'),
-  taco:     biz('taco',     'Taco Shop',      ['food'],             45, 'Crunchy, saucy and gone in three bites.', { fav: true }),
-  sushi:    biz('sushi',    'Sushi Bar',      ['food'],             90, 'Tiny, tidy and delicious.'),
-  icecream: biz('icecream', 'Ice Cream Shop', ['food'],             45, 'Two scoops and a wafer, please.', { fav: true }),
+  pizza:    biz('pizza',    'Pizzeria',       ['food'],             60, 'A slice for every mood.', { slots: 3 }),
+  taco:     biz('taco',     'Taco Shop',      ['food'],             45, 'Crunchy, saucy and gone in three bites.', { fav: true, slots: 3 }),
+  sushi:    biz('sushi',    'Sushi Bar',      ['food'],             90, 'Tiny, tidy and delicious.', { slots: 3 }),
+  icecream: biz('icecream', 'Ice Cream Shop', ['food'],             45, 'Two scoops and a wafer, please.', { fav: true, slots: 1 }),
   cafe:     biz('cafe',     'Café',           ['food', 'creative'], 60, 'Coffee, cake and somewhere to dream.'),
   // retail
-  market:   biz('market',   'General Store',  ['retail'],            45, 'A little bit of everything on the shelves.'),
+  market:   biz('market',   'General Store',  ['retail'],            45, 'A little bit of everything on the shelves.', { slots: 4 }),
   bookshop: biz('bookshop', 'Bookshop',       ['retail', 'creative'], 90, 'Stories stacked up to the ceiling.'),
   toys:     biz('toys',     'Toy Shop',       ['retail'],            60, 'Bouncy balls and teddy bears.'),
-  clothes:  biz('clothes',  'Clothes Shop',   ['retail'],            60, 'Something for every season.'),
-  florist:  biz('florist',  'Florist',        ['retail', 'farming'], 60, 'Bunches of colour, freshly cut.'),
+  clothes:  biz('clothes',  'Clothes Shop',   ['retail'],            60, 'Something for every season.', { slots: 3 }),
+  florist:  biz('florist',  'Florist',        ['retail', 'farming'], 60, 'Bunches of colour, freshly cut.', { slots: 1 }),
   pets:     biz('pets',     'Pet Shop',       ['retail', 'service'], 90, 'Treats, toys and wagging tails.'),
-  hardware: biz('hardware', 'Hardware Store', ['retail'],            60, 'Nuts, bolts and good advice.'),
+  hardware: biz('hardware', 'Hardware Store', ['retail'],            60, 'Nuts, bolts and good advice.', { slots: 3 }),
   // service
   well:     biz('well',     'Water Works',    ['service'],           60, 'Fresh, clean water for the whole town.'),
-  barber:   biz('barber',   'Barber',         ['service'],           60, 'Fresh cuts and friendly chats.'),
+  barber:   biz('barber',   'Barber',         ['service'],           60, 'Fresh cuts and friendly chats.', { slots: 1 }),
   laundry:  biz('laundry',  'Laundromat',     ['service'],           60, 'Round and round until it is clean.'),
-  bank:     biz('bank',     'Bank',           ['service'],           120, 'A safe place for everyone\'s savings.'),
-  gym:      biz('gym',      'Gym',            ['service'],           90, 'Stretch, lift and feel great.', { fav: true }),
+  bank:     biz('bank',     'Bank',           ['service'],           120, 'A safe place for everyone\'s savings.', { slots: 4 }),
+  gym:      biz('gym',      'Gym',            ['service'],           90, 'Stretch, lift and feel great.', { fav: true, slots: 3 }),
   bikes:    biz('bikes',    'Bike Shop',      ['retail', 'service'], 90, 'Tune-ups, tyres and trail maps.', { fav: true }),
-  surf:     biz('surf',     'Surf Shop',      ['retail', 'creative'], 90, 'Wax, boards and the morning swell report.', { near: ['water'] }),
+  surf:     biz('surf',     'Surf Shop',      ['retail', 'creative'], 90, 'Wax, boards and the morning swell report.', { near: ['water'], slots: 1 }),
   post:     biz('post',     'Post Office',    ['service', 'retail'], 90, 'Letters and parcels, in and out.'),
   // farming (a `crop` grows while staffed)
-  farm:     biz('farm',     'Veggie Farm',    ['farming'],           120, 'Rows of crunchy carrots and leafy greens.', { crop: 'veggies' }),
-  orchard:  biz('orchard',  'Orchard',        ['farming'],           120, 'Apple trees as far as you can see.', { crop: 'fruit' }),
+  farm:     biz('farm',     'Veggie Farm',    ['farming'],           120, 'Rows of crunchy carrots and leafy greens.', { crop: 'veggies', slots: 3 }),
+  orchard:  biz('orchard',  'Orchard',        ['farming'],           120, 'Apple trees as far as you can see.', { crop: 'fruit', slots: 3 }),
   pumpkin:  biz('pumpkin',  'Pumpkin Patch',  ['farming'],           120, 'Big, round and very orange.', { crop: 'veggies' }),
   berry:    biz('berry',    'Berry Farm',     ['farming'],           120, 'Pick your own, eat half on the way.', { crop: 'fruit' }),
-  herbs:    biz('herbs',    'Herb Garden',    ['farming', 'food'],   120, 'Smells wonderful from across the road.', { crop: 'veggies' }),
-  vineyard: biz('vineyard', 'Vineyard',       ['farming'],           120, 'Grapes ripening in neat rows.', { crop: 'fruit' }),
+  herbs:    biz('herbs',    'Herb Garden',    ['farming', 'food'],   120, 'Smells wonderful from across the road.', { crop: 'veggies', slots: 1 }),
+  vineyard: biz('vineyard', 'Vineyard',       ['farming'],           120, 'Grapes ripening in neat rows.', { crop: 'fruit', slots: 3 }),
   // creative
   studio:   biz('studio',   'Art Studio',     ['creative'],          120, 'Paint, clay and big ideas.'),
   music:    biz('music',    'Music Shop',     ['creative', 'retail'], 120, 'Guitars, drums and happy noise.', { fav: true }),
-  hoops:    biz('hoops',    'Basketball Gym', ['creative', 'service'], 120, 'Squeaky sneakers and nothing but net.', { fav: true }),
-  venue:    biz('venue',    'Concert Venue',  ['creative'],          180, 'Lights down, amps up.', { fav: true }),
-  ski:      biz('ski',      'Ski Lodge',      ['creative', 'service'], 180, 'Fresh powder and hot chocolate.', { fav: true, near: ['mountain'] }),
-  cinema:   biz('cinema',   'Cinema',         ['creative'],          180, 'Popcorn and a big screen.'),
+  hoops:    biz('hoops',    'Basketball Gym', ['creative', 'service'], 120, 'Squeaky sneakers and nothing but net.', { fav: true, slots: 3 }),
+  venue:    biz('venue',    'Concert Venue',  ['creative'],          180, 'Lights down, amps up.', { fav: true, slots: 4 }),
+  ski:      biz('ski',      'Ski Lodge',      ['creative', 'service'], 180, 'Fresh powder and hot chocolate.', { fav: true, near: ['mountain'], slots: 3 }),
+  cinema:   biz('cinema',   'Cinema',         ['creative'],          180, 'Popcorn and a big screen.', { slots: 3 }),
   arcade:   biz('arcade',   'Arcade',         ['creative'],          120, 'Blinking lights and high scores.'),
-  theatre:  biz('theatre',  'Theatre',        ['creative'],          180, 'Tonight only: the whole town on stage.'),
-  photo:    biz('photo',    'Photo Studio',   ['creative', 'service'], 120, 'Say cheese!'),
+  theatre:  biz('theatre',  'Theatre',        ['creative'],          180, 'Tonight only: the whole town on stage.', { slots: 4 }),
+  photo:    biz('photo',    'Photo Studio',   ['creative', 'service'], 120, 'Say cheese!', { slots: 1 }),
 
   //            id          name        kind     cost  secs unlock
   tree:     town('tree',     'Tree',     'park',    150,   20,  5, { provides: { need: 'beauty', serves: 3 },  rentBoost: 0.05 }, 'A leafy tree. Nearby homes pay a little more rent.'),

@@ -105,7 +105,14 @@ export function createUI(root, api) {
   const residentsOf = (id) => call('residentsOf', S(), id) || S().tenants.filter((t) => t.homeId === id);
   const workersOf = (id) => call('workersOf', S(), id) || S().tenants.filter((t) => t.jobId === id);
   const fit = (t, b) => call('jobFit', S(), t, b) ||
-    { skill: (t.skills && t.skills[categoryOf(b)]) || 0, dream: t.dream === b.type, open: workersOf(b.id).length < (def(b.type).slots || 2) };
+    { skill: (t.skills && t.skills[categoryOf(b)]) || 0, dream: t.dream === b.type, open: workersOf(b.id).length < slotsOf(b) };
+  const slotsOf = (b) => call('slotsOf', b) || def(b.type).slots || 2;
+  /** ★ to ★★★ for how well a person suits a job, with a short plain reason. */
+  const fitChip = (t, b) => {
+    const n = call('fitStars', t, b) || 1;
+    const why = t.dream === b.type ? 'dream job' : n === 3 ? 'great fit' : n === 2 ? 'good fit' : 'weak fit';
+    return `<span class="fit fit-${n}" title="${why}">${'★'.repeat(n)}${'☆'.repeat(3 - n)}</span>`;
+  };
   const topSkill = (t) => {
     let best = CATEGORIES[0]; let v = -1;
     for (const c of CATEGORIES) { const s = (t.skills && t.skills[c]) || 0; if (s > v) { v = s; best = c; } }
@@ -412,7 +419,7 @@ export function createUI(root, api) {
         <div class="p-info">
           <div class="p-name"><b>${esc(t.name)}</b>${skillBadge(ts.cat, ts.value)}${home ? moodChip(tm.score) : ''}</div>
           <div class="p-sub">${home ? esc(bName(home)) : 'New in town'} · ${job
-            ? `${esc(bName(job))} ${skillBadge(categoryOf(job), jf.skill)}`
+            ? `${esc(bName(job))} ${skillBadge(categoryOf(job), jf.skill)} ${fitChip(t, job)}`
             : '<span class="looking">Looking for work</span>'}</div>
           ${home ? `<div class="p-wish">“${esc(call('tenantWish', S(), t, N(), mood()) || '')}”</div>` : ''}
           ${home && tm.missing.length ? `<div class="p-why">${tm.missing.slice(0, 3).map((m) => `<span>${icon(m.icon, 1, 'i12')}${esc(m.why)}</span>`).join('')}${tm.missing.length > 3 ? `<span>+${tm.missing.length - 3} more</span>` : ''}</div>` : ''}
@@ -572,7 +579,7 @@ export function createUI(root, api) {
       const upgradeBlock = `<div class="up-row"><span class="up-level">${icon('star', 1, 'i12').repeat(level)} Level ${level}</span>${level >= maxLevel
         ? '<span class="tag tag-ok">Fully upgraded</span>'
         : `<button class="btn btn-small ${upCost > s.coins ? 'btn-quiet' : 'btn-coin'}" data-act="upgrade" data-id="${b.id}">Upgrade · ${formatCoins(upCost)} ${icon('coin', 1, 'i12')}</button>`}</div>
-        ${level >= maxLevel ? '' : `<p class="note up-note">Level ${level + 1}: ${c.kind === 'trade' ? 'one more truck' : `+${upPct}% ${gives}`}</p>`}`;
+        ${level >= maxLevel ? '' : `<p class="note up-note">Level ${level + 1}: ${c.kind === 'trade' ? 'one more truck' : `+${upPct}% ${gives}${c.kind === 'biz' && level + 1 === (config.TUNING?.slotAtLevel ?? 3) ? ' and one more job' : ''}`}</p>`}`;
 
       if (!built(b)) {
         const total = Math.max(1, (c.buildSecs || 1) * 1000);
@@ -663,15 +670,19 @@ export function createUI(root, api) {
         building: `<span class="chip chip-wait">Building</span>`,
       }[status] || '';
       const slots = [];
-      const nSlots = c.slots || 2;
+      const team = call('teamOf', s, b, now);
+      const nSlots = Math.max(slotsOf(b), workers.length);
+      const addsOf = (t) => { const w = team && team.workers.find((x) => x.tenant.id === t.id); return w && w.adds != null ? Math.round(w.adds * 100) : null; };
+      const hireBest = workers.length < slotsOf(b) ? call('bestHire', s, b.id, now) : null;
       for (let i = 0; i < nSlots; i++) {
         const t = workers[i];
         if (t) {
           const f = fit(t, b);
+          const adds = addsOf(t);
           slots.push(`<div class="slot${f.dream ? ' is-perfect' : ''}" data-key="w${t.id}">
             <span class="avatar">${person(t.look, 4)}</span>
-            <div class="p-info"><div class="p-name"><b>${esc(t.name)}</b>${skillBadge(cat, f.skill)}</div>
-              <div class="p-sub">${f.dream ? `${dreamTag('Perfect fit!')}` : `Dreams of the ${esc(def(t.dream).name)}`}</div></div>
+            <div class="p-info"><div class="p-name"><b>${esc(t.name)}</b>${skillBadge(cat, f.skill)}${fitChip(t, b)}</div>
+              <div class="p-sub">${f.dream ? `${dreamTag('Perfect fit!')}` : `Dreams of the ${esc(def(t.dream).name)}`}${adds != null ? ` · <b>+${adds}%</b> sales` : ''}</div></div>
             <button class="btn btn-small btn-quiet" data-act="open-hire" data-id="${b.id}" data-swap="${t.id}">Swap</button></div>`);
         } else {
           slots.push(`<button class="slot slot-hire" data-act="open-hire" data-id="${b.id}" data-key="hire${i}">
@@ -701,7 +712,11 @@ export function createUI(root, api) {
           ${trouble}${full ? '' : `<button class="btn btn-coin btn-wide" data-act="restock" data-id="${b.id}">${icon('box', 2)} Restock ${coinAmt(Math.min(cost, Math.max(0, Math.floor(s.coins))), 2)}</button>`}
           <div class="seg" role="group" aria-label="Prices">${prices}</div>
           <p class="note seg-note">${workers.length ? 'Estimated sales while stocked, before ad bonuses.' : 'Hire a worker to compare sales and stock.'}</p>
-          <h3 class="sec">${icon('cat_' + cat, 1, 'i12')} ${CAT_LABEL[cat] || ''} jobs</h3>
+          <h3 class="sec">${icon('cat_' + cat, 1, 'i12')} ${CAT_LABEL[cat] || ''} jobs · ${workers.length} of ${slotsOf(b)}</h3>
+          ${team ? `<div class="team" data-key="team"><div class="team-head"><b>Team</b><span class="team-stars">${'★'.repeat(team.stars)}${'☆'.repeat(3 - team.stars)}</span><span class="team-pct">${Math.round(team.pct * 100)}%</span></div>
+            <div class="meter meter-team"><i style="width:${Math.round(team.pct * 100)}%"></i></div>
+            <p class="note">${team.serves ? `Keeps ${team.serves} residents happy with ${esc((CAT_LABEL[cat] || '').toLowerCase())}. ` : ''}${esc(team.tip || 'The best team this shop can have!')}</p></div>` : ''}
+          ${hireBest ? `<button class="btn btn-go btn-wide" data-act="hire-pick" data-id="${b.id}" data-t="${hireBest.id}">${icon('briefcase', 2)} Hire best: ${esc(hireBest.name)} ${skillBadge(cat, (hireBest.skills && hireBest.skills[cat]) || 0)}</button>` : ''}
           <div class="list">${slots.join('')}</div>
           ${upgradeBlock}${demolish(true)}`,
       };
@@ -764,10 +779,19 @@ export function createUI(root, api) {
       if (!s.tenants.length) return { title: 'People', html: empty('person', 'No one lives here yet. Build a home, then move someone in!') };
       const perfect = s.tenants.filter((t) => { const j = byId(t.jobId); return j && j.type === t.dream; }).length;
       const sorted = s.tenants.slice().sort((a, z) => (!!betterJob(z) - !!betterJob(a)) || ((a.jobId != null) - (z.jobId != null)));
+      const moves = call('jobSuggestions', s, N()) || [];
+      const moveRows = moves.map((m) => `<div class="move-row" data-key="mv${m.tenant.id}">
+          <span class="avatar">${person(m.tenant.look, 3)}</span>
+          <span class="move-copy"><b>${esc(m.tenant.name)}</b> ${m.from ? `${esc(bName(m.from))} →` : 'No job →'} ${esc(bName(m.to))}
+            <small>${m.dream ? 'Dream job!' : `Skill ${m.skill} there`} ${fitChip(m.tenant, m.to)}</small></span>
+          <button class="btn btn-small btn-go" data-act="move-job" data-id="${m.tenant.id}" data-biz="${m.to.id}">Move</button></div>`).join('');
+      const better = moves.length ? `<h3 class="sec">${icon('briefcase', 1, 'i12')} Better jobs</h3>${moveRows}
+          ${moves.length > 1 ? `<button class="btn btn-go btn-wide" data-act="move-all" data-n="${moves.length}">Do all ${moves.length} moves</button>` : ''}
+          <p class="note">Suggestions only: nobody moves until you tap. ★★★ is a dream job or skill 7+.</p>` : '';
       return {
         title: 'People',
         html: `<div class="summary">${icon('person', 2)}<b>${s.tenants.length}</b> residents<span class="sp"></span>${icon('star', 2)}<b>${perfect}</b> in dream jobs<span class="sp"></span>${icon('heart', 2)}<b>${call('happiness', s, N(), mood()) || 0}%</b></div>
-          <div class="list">${sorted.map(personRow).join('')}</div>`,
+          ${better}<h3 class="sec">Everyone</h3><div class="list">${sorted.map(personRow).join('')}</div>`,
       };
     },
 
@@ -1269,7 +1293,7 @@ export function createUI(root, api) {
       const bizId = Number(el.dataset.id); const tenantId = Number(el.dataset.t);
       const b = byId(bizId);
       const swap = sheet && sheet.kind === 'hire' && sheet.swap != null ? tenantById(sheet.swap) : null;
-      const isFull = b && workersOf(bizId).length >= (def(b.type).slots || 2);
+      const isFull = b && workersOf(bizId).length >= slotsOf(b);
       if (swap && swap.jobId === bizId && isFull) api.act('assignJob', swap.id, null);
       const r = assign(tenantId, bizId);
       if (r && r.ok === false && swap && isFull) api.act('assignJob', swap.id, bizId); // put them back
@@ -1281,6 +1305,18 @@ export function createUI(root, api) {
       if (r && r.ok !== false) { if (t) toast(`${t.name} is taking a break`); goBack(); }
     },
     'move-job': (el) => { assign(Number(el.dataset.id), Number(el.dataset.biz)); },
+    'move-all': (el) => {
+      // the list is worked out again before each move, so every move still fits; never more than the button said
+      let n = 0;
+      for (let i = 0; i < Number(el.dataset.n || 20); i++) {
+        const m = (call('jobSuggestions', S(), N(), 1) || [])[0];
+        if (!m) break;
+        const r = act('assignJob', m.tenant.id, m.to.id);
+        if (!r || r.ok === false) break;
+        n++;
+      }
+      if (n) toast(`${n} ${n === 1 ? 'person' : 'people'} moved to better jobs`);
+    },
 
     'toggle-sound': () => {
       const s = S();

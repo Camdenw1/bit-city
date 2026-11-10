@@ -32,7 +32,7 @@ function put(state, type, now) {
   if (!sim.isUnlocked(state, type) || noHome) {
     // test towns may use types the population has not unlocked yet, or shops before any home
     const b = { id: state.nextId++, type, x, y, readyAt: Math.min(now, state.lastTick), paid: def.cost, level: 1 };
-    if (def.kind === 'biz') Object.assign(b, { stock: def.stockMax, dreamStars: 0, carry: 0, price: 'normal', cc: 0 });
+    if (def.kind === 'biz') Object.assign(b, { stock: Math.round(def.stockMax * TUNING.staffFactor[def.slots] / TUNING.staffFactor[2]), dreamStars: 0, carry: 0, price: 'normal', cc: 0 });
     state.buildings.push(b);
     return b;
   }
@@ -108,11 +108,12 @@ test('config: shape, roads, every type complete, balance targets', () => {
     else if (d.kind === 'civic' || d.kind === 'park') {
       assert.equal(d.category, null); assert.ok(config.NEEDS.some((n) => n.id === d.provides.need) && d.provides.serves > 0, id);
     } else {
-      assert.equal(d.kind, 'biz'); assert.equal(d.slots, 2); assert.ok(CATEGORIES.includes(d.category));
+      assert.equal(d.kind, 'biz'); assert.ok(d.slots >= 1 && d.slots <= 4, id); assert.ok(CATEGORIES.includes(d.category));
       assert.equal(d.categories[0], d.category); assert.ok(d.categories.every((c) => CATEGORIES.includes(c)), id);
       assert.ok(d.baseRate > 0 && d.stockMax > 0 && d.restockCost > 0 && d.restockCost < d.stockMax);
-      // a full stock lasts 2-6 hours with two average workers (skill 5 each)
-      const hours = d.stockMax / (d.baseRate * 1.6 * (1 + 10 / TUNING.skillDivisor)) / 60;
+      // a full stock lasts 2-6 hours with a full team of average workers (skill 5), whatever the shop's size
+      const staff = TUNING.staffFactor[d.slots];
+      const hours = (d.stockMax * staff / TUNING.staffFactor[2]) / (d.baseRate * staff * (1 + 5 / TUNING.skillAvgDivisor)) / 60;
       assert.ok(hours >= 2 && hours <= 6, `${id} stock lasts ${hours.toFixed(1)}h`);
     }
   }
@@ -519,9 +520,9 @@ test('rate formula: baseRate * staff * skill * dream', () => {
   const a = person(s, cabin, T0, { skill: 6 });
   const b = person(s, cabin, T0, { skill: 3, dream: 'diner' });
   sim.assignJob(s, a.id, diner.id, T0);
-  assert.ok(Math.abs(sim.ratePerMin(s, diner) - base * 1 * (1 + 6 / TUNING.skillDivisor) * 1) < 1e-9);
+  assert.ok(Math.abs(sim.ratePerMin(s, diner) - base * TUNING.staffFactor[1] * (1 + 6 / TUNING.skillAvgDivisor) * 1) < 1e-9);
   sim.assignJob(s, b.id, diner.id, T0);
-  assert.ok(Math.abs(sim.ratePerMin(s, diner) - base * 1.6 * (1 + 9 / TUNING.skillDivisor) * (1 + TUNING.dreamBonus)) < 1e-9);
+  assert.ok(Math.abs(sim.ratePerMin(s, diner) - base * TUNING.staffFactor[2] * (1 + 4.5 / TUNING.skillAvgDivisor) * (1 + TUNING.dreamBonus)) < 1e-9);
   assert.ok(Math.abs(sim.townRatePerMin(s, T0) - sim.ratePerMin(s, diner)) < 1e-9);
   assert.equal(sim.bizStatus(s, diner, T0), 'open');
   diner.stock = 0;
@@ -541,8 +542,8 @@ test('sales deplete stock, pay coins, and stop at zero', () => {
   sim.assignJob(s, a.id, diner.id, T0);
   allGoalsDone(s);
   const max = BUILDINGS.diner.stockMax;
-  const perMin = BUILDINGS.diner.baseRate * (1 + 9 / TUNING.skillDivisor);
-  const sold100 = Math.round(perMin * 100);
+  const perMin = BUILDINGS.diner.baseRate * TUNING.staffFactor[1] * (1 + 9 / TUNING.skillAvgDivisor);
+  const sold100 = Math.floor(perMin * 100 + 1e-9);
   const coins0 = s.coins;
   let log = record(() => {
     const r = sim.advance(s, T0 + 100 * MIN);
@@ -646,7 +647,7 @@ test('batch restock covers previously empty shops and charges the current tier p
   const before = s.coins;
   assert.equal(sim.restockAll(s, s.lastTick).count, 1);
   assert.equal(bakery.stock, sim.stockMaxOf(bakery));
-  assert.equal(before - s.coins, sim.statsOf(bakery).restockCost);
+  assert.equal(before - s.coins, Math.round(sim.statsOf(bakery).restockCost * TUNING.staffFactor[BUILDINGS.bakery.slots] / TUNING.staffFactor[2]));
   assert.equal(market.stock, sim.stockMaxOf(market));
   assert.equal(sim.restockAll(s, s.lastTick).count, 0);
 });
@@ -723,7 +724,7 @@ test('three days offline: sane totals, exactly 72 hours of rent, fast', () => {
   assert.ok(ms < 300, `took ${ms.toFixed(1)} ms`);
   assert.equal(res.elapsedMs, 3 * DAY);
   assert.equal(res.rentHours, 72); assert.equal(res.rentPaid, 3 * nightly);
-  assert.equal(res.coinsEarned, BUILDINGS.diner.stockMax + BUILDINGS.market.stockMax, 'each shop sold exactly one full stock');
+  assert.equal(res.coinsEarned, sim.stockMaxOf(diner) + sim.stockMaxOf(market), 'each shop sold exactly one full stock');
   assert.deepEqual([...res.ranOut].sort(), [diner.id, market.id].sort());
   assert.equal(s.coins, coins0 + res.coinsEarned + res.rentPaid);
   assert.equal(s.stats.earned, earned0 + res.coinsEarned + res.rentPaid);
@@ -1196,7 +1197,7 @@ test('town buildings: needs, park rent boost, crops, recipes, lessons, town IQ',
   const diner = put(s, 'diner', s.lastTick);
   const b = person(s, put(s, 'tent', s.lastTick), s.lastTick, { skill: 0 });
   sim.assignJob(s, b.id, diner.id, s.lastTick);
-  assert.ok(Math.abs(sim.ratePerMin(s, diner) - BUILDINGS.diner.baseRate * (1 + TUNING.recipeBonus)) < 1e-9);
+  assert.ok(Math.abs(sim.ratePerMin(s, diner) - BUILDINGS.diner.baseRate * TUNING.staffFactor[1] * (1 + TUNING.recipeBonus)) < 1e-9);
   assert.equal(sim.recipesFor(s, diner).length, 1);
 
   // school: skills only ever go up, and the town gets cleverer
@@ -1636,4 +1637,49 @@ test('entry road and trade trucks', () => {
   const old = JSON.parse(JSON.stringify(s)); delete old.trucks;
   const m = S.migrate(old);
   assert.deepEqual(m.trucks, []);
+});
+
+test('teams: shop sizes, team meter, hire best, better-job suggestions', () => {
+  const s = fresh();
+  const homes = [put(s, 'apartment', T0), put(s, 'apartment', T0)];
+  const small = put(s, 'icecream', T0), big = put(s, 'market', T0), diner = put(s, 'diner', T0);
+  assert.equal(sim.slotsOf(small), 1); assert.equal(sim.slotsOf(big), 4); assert.equal(sim.slotsOf(diner), 2);
+  big.level = TUNING.slotAtLevel; assert.equal(sim.slotsOf(big), 5, 'a top-level shop gets one more job');
+  big.level = 1;
+  // bigger shops hold more stock, so a full team doesn't sell out sooner
+  assert.ok(sim.stockMaxOf(big) > sim.stockMaxOf(small));
+  const p = [];
+  for (let i = 0; i < 6; i++) p.push(person(s, homes[i % 2], T0, { skill: i < 3 ? 9 : 2, dream: 'cinema' }));
+  // the small shop takes one worker only
+  assert.equal(sim.assignJob(s, p[0].id, small.id, T0).ok, true);
+  assert.equal(sim.assignJob(s, p[1].id, small.id, T0).ok, false);
+  // team meter: one skill-9 worker in a one-job shop is the best team it can have
+  let team = sim.teamOf(s, small, T0);
+  assert.ok(team.pct > 0.99); assert.equal(team.stars, 3);
+  // a big shop with one weak worker is far from its best, and says how to improve
+  sim.assignJob(s, p[3].id, big.id, T0);
+  team = sim.teamOf(s, big, T0);
+  assert.ok(team.pct < 0.4 && team.stars === 0); assert.match(team.tip, /Hire/);
+  // hire best picks the most skilled person who would do better here
+  const hire = sim.bestHire(s, big.id, T0);
+  assert.ok(hire && hire.skills.retail === 9 && hire.jobId == null);
+  // a fuller, more skilled team serves more residents
+  const serves1 = sim.shopServes(s, big);
+  sim.assignJob(s, hire.id, big.id, T0);
+  assert.ok(sim.shopServes(s, big) > serves1);
+  assert.ok(sim.teamOf(s, big, T0).workers.every((w) => w.adds > 0));
+  // fit stars
+  assert.equal(sim.fitStars(p[0], small), 3); assert.equal(sim.fitStars(p[3], big), 1);
+  // suggestions: only moves that help, nobody moved by them
+  const before = s.tenants.map((t) => t.jobId);
+  const moves = sim.jobSuggestions(s, T0);
+  assert.ok(moves.length > 0 && moves.every((m) => m.gain > 0));
+  assert.deepEqual(s.tenants.map((t) => t.jobId), before, 'suggestions never move anyone');
+  for (const m of moves) assert.equal(sim.assignJob(s, m.tenant.id, m.to.id, T0).ok, true, 'every suggested move fits');
+  // a shop that shrank keeps its workers (older saves): two people in a one-job shop
+  const extra = p.find((t) => t.jobId == null) || p[5];
+  extra.jobId = small.id;
+  assert.ok(sim.workersOf(s, small.id).length >= 2);
+  assert.ok(sim.ratePerMin(s, small) > 0);
+  assert.equal(sim.bestHire(s, small.id, T0), null, 'no new hires while over');
 });

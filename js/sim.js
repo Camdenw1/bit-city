@@ -207,8 +207,18 @@ export function buyLand(state, id, now) {
 
 // ---- upgrades ---------------------------------------------------------------
 
+/** Jobs at a shop: its size (1 to 4), plus one at level TUNING.slotAtLevel. */
+export function slotsOf(b) {
+  const d = defOf(b);
+  if (d.kind !== 'biz') return 0;
+  return (d.slots || 2) + ((b.level || 1) >= TUNING.slotAtLevel ? 1 : 0);
+}
+const staffOf = (n) => TUNING.staffFactor[Math.max(0, Math.min(n, TUNING.staffFactor.length - 1))];
+/** Bigger shops hold more stock, so a full team doesn't sell out sooner (no extra restocking). */
+const sizeOf = (b) => staffOf(slotsOf(b)) / staffOf(2);
+
 export function stockMaxOf(b) {
-  return Math.round(statsOf(b).stockMax * levelMult(b.level));
+  return Math.round(statsOf(b).stockMax * levelMult(b.level) * sizeOf(b));
 }
 
 /** Coins to take this building up one level, or 0 when it is already at the top. */
@@ -382,7 +392,7 @@ export function build(state, type, x, y, now, opts = {}) {
     building.cat = cat;
     building.tier = shopsIn(state, cat);
     building.q = QUALITY[opts.q] ? opts.q : 0;
-    building.stock = shopStats(cat, building.tier).stockMax; // every new shop opens fully stocked
+    building.stock = stockMaxOf(building);                  // every new shop opens fully stocked
     building.dreamStars = 0;
     building.carry = 0;
     building.price = 'normal';
@@ -522,8 +532,8 @@ function potentialRate(state, b, mode = b.price) {
     }
   }
   if (n === 0) return 0;
-  const staff = TUNING.staffFactor[Math.min(n, TUNING.staffFactor.length - 1)];
-  const skill = 1 + skillSum / TUNING.skillDivisor;
+  const staff = staffOf(n);
+  const skill = skillFactor(skillSum / n);
   const dream = 1 + TUNING.dreamBonus * (b.dreamStars || 0);
   const menu = catOf(b) === 'food' ? 1 + TUNING.recipeBonus * state.recipes.length : 1;
   const price = PRICE_MODES[mode] || PRICE_MODES.normal;
@@ -924,19 +934,19 @@ export function townMood(state, now) {
   const pop = state.tenants.length;
   const needs = NEEDS.filter((n) => pop >= n.unlockAt);
   const met = new Map(state.tenants.map((t) => [t.id, new Set()]));
-  const have = {}; const served = new Map(); const staffed = {};
+  const have = {}; const served = new Map(); const staffed = {}; const room = {};
   const give = (t, id) => { met.get(t.id).add(id); have[id] = (have[id] || 0) + 1; };
   for (const b of state.buildings) {
     if (!isBiz(b) || !isBuilt(b, now) || workersOf(state, b.id).length === 0) continue;
     staffed[catOf(b)] = (staffed[catOf(b)] || 0) + 1;
+    room[catOf(b)] = (room[catOf(b)] || 0) + shopServes(state, b);
   }
   const homes = new Map(state.buildings.map((b) => [b.id, b]));
   for (const n of needs) {
     if (n.id === 'jobs') {
       for (const t of state.tenants) if (t.jobId != null) give(t, n.id);
     } else if (CATEGORIES.includes(n.id)) {
-      const room = (staffed[n.id] || 0) * TUNING.needServes;
-      state.tenants.slice(0, room).forEach((t) => give(t, n.id));
+      state.tenants.slice(0, room[n.id] || 0).forEach((t) => give(t, n.id));
     } else {
       for (const b of state.buildings) {
         if (defOf(b).provides?.need !== n.id || !isBuilt(b, now)) continue;
@@ -1091,7 +1101,7 @@ export function mostWanted(state, now) {
     if (n.score >= 1) continue;
     const short = n.want - n.have;
     if (n.id === 'jobs') {
-      const open = builtBiz(state, now).find((b) => workersOf(state, b.id).length < defOf(b).slots);
+      const open = builtBiz(state, now).find((b) => workersOf(state, b.id).length < slotsOf(b));
       out.push({ id: 'jobs', icon: n.icon, title: `Jobs for ${short} ${short === 1 ? 'resident' : 'residents'}`,
         hint: open ? `Hire at ${buildingName(open)}` : 'Open a shop',
         buildingId: open?.id, type: null, cat: open ? null : 'food', score: n.score });
@@ -1151,7 +1161,7 @@ export function bizStatus(state, b, now) {
 
 export function restockCostOf(b) {
   const max = stockMaxOf(b);
-  return b.dreamStars ? 0 : Math.round(statsOf(b).restockCost * levelMult(b.level) * Math.max(0, max - b.stock) / max);
+  return b.dreamStars ? 0 : Math.round(statsOf(b).restockCost * levelMult(b.level) * sizeOf(b) * Math.max(0, max - b.stock) / max);
 }
 
 export function soldOutShops(state, now) {
@@ -1234,7 +1244,7 @@ export function jobFit(state, tenant, b) {
   return {
     skill: tenant.skills[catOf(b)] || 0,
     dream: tenant.dream === b.type,
-    open: workers.length < def.slots || tenant.jobId === b.id,
+    open: workers.length < slotsOf(b) || tenant.jobId === b.id,
   };
 }
 
@@ -1256,8 +1266,8 @@ export function assignJob(state, tenantId, bizId, now) {
   if (!isBuilt(b, now)) return fail("It isn't open yet. Almost there!", { dream: false });
   const dream = tenant.dream === b.type;
   if (tenant.jobId === b.id) return { ok: true, reason: '', dream };
-  if (workersOf(state, b.id).length >= defOf(b).slots) {
-    return fail('Both jobs here are taken.', { dream: false });
+  if (workersOf(state, b.id).length >= slotsOf(b)) {
+    return fail('Every job here is taken. Move someone first.', { dream: false });
   }
 
   tenant.jobId = b.id;
@@ -1299,6 +1309,118 @@ export function bestJobs(state, tenantId, now) {
     (a, b) => (b.open - a.open) || (b.dream - a.dream) || (b.skill - a.skill) || (a.building.id - b.building.id)
   );
   return out.slice(0, 3);
+}
+
+// ---- teams ---------------------------------------------------------------------
+// A shop's team is how many of its jobs are filled and how skilled those workers are.
+// The team meter compares it with the best team the shop could ever have (every job
+// filled by a skill-9 worker). Bigger, better teams also serve more residents' needs.
+
+function skillFactor(avg) {
+  return 1 + avg / TUNING.skillAvgDivisor;
+}
+
+/** Residents a staffed shop keeps happy: needServes for two average workers, more for a bigger, better team. */
+export function shopServes(state, b) {
+  const ws = workersOf(state, b.id);
+  if (!ws.length) return 0;
+  const avg = ws.reduce((n, t) => n + (t.skills[catOf(b)] || 0), 0) / ws.length;
+  return Math.max(1, Math.round(TUNING.needServes * (staffOf(ws.length) / staffOf(2)) * (0.8 + 0.4 * avg / 9) * favOf(b)));
+}
+
+/**
+ * The team at a shop: { slots, workers: [{ tenant, skill, dream, adds }], pct, stars, serves, tip }.
+ * `adds` is how much that worker adds to sales (0.26 = +26%); `tip` is the one thing that would help most.
+ */
+export function teamOf(state, b, now) {
+  if (!isBiz(b)) return null;
+  const slots = slotsOf(b), cat = catOf(b);
+  const ws = workersOf(state, b.id);
+  const skills = ws.map((t) => t.skills[cat] || 0);
+  const avg = ws.length ? skills.reduce((a, c) => a + c, 0) / ws.length : 0;
+  const now_ = ws.length ? staffOf(ws.length) * skillFactor(avg) : 0;
+  const best = staffOf(slots) * skillFactor(9);
+  const pct = Math.max(0, Math.min(1, now_ / best));
+  const stars = TUNING.teamStars.filter((x) => pct >= x - 1e-9).length;
+  const workers = ws.map((t, i) => {
+    // what the shop would lose without this worker
+    const rest = skills.filter((_, j) => j !== i);
+    const without = rest.length ? staffOf(rest.length) * skillFactor(rest.reduce((a, c) => a + c, 0) / rest.length) : 0;
+    return { tenant: t, skill: skills[i], dream: t.dream === b.type, adds: without > 0 ? now_ / without - 1 : null };
+  });
+  let tip = '';
+  const hire = bestHire(state, b.id, now);
+  if (ws.length > slots) tip = `This shop has ${slots} ${slots === 1 ? 'job' : 'jobs'} now. ${ws.length - slots === 1 ? 'The extra worker stays' : 'The extra workers stay'} until you move them.`;
+  else if (ws.length < slots) tip = hire ? `Hire ${hire.name} (skill ${hire.skills[cat] || 0}) to fill an open job.` : 'An open job is waiting: more residents will fill it.';
+  else {
+    const weakest = workers.slice().sort((a, z) => a.skill - z.skill)[0];
+    const elsewhere = weakest && !weakest.dream ? bestJobs(state, weakest.tenant.id, now).find((j) => j.open) : null;
+    if (weakest && weakest.skill < 9) tip = elsewhere
+      ? `${weakest.tenant.name} would do better at the ${buildingName(elsewhere.building)}; a more skilled worker could take this job.`
+      : `More skilled workers would sell more. A School or Library teaches skills.`;
+  }
+  return { slots, workers, pct, stars, serves: shopServes(state, b), tip };
+}
+
+/** How well a person suits a job: 0 (no job) or 1 to 3 stars; a dream job is always 3. */
+export function fitStars(tenant, b) {
+  if (!tenant || !b) return 0;
+  if (tenant.dream === b.type) return 3;
+  const s = tenant.skills[catOf(b)] || 0;
+  return s >= 7 ? 3 : s >= 4 ? 2 : 1;
+}
+
+/** The best person to hire into a shop's open job: someone without a job or who would do better here. */
+export function bestHire(state, bizId, now) {
+  const b = buildingById(state, bizId);
+  if (!b || !isBiz(b) || !isBuilt(b, now) || workersOf(state, b.id).length >= slotsOf(b)) return null;
+  const cat = catOf(b);
+  let best = null, bestScore = -Infinity;
+  for (const t of state.tenants) {
+    if (t.jobId === b.id) continue;
+    const cur = buildingById(state, t.jobId);
+    const here = t.dream === b.type ? 10 : (t.skills[cat] || 0);
+    const now_ = cur ? (t.dream === cur.type ? 10 : (t.skills[catOf(cur)] || 0)) : -1;
+    if (here <= now_) continue;                              // only moves that help them
+    const score = here + (cur ? 0 : 0.5);                    // ties go to someone without a job
+    if (score > bestScore) { bestScore = score; best = t; }
+  }
+  return best;
+}
+
+/**
+ * Job moves that would put people where they do best, best first:
+ * [{ tenant, from, to, skill, dream, gain }]. Each one is a plain suggestion; nothing moves by itself.
+ */
+export function jobSuggestions(state, now, max = 8) {
+  const score = (t, b) => (!b ? -1 : t.dream === b.type ? 10 : (t.skills[catOf(b)] || 0));
+  const free = new Map();
+  for (const b of builtBiz(state, now)) free.set(b.id, slotsOf(b) - workersOf(state, b.id).length);
+  const where = new Map(state.tenants.map((t) => [t.id, t.jobId]));
+  const out = [];
+  for (let round = 0; round < max; round++) {
+    let pick_ = null;
+    for (const t of state.tenants) {
+      if (out.some((m) => m.tenant.id === t.id)) continue;
+      const cur = buildingById(state, where.get(t.id));
+      const have = score(t, cur);
+      if (have >= 10) continue;
+      for (const b of builtBiz(state, now)) {
+        if (b.id === where.get(t.id) || (free.get(b.id) || 0) <= 0) continue;
+        const gain = score(t, b) - have;
+        if (gain <= 0) continue;
+        if (!pick_ || gain > pick_.gain || (gain === pick_.gain && t.id < pick_.tenant.id)) {
+          pick_ = { tenant: t, from: cur || null, to: b, skill: t.skills[catOf(b)] || 0, dream: t.dream === b.type, gain };
+        }
+      }
+    }
+    if (!pick_) break;
+    out.push(pick_);
+    free.set(pick_.to.id, free.get(pick_.to.id) - 1);
+    if (pick_.from) free.set(pick_.from.id, (free.get(pick_.from.id) || 0) + 1);
+    where.set(pick_.tenant.id, pick_.to.id);
+  }
+  return out;
 }
 
 // ---- town jobs ------------------------------------------------------------
@@ -1718,7 +1840,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
       if (!isBiz(b)) continue;
       const staff = Math.min(workersOf(state, b.id).length, TUNING.staffFactor.length - 1);
       const crop = defOf(b).crop;
-      const growth = TUNING.cropPerHour * TUNING.staffFactor[staff] * levelMult(b.level) / 3600000;
+      const growth = TUNING.cropPerHour * (staffOf(staff) / staffOf(1)) * levelMult(b.level) / 3600000;   // one farmer grows cropPerHour
       shops.push({ b, crop, growth, rate: potentialRate(state, b), pay: (PRICE_MODES[b.price] || PRICE_MODES.normal).pay, sold: 0, restocked: false });
     }
     const farms = shops.filter((shop) => shop.crop && shop.growth > 0);

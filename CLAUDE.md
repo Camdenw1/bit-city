@@ -149,6 +149,17 @@ covers running and publishing. This file holds the design decisions and the road
   building needs its own `BUILD.<id>` sprite.
 - Town buildings (`kind` 'civic' or 'park': Tree, Clinic, School, Park, Library, Fountain)
   have no workers and no stock, on purpose. Parks boost rent of homes within 2 lots.
+- Teams (batch 1, 2026-11-10): shops have 1 to 4 jobs (`slots` in `BUILDINGS`, Camden: "really
+  small shops hold 1 person and big shops hold up to 5"); level 3 adds one (`slotsOf`). Diner and
+  Water Works stay at 2. Sales use `staffFactor` [0, 1.25, 1.85, 2.35, 2.75, 3.05] (retuned so early
+  pacing matched the bot runs before teams) times 1 + average skill / 13.5. Small shops are cheap
+  to staff, big ones earn more per lot; stock and restock cost scale with size so a full team
+  doesn't sell out sooner. The team meter (`teamOf`) is today's team against the best possible
+  (every job filled at skill 9), 1-3 stars at 40/70/95%, with one tip. A shop serves
+  `needServes` x team size x skill residents (`shopServes`), so good staffing also lifts happiness.
+  Help: "Hire best" on a shop (`bestHire`), "Better jobs" with "Do all" on People
+  (`jobSuggestions`), and ★-★★★ fit on every worker (`fitStars`). Nothing moves without a tap.
+  Workers in a shop that shrank keep their jobs until moved.
 - Crops are lifetime totals that only go up (`state.crops`); staffed farms grow them.
   Recipes unlock from those totals and each adds a star and +20% sales to its restaurant.
 - School and library teach skill points over time (job skill first). Skills cap at 9.
@@ -159,6 +170,10 @@ Done from it: hourly rent and rent/hour display, 10x play boost, distance fares,
 range for town buildings, per-resident happiness with reasons, happiness moving rent both ways,
 shop problems the government solves, the Mayor's desk, his own places, land-bound buildings,
 a jobs board with six ways to earn, the gas pedal, car upgrades and the welcome drive.
+Batch 1 (worker skill and count) is done. Moving in will change (Camden picked newcomers who
+arrive on the entry road, with some luck in how good a tenant turns out, and a way to deal with
+residents you don't want); design not settled yet. He also wants a new name that copies nothing
+on the App Store ("Bit City" is a NimbleBit game).
 Suggested order for the rest (he has not confirmed it): visitors and a social feed; moving
 buildings and terrain-only buildings; raw materials and a construction crew; prestige trees.
 His calls on the contested ideas (2026-11-10), still to build:
@@ -176,7 +191,7 @@ change when these are built.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (45 passing).
+- Tests: `node --test` from the project root (46 passing).
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
 
