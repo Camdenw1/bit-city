@@ -43,8 +43,10 @@ covers running and publishing. This file holds the design decisions and the road
   (`isRoad` in `js/config.js`); the player never draws roads.
 - Platform: home-screen web app (PWA). Plain ES modules, canvas map, HTML menus,
   no build step, no dependencies, no network calls. The folder is the game.
-- Hosting plan: GitHub Pages (not set up yet). Local git repo on `main`, no remote yet.
-  Commit after each finished batch so any tool's work can be reviewed with `git diff`.
+- Hosting: GitHub Pages from `main` (root) of the public repo Camdenw1/bit-city, live at
+  https://camdenw1.github.io/bit-city/ (set up 2026-11-10; Camden chose public). Commit after
+  each finished batch; push only when Camden says so. A push redeploys in about a minute and
+  the phone picks it up on the second launch (bump `CACHE` in `sw.js`).
 - Art: simple pixel art drawn in code in `js/sprites.js` from one shared palette.
   Camden left art direction to our judgement, then asked for "clean, easy to understand".
 - Map art rules (map cleanup pass): every building sprite is 16x16 and fits its own lot,
@@ -164,7 +166,8 @@ change when these are built.
 
 ## Known gaps at handoff
 
-- Never run on a real iPhone yet. Tested in a 390x844 headless Chrome with touch.
+- Live on GitHub Pages since 2026-11-10, but not yet confirmed on Camden's iPhone (he has a
+  checklist to report back on). Before that, tested only in a 390x844 headless Chrome.
 - ChatGPT (Codex) finished the surprise-shop menu and added deliveries and restock-all. It
   also wrote jobs-board rules with no screens; the screens were built on 2026-11-10.
 - Removing a surprise shop refunds 75%, so a reroll costs 25%. Left as is.

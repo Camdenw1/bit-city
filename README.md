@@ -16,11 +16,10 @@ Open http://localhost:8000 and shrink the window to phone shape.
 
 ## Put it on your iPhone (free, about 5 minutes)
 
-1. Create a new repository on github.com (private repos need a paid plan for Pages; public is free).
-2. From this folder: `git init && git add . && git commit -m "Bit City" && git branch -M main`
-   then `git remote add origin <your repo url> && git push -u origin main`.
-3. On GitHub: Settings → Pages → Source: "Deploy from a branch", branch `main`, folder `/ (root)`.
-4. Open the Pages URL in Safari on your phone → Share → Add to Home Screen.
+The game is published at https://camdenw1.github.io/bit-city/ from the `main` branch of
+https://github.com/Camdenw1/bit-city (Settings → Pages: deploy from `main`, root).
+
+To install: open that URL in Safari on your phone → Share → Add to Home Screen.
 
 After that it opens full screen and works offline. To update the game, push again;
 the phone picks up the new version the second time you open it.
