@@ -21,8 +21,10 @@ covers running and publishing. This file holds the design decisions and the road
 ## Design pillars (his words, treat as rules)
 
 - "Really easy, really simple." "Cute, simple."
-- Positive reinforcement, never penalties. Nothing in the game takes anything away:
-  no decay, no fines, no tenants leaving, no unhappy-rent cuts.
+- Mild penalties are allowed (Camden dropped "never penalties" on 2026-11-10). His words:
+  "the penalties shouldn't be too big, they should more be to help guide you into creating
+  a more robust and thriving city". So: small, clearly explained, always fixable by the
+  player, and never able to wipe out progress or a save.
 - "I don't want chores." Restocking is one tap on the shop. If a mechanic becomes
   upkeep, redesign it.
 - Take a lot from Tiny Tower: tenants with skill ratings in five job categories, dream
@@ -106,9 +108,16 @@ Suggested order for the rest (he has not confirmed it): mayor/government with pe
 happiness and range benefits; his own places (taco shop, basketball gym, ski/bike/hike access,
 ice cream, university, music store, concert venue); visitors and a social feed; moving
 buildings and terrain-only buildings; raw materials and a construction crew; prestige trees.
-Ideas that clash with the pillars and need his call before building: problems that limit
-business, "vice versa" on happiness, costly demolition, hold-the-gas driving and taxiing every
-new resident home, and a stock market that can lose coins.
+His calls on the contested ideas (2026-11-10), all still to build:
+- Town problems really do limit a business until the government fixes them.
+- Low happiness lowers income as well as high happiness raising it.
+- Demolition costs coins instead of refunding 75%.
+- The stock market can lose coins.
+- Hold-the-gas driving is an optional bonus: rides still finish on their own, holding the gas
+  is faster and tips more, and car upgrades raise the speed.
+- Driving a new resident home is an optional welcome bonus; tapping Move still works at once.
+The tests "nothing ever takes coins away" and the 75% refund test encode the old rule and
+change when these are built.
 
 ## Architecture rules
 
