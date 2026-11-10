@@ -1158,9 +1158,37 @@ export function bestJobs(state, tenantId, now) {
 
 // ---- town jobs ------------------------------------------------------------
 
-function jobPay(state, kind) {
+/** What a job pays: so many minutes of the town's shop income, with a small floor for tiny towns. */
+export function jobPay(state, kind, now) {
   const growth = Math.min(TUNING.jobMaxGrowth, Math.floor(population(state) * TUNING.jobPayPerResident));
-  return TOWN_JOBS[kind].pay + growth;
+  return Math.round(Math.max(TOWN_JOBS[kind].pay + growth, townRatePerMin(state, now) * TOWN_JOBS[kind].minutes));
+}
+
+/** Milliseconds until this job can be taken again (0 = ready). */
+export function jobReadyIn(state, kind, now) {
+  return Math.max(0, ((state.jobCooldowns || {})[kind] || 0) - now);
+}
+const restJob = (state, kind, now) => { state.jobCooldowns[kind] = now + TOWN_JOBS[kind].cooldownMs; };
+const waitText = (ms) => `Ready again in ${Math.ceil(ms / 1000)}s.`;
+
+/** The jobs board, one row per job: { kind, name, icon, hint, pay, readyIn, ok, why }. */
+export function jobBoard(state, now) {
+  const o = townJobOptions(state, now);
+  const busy = !!state.job || (state.ride && state.ride.state !== 'waiting');
+  return Object.keys(TOWN_JOBS).map((kind) => {
+    const d = TOWN_JOBS[kind];
+    let why = '';
+    if (kind === 'taxi') { if (!o.taxi) why = 'Needs a resident and two buildings'; }
+    else if (kind === 'delivery') { if (!o.delivery) why = 'Needs an open shop and a resident'; }
+    else if (!o.shops.length) why = 'Needs an open shop';
+    else if (kind === 'courier' && !o.courier) why = 'Needs two homes with residents';
+    else if (kind === 'odd' && !state.tenants.length) why = 'Needs a resident';
+    const readyIn = jobReadyIn(state, kind, now);
+    const pay = kind === 'taxi' ? Math.round(Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.rideFareMinutes))
+      : kind === 'delivery' ? Math.round(Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.deliveryFareMinutes))
+      : jobPay(state, kind, now) * (kind === 'courier' ? TUNING.courierStops : 1);
+    return { kind, name: d.name, icon: d.icon, hint: d.hint, pay, readyIn, ok: !why && !busy && readyIn === 0, why: why || (busy ? 'Finish your current job first' : '') };
+  });
 }
 
 function occupiedHomes(state, now) {
@@ -1209,6 +1237,8 @@ function shortestRoute(start, stops) {
 
 export function startTownJob(state, kind, shopId, now) {
   if (state.job || (state.ride && state.ride.state !== 'waiting')) return fail('Finish or skip your current job first.');
+  if (!TOWN_JOBS[kind] || kind === 'taxi' || kind === 'delivery') return fail('That job is unavailable.');
+  if (jobReadyIn(state, kind, now) > 0) return fail(waitText(jobReadyIn(state, kind, now)));
   const { shops, courier } = townJobOptions(state, now);
   if (!shops.length) return fail('Open a shop to start town jobs.');
   let job;
@@ -1232,13 +1262,15 @@ export function startTownJob(state, kind, shopId, now) {
     job = { kind, shopId: shop.id, stops: stops.map((b) => b.id), x: shop.x, y: shop.y,
       distance: 0, best: shortestRoute(shop, stops) };
   } else return fail('That job is unavailable.');
-  job.pay = jobPay(state, kind);
+  job.pay = jobPay(state, kind, now);
   clearRide(state, now);
   state.job = job;
+  restJob(state, kind, now);
   return { ok: true, job };
 }
 
 export function skipTownJob(state) {
+  if (state.job) delete state.jobCooldowns[state.job.kind];   // nothing earned, so it can be taken again straight away
   state.job = null;
   return { ok: true };
 }
@@ -1267,7 +1299,7 @@ export function sendHelper(state, id) {
   const job = state.job;
   const tenant = tenantById(state, id);
   if (job?.kind !== 'odd' || !tenant || !job.candidates.includes(id)) return fail('Choose one of the helpers.');
-  return finishTownJob(state, job.pay + tenant.skills[job.category]);
+  return finishTownJob(state, Math.round(job.pay * (1 + TUNING.oddSkillBonus * (tenant.skills[job.category] || 0))));
 }
 
 export function deliverStop(state, id) {
@@ -1282,7 +1314,7 @@ export function deliverStop(state, id) {
     gain(state, job.pay, 'job');
     return { ok: true, pay: job.pay };
   }
-  const bonus = job.distance === job.best ? TUNING.courierBonus : 0;
+  const bonus = job.distance === job.best ? job.pay : 0;   // the shortest route earns one more stop's pay
   return { ...finishTownJob(state, job.pay + bonus), bonus };
 }
 
@@ -1330,9 +1362,11 @@ export function startBoardRide(state, kind, now) {
   if (state.job || (state.ride && state.ride.state !== 'waiting')) return fail('Finish or skip your current job first.');
   if (kind !== 'taxi' && kind !== 'delivery') return fail('Choose a ride or delivery.');
   if (!townJobOptions(state, now)[kind]) return fail('This job needs an open shop and a resident.');
+  if (jobReadyIn(state, kind, now) > 0) return fail(waitText(jobReadyIn(state, kind, now)));
   const ride = makeRide(state, now, kind);
   if (!ride) return fail('No route is available yet.');
   state.ride = ride;
+  restJob(state, kind, now);
   return acceptRide(state, now);
 }
 
@@ -1349,8 +1383,7 @@ export function acceptRide(state, now) {
     ride.state = 'choosing';
     ride.acceptedAt = now;
     if (ride.kind === 'delivery') {
-      ride.fare = ride.board ? jobPay(state, 'delivery')
-        : Math.round(Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.deliveryFareMinutes));
+      ride.fare = Math.round(Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.deliveryFareMinutes));
       ride.fare = Math.round(ride.fare * distancePay(state, ride));
     }
   }
@@ -1391,8 +1424,7 @@ export function chooseDestination(state, buildingId, now) {
     ride.toId = got.id;
   }
   if (ride.kind !== 'delivery') {
-    const base = ride.board ? jobPay(state, 'taxi')
-      : Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.rideFareMinutes);
+    const base = Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.rideFareMinutes);
     ride.fare = Math.round(base * distancePay(state, ride) * tipFor(ride, now));
   }
   ride.state = 'driving';
@@ -1408,6 +1440,7 @@ export function skipDelivery(state, now) {
 
 export function skipBoardRide(state, now) {
   if (!state.ride?.board || state.ride.state !== 'choosing') return fail('There is no job to skip.');
+  delete state.jobCooldowns[state.ride.kind === 'delivery' ? 'delivery' : 'taxi'];
   clearRide(state, now);
   return { ok: true };
 }

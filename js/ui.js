@@ -143,9 +143,10 @@ export function createUI(root, api) {
     </div>
     <div class="toasts" data-h="toasts" aria-live="polite"></div>
     <nav class="bottom-bar">
-      <button class="bar-btn" data-act="nav-build">${icon('hammer', 3)}<span>Build</span></button>
-      <button class="bar-btn" data-act="nav-people">${icon('person', 3)}<span>People</span><i class="bar-dot" data-h="peopleDot" hidden></i></button>
-      <button class="bar-btn" data-act="nav-menu">${icon('heart', 3)}<span>Menu</span></button>
+      <button class="bar-btn" data-act="nav-build">${icon('hammer', 2)}<span>Build</span></button>
+      <button class="bar-btn" data-act="nav-jobs">${icon('taxi', 2)}<span>Jobs</span></button>
+      <button class="bar-btn" data-act="nav-people">${icon('person', 2)}<span>People</span><i class="bar-dot" data-h="peopleDot" hidden></i></button>
+      <button class="bar-btn" data-act="nav-menu">${icon('heart', 2)}<span>Menu</span></button>
     </nav>
     <div class="backdrop" data-act="close"></div>
     <section class="sheet" role="dialog" aria-modal="true" aria-hidden="true">
@@ -755,6 +756,46 @@ export function createUI(root, api) {
       };
     },
 
+    /* --- Jobs board: ways to earn right now --- */
+    jobs() {
+      const s = S(); const now = N();
+      const rows = (call('jobBoard', s, now) || []).map((j) => {
+        const note = j.readyIn > 0 ? `Ready in ${formatDuration(j.readyIn)}` : j.why || j.hint;
+        return `<button class="want-row wish-button plain job-row${j.ok ? '' : ' is-off'}" data-act="start-job" data-kind="${j.kind}" data-key="${j.kind}">${icon(j.icon, 2)}
+          <span class="wish-copy"><b>${esc(j.name)}</b><span>${esc(note)}</span></span>
+          <span class="price">${icon('coin', 1, 'i12')}${j.kind === 'taxi' || j.kind === 'odd' ? 'from ' : ''}${formatCoins(j.pay)}</span></button>`;
+      }).join('');
+      return { title: 'Jobs', html: `<p class="note">Jobs pay more as your town grows. Each one rests a little after you do it.</p>${rows}` };
+    },
+
+    /* --- A job played inside a sheet: Lunch Rush and Odd Jobs --- */
+    job() {
+      const s = S(); const j = s.job;
+      if (!j || !['rush', 'odd'].includes(j.kind)) return VIEWS.jobs();
+      const skip = `<button class="link" data-act="skip-job">Skip this job</button>`;
+      if (j.kind === 'rush') {
+        const menu = (config.RUSH_MENUS || {})[j.menu] || [];
+        const want = menu[j.orders[j.index]] || ['?', ''];
+        const shop = byId(j.shopId);
+        return {
+          title: 'Lunch Rush',
+          html: `<p class="lead center">${shop ? esc(bName(shop)) : 'The shop'} · order ${j.index + 1} of ${j.orders.length}</p>
+            <div class="rush-want" data-key="o${j.index}"><span>${want[0]}</span><b>${esc(want[1])}, please!</b></div>
+            <div class="rush-row">${menu.map((m, i) => `<button class="card rush-btn" data-act="serve" data-i="${i}" data-key="c${i}"><span class="rush-pic">${m[0]}</span><b class="card-name">${esc(m[1])}</b></button>`).join('')}</div>
+            <p class="note center">Serve all ${j.orders.length} for ${formatCoins(j.pay)} coins.</p>${skip}`,
+        };
+      }
+      const cat = j.category;
+      const rows = j.candidates.map(tenantById).filter(Boolean).map((t) =>
+        `<button class="want-row wish-button plain" data-act="send-helper" data-id="${t.id}" data-key="h${t.id}"><span class="avatar">${person(t.look, 3)}</span>
+          <span class="wish-copy"><b>${esc(t.name)}</b><span>${CAT_LABEL[cat] || ''} skill</span></span>${skillBadge(cat, t.skills[cat] || 0)}</button>`).join('');
+      return {
+        title: 'Odd Jobs',
+        html: `<p class="lead center">${esc((config.ODD_JOBS || {})[cat] || 'Lend a hand')}</p>
+          <p class="note center">Who should go? Better ${(CAT_LABEL[cat] || '').toLowerCase()} skill earns more.</p>${rows}${skip}`,
+      };
+    },
+
     /* --- Mayor's desk: problems, unhappy residents, and what each town building covers --- */
     mayor() {
       const s = S(); const now = N(); const m = mood();
@@ -867,8 +908,25 @@ export function createUI(root, api) {
 
   /* ----- ride banner ----- */
   let rideView = null;  // { ride, mode, delay }
+  function jobBanner() {
+    const s = S(); const j = s.job;
+    if (!j) return '';
+    const d = (config.TOWN_JOBS || {})[j.kind] || {};
+    let text = ''; let open = '';
+    if (j.kind === 'lost') { const shop = byId(j.shopId); text = `Pip was seen ${esc(j.direction)} of the ${shop ? esc(bName(shop)) : 'shops'}. Tap Pip!`; }
+    else if (j.kind === 'courier') text = `${j.stops.length} ${j.stops.length === 1 ? 'home' : 'homes'} left · +${formatCoins(j.pay)} each. Tap the glowing homes.`;
+    else if (j.kind === 'rush') { text = `Order ${j.index + 1} of ${j.orders.length}`; open = `<button class="btn btn-small btn-go" data-act="open-job">Open</button>`; }
+    else { text = 'Choose a helper'; open = `<button class="btn btn-small btn-go" data-act="open-job">Open</button>`; }
+    return `<div class="ride panel" data-key="job-${j.kind}">${icon(d.icon || 'star', 3)}
+      <div class="ride-mid"><p><b>${esc(d.name || 'Job')}</b></p><p class="note">${text}</p></div>${open}
+      <button class="icon-btn" data-act="skip-job" aria-label="Skip job">✕</button></div>`;
+  }
   function renderRide() {
-    if (!rideView) { if (cache.ride !== '') { setHTML(h.ride, '', 'ride'); } return; }
+    if (!rideView) {
+      const banner = sheet && sheet.kind === 'job' ? '' : jobBanner();
+      if (cache.ride !== banner) setHTML(h.ride, banner, 'ride');
+      return;
+    }
     const s = S();
     const live = s.ride || rideView.ride;
     const t = tenantById(live.tenantId);
@@ -1038,6 +1096,36 @@ export function createUI(root, api) {
       toast(r && r.ok ? 'All fixed!' : (r && r.reason) || '');
     },
     'nav-menu': () => openSheet({ kind: 'menu', reset: 0 }),
+    'nav-jobs': () => openSheet(S().job && ['rush', 'odd'].includes(S().job.kind) ? { kind: 'job' } : { kind: 'jobs' }),
+    'open-job': () => openSheet({ kind: 'job' }),
+    'start-job': (el) => {
+      const kind = el.dataset.kind; const s = S();
+      if (kind === 'taxi' || kind === 'delivery') {
+        const r = act('startBoardRide', kind);
+        if (!r.ok) return;
+        closeSheet();
+        try { if (kind === 'delivery' && r.destination) api.renderer.focusTile(r.destination); } catch (e) { /* cosmetic */ }
+        showRide(S().ride);
+        return;
+      }
+      const shops = (call('townJobOptions', s, N()) || {}).shops || [];
+      const shop = shops[Math.floor(Math.random() * shops.length)];
+      const r = act('startTownJob', kind, shop ? shop.id : null);
+      if (!r.ok) return;
+      if (kind === 'rush' || kind === 'odd') { openSheet({ kind: 'job' }); return; }
+      closeSheet();
+      try { const at = kind === 'courier' ? byId(r.job.shopId) : byId(r.job.shopId) || r.job; if (at) api.renderer.focusTile({ x: at.x, y: at.y }); } catch (e) { /* cosmetic */ }
+    },
+    'skip-job': () => { act('skipTownJob'); if (sheet && sheet.kind === 'job') openSheet({ kind: 'jobs' }); },
+    serve: (el) => {
+      const j = S().job; if (!j) return;
+      const r = act('serveOrder', j.index, Number(el.dataset.i));
+      if (r.ok && r.done) { toast(`Lunch Rush done! +${formatCoins(r.pay)} coins`); openSheet({ kind: 'jobs' }); }
+    },
+    'send-helper': (el) => {
+      const r = act('sendHelper', Number(el.dataset.id));
+      if (r.ok) { toast(`Job done! +${formatCoins(r.pay)} coins`); openSheet({ kind: 'jobs' }); }
+    },
     'nav-town': () => { wishBuild = null; openSheet({ kind: 'town' }); refreshHUD(); },
     'follow-wish': (el) => {
       const wish = call('mostWanted', S(), N())?.find((w) => w.id === el.dataset.id);
@@ -1230,7 +1318,7 @@ export function createUI(root, api) {
       refreshHUD();
       if (rideView) {
         if (!S().ride) { rideView = null; renderRide(); refreshHUD(); } else renderRide();
-      }
+      } else renderRide();   // keeps the job banner current
       if (sheet) renderSheet();
     } catch (err) {
       if (typeof console !== 'undefined') console.error('[ui] refresh', err);

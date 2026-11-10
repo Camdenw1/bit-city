@@ -1479,3 +1479,69 @@ test('mayor\'s places: favourites do more, special land is needed for a few, and
   // nobody dreams of a place the land can't give them
   for (let i = 0; i < 300; i++) assert.ok(!BUILDINGS[S.makeApplicant(s).dream].near);
 });
+
+test('jobs board: every job can be played, pays with the town, and rests afterwards', () => {
+  const s = fresh();
+  const homes = [put(s, 'tent', T0), put(s, 'tent', T0), put(s, 'tent', T0)];
+  const people = homes.map((h) => person(s, h, T0, { skill: 5 }));
+  const diner = put(s, 'diner', T0);
+  sim.assignJob(s, people[0].id, diner.id, T0); allGoalsDone(s);
+  let now = T0 + 1000;
+  const board = () => Object.fromEntries(sim.jobBoard(s, now).map((j) => [j.kind, j]));
+  assert.deepEqual(Object.keys(board()), Object.keys(config.TOWN_JOBS));
+  assert.ok(Object.values(board()).every((j) => j.ok && j.pay > 0 && j.readyIn === 0));
+  // pay follows the town's income once that beats the small floor
+  const small = sim.jobPay(s, 'rush', now);
+  diner.tier = 12;
+  assert.ok(sim.jobPay(s, 'rush', now) > small);
+  assert.equal(sim.jobPay(s, 'rush', now), Math.round(sim.townRatePerMin(s, now) * config.TOWN_JOBS.rush.minutes));
+  diner.tier = 0;
+
+  // Lunch Rush: wrong picture costs nothing, five right ones pay
+  let coins = s.coins;
+  let r = sim.startTownJob(s, 'rush', diner.id, now); assert.ok(r.ok);
+  assert.equal(board().odd.ok, false, 'one job at a time');
+  const pay = s.job.pay;
+  assert.equal(sim.serveOrder(s, 0, (s.job.orders[0] + 1) % 3).ok, false);
+  while (s.job) r = sim.serveOrder(s, s.job.index, s.job.orders[s.job.index]);
+  assert.ok(r.done); assert.equal(r.pay, pay); assert.equal(s.coins, coins + pay);
+  // it rests, then comes back
+  assert.ok(board().rush.readyIn > 0); assert.equal(sim.startTownJob(s, 'rush', diner.id, now).ok, false);
+  now += config.TOWN_JOBS.rush.cooldownMs; assert.equal(board().rush.readyIn, 0);
+
+  // Odd Jobs: a more skilled helper earns more
+  assert.ok(sim.startTownJob(s, 'odd', null, now).ok);
+  const helper = sim.tenantById(s, s.job.candidates[0]); const cat = s.job.category; const base = s.job.pay;
+  coins = s.coins;
+  r = sim.sendHelper(s, helper.id);
+  assert.equal(r.pay, Math.round(base * (1 + TUNING.oddSkillBonus * helper.skills[cat]))); assert.equal(s.coins, coins + r.pay);
+
+  // Lost & Found: only Pip's own tile counts
+  assert.ok(sim.startTownJob(s, 'lost', null, now).ok);
+  const { x, y } = s.job;
+  assert.equal(sim.findDog(s, x + 1, y).ok, false); assert.ok(sim.findDog(s, x, y).done);
+
+  // Courier: paid per stop, and the shortest route earns one more stop's pay
+  assert.ok(sim.startTownJob(s, 'courier', null, now).ok);
+  const job = s.job; const per = job.pay; coins = s.coins;
+  const perms = (a) => (a.length <= 1 ? [a] : a.flatMap((v, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((p) => [v, ...p])));
+  const len = (order) => order.reduce((acc, id) => { const h = sim.buildingById(s, id); const d = Math.abs(acc.x - h.x) + Math.abs(acc.y - h.y); return { x: h.x, y: h.y, d: acc.d + d }; }, { x: job.x, y: job.y, d: 0 }).d;
+  const best = perms(job.stops).sort((a, z) => len(a) - len(z))[0];
+  for (const id of best) r = sim.deliverStop(s, id);
+  assert.ok(r.done); assert.equal(r.bonus, per); assert.equal(s.coins, coins + per * best.length + per); assert.equal(s.job, null);
+
+  // skipping pays nothing and lets you take the job again at once
+  now += 10 * MIN;
+  assert.ok(sim.startTownJob(s, 'lost', null, now).ok); coins = s.coins;
+  sim.skipTownJob(s); assert.equal(s.coins, coins); assert.equal(board().lost.readyIn, 0);
+
+  // board rides pay like street rides and rest too
+  r = sim.startBoardRide(s, 'taxi', now); assert.ok(r.ok); assert.equal(s.ride.state, 'choosing');
+  const fare = sim.chooseDestination(s, s.ride.toId, now + 1000).fare;
+  assert.ok(fare >= Math.round(Math.max(TUNING.rideMinFare, sim.townRatePerMin(s, now) * TUNING.rideFareMinutes)));
+  sim.completeRide(s, now + 4000);
+  assert.equal(sim.startBoardRide(s, 'taxi', now + 5000).ok, false, 'resting');
+  // old saves gain the cooldown table
+  const old = JSON.parse(JSON.stringify(s)); delete old.jobCooldowns;
+  assert.deepEqual(S.migrate(old).jobCooldowns, {});
+});

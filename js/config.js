@@ -67,7 +67,7 @@ export const TUNING = {
   deliveryFareMinutes: 5,
   rushOrders: 5,
   courierStops: 3,
-  courierBonus: 8,
+  oddSkillBonus: 0.1,            // Odd Jobs pay this much more per skill point of the helper you send
   jobPayPerResident: 0.25,
   jobMaxGrowth: 22,
   rideGapMinMs: 40000,
@@ -124,13 +124,15 @@ export const PROBLEMS = {
   sniffles: { name: 'Staff caught a cold', fixer: 'health' },
 };
 
+// The jobs board: things to do for coins whenever you like. `minutes` = pay in minutes of the
+// town's shop income (never less than `pay`); each job rests for `cooldownMs` after you take it.
 export const TOWN_JOBS = {
-  rush: { name: 'Lunch Rush', icon: 'cat_food', hint: 'Match picture orders', pay: 22 },
-  lost: { name: 'Lost & Found', icon: 'dog', hint: 'Find Pip on the map', pay: 14 },
-  odd: { name: 'Odd Jobs', icon: 'person', hint: 'Send a resident to help', pay: 6 },
-  courier: { name: 'Courier Route', icon: 'box', hint: 'Plan a route between homes', pay: 7 },
-  taxi: { name: 'Taxi Ride', icon: 'taxi', hint: 'Drive a resident across town', pay: 12 },
-  delivery: { name: 'Package Delivery', icon: 'box', hint: 'Take a parcel to a home', pay: 14 },
+  taxi:     { name: 'Taxi Ride',        icon: 'taxi',     hint: 'Drive a resident across town',  pay: 12, minutes: 8, cooldownMs: 60000 },
+  delivery: { name: 'Package Delivery', icon: 'box',      hint: 'Take a parcel to a home',       pay: 14, minutes: 5, cooldownMs: 90000 },
+  rush:     { name: 'Lunch Rush',       icon: 'cat_food', hint: 'Serve five orders',             pay: 22, minutes: 6, cooldownMs: 120000 },
+  odd:      { name: 'Odd Jobs',         icon: 'person',   hint: 'Send the best resident to help', pay: 6,  minutes: 3, cooldownMs: 90000 },
+  lost:     { name: 'Lost & Found',     icon: 'dog',      hint: 'Find Pip the dog on the map',   pay: 14, minutes: 5, cooldownMs: 150000 },
+  courier:  { name: 'Courier Route',    icon: 'box',      hint: 'Three homes: shortest route pays a bonus', pay: 7, minutes: 2.5, cooldownMs: 180000 },
 };
 
 // Orders use pictures and labels so they work with or without colour.

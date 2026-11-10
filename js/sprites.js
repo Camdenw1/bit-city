@@ -700,6 +700,18 @@ const ICONS = {
     '....kk....',
     '..........',
   ],
+  dog: [
+    '..........',
+    '.kk....kk.',
+    'kbbkkkkbbk',
+    'kbttttttbk',
+    '.ktkttktk.',
+    '.kttttttk.',
+    '.ktwkkwtk.',
+    '.ktwwwwtk.',
+    '..kttttk..',
+    '...kkkk...',
+  ],
   box: [
     '..........',
     '.kkkkkkkk.',

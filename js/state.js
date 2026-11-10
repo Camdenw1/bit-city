@@ -117,6 +117,7 @@ export function newGame(now) {
     orders: [],                        // standing orders from neighbour towns
     trade: { sold: 0, filled: 0 },
     adUntil: 0,
+    jobCooldowns: {},                  // jobs board: kind -> time it can be taken again
     problems: [],                      // shop troubles: { buildingId, kind, at, fixAt|null, fixerId|null }
     nextProblemAt: now + TUNING.problemGapMaxMs,
     settings: { sound: true },
@@ -249,6 +250,8 @@ export function migrate(state) {
     state.goalsDone = [...new Set(state.goalsDone)];
     state.problems = (Array.isArray(state.problems) ? state.problems : []).filter((p) => p && typeof p === 'object' &&
       byId.has(p.buildingId) && PROBLEMS[p.kind] && isNum(p.at) && (p.fixAt === null || isNum(p.fixAt)));
+    const cds = state.jobCooldowns && typeof state.jobCooldowns === 'object' && !Array.isArray(state.jobCooldowns) ? state.jobCooldowns : {};
+    state.jobCooldowns = Object.fromEntries(Object.entries(cds).filter(([, v]) => isNum(v)));
     if (!isNum(state.nextProblemAt)) state.nextProblemAt = state.lastTick + TUNING.problemGapMaxMs;
     if (state.streets !== 'plan') state.streets = 'grid';   // a town keeps the streets it was founded with
     // phase 3: land. Every town owns its first parcel; buildings on land that isn't owned are kept by owning it.

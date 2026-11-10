@@ -11,7 +11,7 @@ const MIN = 60000, HOUR = 60 * MIN;
 function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedTime, detail = true }) {
   let now = seedTime;
   const s = store.newGame(now);
-  const income = { sales: 0, ride: 0, delivery: 0, rent: 0, goal: 0, trade: 0, order: 0 };
+  const income = { sales: 0, ride: 0, delivery: 0, job: 0, rent: 0, goal: 0, trade: 0, order: 0 };
   const onCoins = sim.events.on('coins', ({ amount, reason }) => { if (income[reason] != null) income[reason] += amount; });
   let manualRestocks = 0; let fixes = 0; let problems = 0;
   const onProblem = sim.events.on('problem', () => { problems++; });
@@ -106,6 +106,18 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
         sim.chooseDestination(s, s.ride.toId, now);
         now += 2000; sim.advance(s, now, { live: true, active: true });
         sim.completeRide(s, now);
+      }
+      // one job from the board per step when nothing else is going on (each takes a few seconds)
+      if (!s.ride && !s.job && now + 8000 <= end) {
+        const j = sim.jobBoard(s, now).find((x) => x.ok && x.kind !== 'taxi' && x.kind !== 'delivery');
+        if (j && sim.startTownJob(s, j.kind, sim.townJobOptions(s, now).shops[0]?.id ?? null, now).ok) {
+          now += 6000; sim.advance(s, now, { live: true, active: true });
+          const job = s.job;
+          if (job?.kind === 'rush') while (s.job) sim.serveOrder(s, s.job.index, s.job.orders[s.job.index]);
+          else if (job?.kind === 'odd') sim.sendHelper(s, job.candidates[0]);
+          else if (job?.kind === 'lost') sim.findDog(s, job.x, job.y);
+          else if (job?.kind === 'courier') for (const id of [...job.stops]) sim.deliverStop(s, id);
+        }
       }
       for (const p of popMarks) if (s.tenants.length >= p && !seen.has('pop' + p)) { seen.add('pop' + p); mark(`${p} residents`); }
     }

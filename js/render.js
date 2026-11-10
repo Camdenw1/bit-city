@@ -805,6 +805,16 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         }
       }
 
+      // jobs board: homes on the courier route, and Pip the lost dog
+      const job = f.state.job;
+      if (job && job.kind === 'courier') {
+        for (const row of f.rows) for (const b of row) if (job.stops.includes(b.id)) drawRing(b, rt);
+      }
+      if (job && job.kind === 'lost') {
+        const dog = getSprite('dog');
+        const hop = Math.sin(rt / 1000 * Math.PI * 2 * 1.5) > 0 ? -1 : 0;
+        blit(dog, job.x * TILE + Math.floor((TILE - dog.width) / 2), job.y * TILE + 3 + hop);
+      }
       if (reach) {
         const side = (reach.r * 2 + 1) * TILE;
         const ax = (reach.x - reach.r) * TILE, ay = (reach.y - reach.r) * TILE;
@@ -873,6 +883,8 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     // 3. the tapped tile itself
     const parcel = parcelAt(tx, ty);
     if (parcel && !OWNED.has(parcel.id)) return { x: tx, y: ty, building: null, parcel: parcel.id };   // land for sale
+    // Pip the lost dog can sit on a road, which is otherwise not tappable
+    if (state.job && state.job.kind === 'lost' && state.job.x === tx && state.job.y === ty) return { x: tx, y: ty, building: null };
     if (!inMap(tx, ty) || !safe(() => isLot(state, tx, ty), true)) return null;
     return { x: tx, y: ty, building: at(tx, ty) || null };
   }

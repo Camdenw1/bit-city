@@ -202,6 +202,25 @@ renderer.onTap(({ x, y, building, parcel, activity }) => {
     return;
   }
 
+  const job = state.job;
+  if (job?.kind === 'lost') {                      // looking for Pip: any tap is a guess
+    const res = act('findDog', x, y);
+    if (res?.ok) {
+      renderer.floatText(x, y, `+${res.pay}`, COIN); renderer.burst(x, y, 'coins'); audio.play('coin');
+      ui.toast(`You found Pip! +${formatCoins(res.pay)} coins`);
+    }
+    return;
+  }
+  if (job?.kind === 'courier') {                   // tap the ringed homes in the order you like
+    if (!building || !job.stops.includes(building.id)) return;
+    const res = act('deliverStop', building.id);
+    if (res?.ok) {
+      renderer.floatText(building.x, building.y, `+${res.pay}`, COIN); renderer.burst(building.x, building.y, 'coins'); audio.play('coin');
+      if (res.done) ui.toast(res.bonus ? `Shortest route! Bonus +${formatCoins(res.bonus)} coins` : 'Route done. A shorter route pays a bonus!');
+    }
+    return;
+  }
+
   if (ride?.state === 'waiting' && building?.id === ride.fromId && (ride.kind !== 'delivery' || activity === 'parcel')) {
     const res = act('acceptRide');
     if (res?.ok) {

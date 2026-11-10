@@ -104,6 +104,13 @@ covers running and publishing. This file holds the design decisions and the road
   player pays `problemFee`. The Mayor's desk (from the Town sheet) lists problems, the
   unhappiest residents with reasons, and what each government building serves.
 - A town building's sheet shows its reach as a square on the map.
+- Jobs board (fourth bottom-bar button, `jobBoard` in sim, `TOWN_JOBS` in config): Taxi Ride,
+  Package Delivery, Lunch Rush, Odd Jobs, Lost & Found, Courier Route. Pay is `minutes` of the
+  town's base shop income with a small floor; each job rests for its `cooldownMs` after it is
+  taken (skipping clears the rest). Board taxi and delivery pay exactly like street rides.
+  Lunch Rush and Odd Jobs are played in a sheet; Pip the dog and the courier homes are tapped
+  on the map, with a banner in the ride banner's spot. One job or ride at a time.
+- Roads are not tappable, except the one tile Pip is sitting on (`hitTest` in render).
 - Camden's own places are marked `fav: true` in `BUILDINGS` and do 25% more (`TUNING.favBonus`:
   sales for shops, residents served for town buildings) and turn up a little more often in
   draws: Taco Shop, Ice Cream Shop, Gym, Music Shop, Basketball Gym, Concert Venue, Bike Shop,
@@ -123,7 +130,8 @@ covers running and publishing. This file holds the design decisions and the road
 
 Done from it: hourly rent and rent/hour display, 10x play boost, distance fares, any-tent rides,
 range for town buildings, per-resident happiness with reasons, happiness moving rent both ways,
-shop problems the government solves, the Mayor's desk, his own places, and land-bound buildings.
+shop problems the government solves, the Mayor's desk, his own places, land-bound buildings,
+and a jobs board with six ways to earn.
 Suggested order for the rest (he has not confirmed it): visitors and a social feed; moving
 buildings and terrain-only buildings; raw materials and a construction crew; prestige trees.
 His calls on the contested ideas (2026-11-10), still to build:
@@ -144,17 +152,15 @@ change when these are built.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (42 passing).
+- Tests: `node --test` from the project root (43 passing).
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
 
 ## Known gaps at handoff
 
 - Never run on a real iPhone yet. Tested in a 390x844 headless Chrome with touch.
-- ChatGPT (Codex) finished the surprise-shop menu and added deliveries, restock-all and a jobs
-  board (Lunch Rush, Lost & Found, Odd Jobs, Courier Route). The jobs board has not been played
-  in the browser, and its flat pay (`TOWN_JOBS`, about 12-45 coins) is tiny next to the boosted
-  shop income, so it needs a balance pass.
+- ChatGPT (Codex) finished the surprise-shop menu and added deliveries and restock-all. It
+  also wrote jobs-board rules with no screens; the screens were built on 2026-11-10.
 - Removing a surprise shop refunds 75%, so a reroll costs 25%. Left as is.
 - `bitcity.skip()` of more than about a minute counts as time away (no play boost). The skip
   is forgotten on reload, so a save made after skipping sits frozen until real time catches up.
