@@ -104,6 +104,15 @@ covers running and publishing. This file holds the design decisions and the road
   player pays `problemFee`. The Mayor's desk (from the Town sheet) lists problems, the
   unhappiest residents with reasons, and what each government building serves.
 - A town building's sheet shows its reach as a square on the map.
+- Camden's own places are marked `fav: true` in `BUILDINGS` and do 25% more (`TUNING.favBonus`:
+  sales for shops, residents served for town buildings) and turn up a little more often in
+  draws: Taco Shop, Ice Cream Shop, Gym, Music Shop, Basketball Gym, Concert Venue, Bike Shop,
+  Ski Lodge, School, University, Running Track, Hiking Trail.
+- Land-bound buildings (`near: [...]`, checked by `nearOk`, within `TUNING.nearRadius` 2 lots):
+  Ski Lodge needs mountains, Surf Shop water, Hiking Trail woods or mountains. A surprise draw
+  only offers them on a lot that qualifies, and then favours them. Keep these rare.
+- A new shop is one `biz(...)` line in config plus a 7x7 `EMBLEM` in sprites; a new park-type
+  building needs its own `BUILD.<id>` sprite.
 - Town buildings (`kind` 'civic' or 'park': Tree, Clinic, School, Park, Library, Fountain)
   have no workers and no stock, on purpose. Parks boost rent of homes within 2 lots.
 - Crops are lifetime totals that only go up (`state.crops`); staffed farms grow them.
@@ -114,10 +123,8 @@ covers running and publishing. This file holds the design decisions and the road
 
 Done from it: hourly rent and rent/hour display, 10x play boost, distance fares, any-tent rides,
 range for town buildings, per-resident happiness with reasons, happiness moving rent both ways,
-shop problems the government solves, and the Mayor's desk.
-Suggested order for the rest (he has not confirmed it): mayor/government with per-citizen
-happiness and range benefits; his own places (taco shop, basketball gym, ski/bike/hike access,
-ice cream, university, music store, concert venue); visitors and a social feed; moving
+shop problems the government solves, the Mayor's desk, his own places, and land-bound buildings.
+Suggested order for the rest (he has not confirmed it): visitors and a social feed; moving
 buildings and terrain-only buildings; raw materials and a construction crew; prestige trees.
 His calls on the contested ideas (2026-11-10), still to build:
 - Demolition costs coins instead of refunding 75%.
@@ -137,7 +144,7 @@ change when these are built.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (41 passing).
+- Tests: `node --test` from the project root (42 passing).
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
 
@@ -152,6 +159,8 @@ change when these are built.
 - `bitcity.skip()` of more than about a minute counts as time away (no play boost). The skip
   is forgotten on reload, so a save made after skipping sits frozen until real time catches up.
 - After an update the preview (and the phone) can need two loads before new files show.
+- `tools/preview-sprites.mjs` needs the `sharp` package, which is not installed; look at art in
+  the browser preview instead.
 - Three of the four build agents were cut off early, so art and menus had one polish
   pass, not several. Expect rough edges.
 - Balance was retuned from bot playtests (2026-11-10). Before: the whole map filled in

@@ -56,7 +56,9 @@ export function makeApplicant(state, opts = {}) {
   // Shops arrive by surprise, so half of all newcomers dream of a shop the town already
   // has: you can pick the applicant who fits your town.
   const here = pool.filter((id) => (state.buildings || []).some((b) => b.type === id));
-  const from = here.length && rand(state) < 0.5 ? here : pool;
+  // nobody dreams of a place the land may never allow (a ski lodge with no mountains) unless it exists
+  const open = pool.filter((id) => !BUILDINGS[id].near || here.includes(id));
+  const from = here.length && rand(state) < 0.5 ? here : open;
   const inBest = from.filter((id) => BUILDINGS[id].categories.includes(best));
   const dream = inBest.length && rand(state) < 0.7 ? pick(state, inBest) : pick(state, from);
 

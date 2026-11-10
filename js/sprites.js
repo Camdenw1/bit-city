@@ -370,6 +370,12 @@ Object.assign(EMBLEM, {
   pizza:    ['ttttttt', ' yryyy ', ' yyyry ', '  yry  ', '  yyy  ', '   y   ', '   y   '],
   taco:     ['       ', '  ggr  ', ' gyyyg ', 'ttttttt', 'ttttttt', ' ttttt ', '       '],
   sushi:    ['       ', ' KKKKK ', 'KwwwwwK', 'KwoowwK', 'KwoowwK', 'KwwwwwK', ' KKKKK '],
+  hoops:    ['  oko  ', ' ookoo ', 'oookooo', 'kkkkkkk', 'oookooo', ' ookoo ', '  oko  '],   // basketball
+  venue:    ['  aaa  ', ' aAaAa ', ' aaAaa ', '  aaa  ', '   k   ', '   k   ', '  kkk  '],   // microphone
+  bikes:    [' B   kk', ' rrrrk ', ' r  r  ', 'kkk kkk', 'k k k k', 'kkk kkk', '       '],   // bicycle
+  ski:      ['   u   ', ' u u u ', '  uuu  ', 'uuuuuuu', '  uuu  ', ' u u u ', '   u   '],   // snowflake
+  surf:     ['       ', '  uuu  ', ' uu  u ', 'uu     ', 'uuu   c', 'uuuuucc', 'ccccccc'],   // wave
+  university: ['   k   ', ' kkkkk ', 'kkkkkkk', ' kkkkk ', '  kkk y', '  kkk y', '      y'], // graduation cap
   icecream: ['  III  ', ' IIIII ', ' IwIII ', '  ttt  ', '  ttt  ', '   t   ', '   t   '],
   cafe:     ['  e e  ', '       ', 'BBBBB  ', 'BBBBBBB', 'BBBBB B', 'BBBBBB ', ' BBB   '],
   toys:     ['  ryu  ', ' rryuu ', 'rrryuuu', 'rrryuuu', 'rrryuuu', ' rryuu ', '  ryu  '],
@@ -524,6 +530,28 @@ BUILD.park = () => {
   g.rect(2, 2, 5, 5, 'g').hl(2, 5, 5, 'G').rect(3, 6, 4, 7, 'b'); // little tree
   g.hl(10, 13, 10, 'b').pts('b', 10, 11, 13, 11);               // bench
   g.pts('i', 11, 3, 12, 5, 3, 11, 4, 12).pts('y', 10, 4, 3, 12);  // flowers
+  g.outline();
+  return g;
+};
+
+BUILD.track = () => {
+  const g = new Grid(B_W, B_H);
+  g.rect(1, 1, 14, 14, 'l');
+  g.rect(2, 3, 13, 12, 'r').pts('l', 2, 3, 13, 3, 2, 12, 13, 12);   // red oval track
+  g.rect(4, 5, 11, 10, 'g').pts('r', 4, 5, 11, 5, 4, 10, 11, 10);   // infield
+  g.hl(5, 10, 4, 'w').hl(5, 10, 11, 'w');                           // lane lines
+  g.outline();
+  return g;
+};
+
+BUILD.trail = () => {
+  const g = new Grid(B_W, B_H);
+  g.rect(1, 1, 14, 14, 'l');
+  for (let y = 5; y <= 9; y++) g.hl(9 - (y - 5), 10 + (y - 5) > 14 ? 14 : 10 + (y - 5), y, 'a');   // a little peak
+  g.pts('w', 9, 5, 10, 5, 9, 6).pts('e', 8, 6, 11, 6);                                           // snow cap
+  g.pts('p', 2, 14, 3, 13, 4, 12, 5, 12, 6, 11, 7, 10, 3, 14, 4, 13, 5, 13, 6, 12, 7, 11);       // winding path
+  g.rect(2, 3, 4, 5, 'g').hl(2, 4, 5, 'G').set(3, 6, 'b').set(3, 7, 'b');                        // pine
+  g.vl(12, 11, 14, 'b').hl(11, 13, 11, 'y');                                                     // signpost
   g.outline();
   return g;
 };

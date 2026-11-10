@@ -500,6 +500,7 @@ export function createUI(root, api) {
             ? `${icon('person', 1, 'i12')}×${b.capacity}`
             : b.provides ? `${icon('person', 1, 'i12')}Serves ${b.provides.serves}`
             : `${icon(needOf(b).icon, 1, 'i12')}${esc(needOf(b).name)}`}</span>
+          ${b.near && !call('nearOk', s, id, d.x, d.y) ? `<span class="card-note">${esc(call('nearHint', id) || '')}</span>` : ''}
           <span class="price">${icon('coin', 1, 'i12')}${formatCoins(cost)}</span></button>`;
       };
       const mystery = (cat) => {
@@ -591,6 +592,7 @@ export function createUI(root, api) {
         };
       }
 
+      const favPct = Math.round((config.TUNING?.favBonus ?? 0.25) * 100);
       // town buildings: nothing to staff or stock, they just help
       if (c.kind !== 'biz') {
         const lines = [];
@@ -600,6 +602,7 @@ export function createUI(root, api) {
           const fixes = Object.values(config.PROBLEMS || {}).some((p) => p.fixer === c.provides.need);
           if (c.gov && fixes) lines.push(`${icon('star', 1, 'i12')}Fixes shop problems within ${reach} lots for free`);
         }
+        if (c.fav) lines.push(`${icon('heart', 1, 'i12')}A mayor's favourite: ${c.provides ? 'serves' : 'does'} ${favPct}% more`);
         if (c.lessons) lines.push(`${icon('star', 1, 'i12')}Teaches ${c.lessons} skill ${c.lessons === 1 ? 'point' : 'points'} an hour`);
         if (c.rentBoost) {
           const near = s.buildings.filter((h) => def(h.type).kind === 'home' && Math.max(Math.abs(h.x - b.x), Math.abs(h.y - b.y)) <= (config.TUNING?.parkRadius ?? 2)).length;
@@ -677,6 +680,7 @@ export function createUI(root, api) {
             <div class="stock"><span class="stock-label">${icon('box', 1, 'i12')}Stock</span>
               <div class="meter meter-stock${pct === 0 ? ' is-empty' : ''}"><i style="width:${pct}%"></i></div></div>
             ${selfStock ? `<p class="note">${icon('star', 1, 'i12')}Restocks itself — dream worker!</p>` : ''}${menu}${grown}
+            ${c.fav ? `<p class="note">${icon('heart', 1, 'i12')}A mayor's favourite: sells ${favPct}% more</p>` : ''}
           </div></div>
           ${trouble}${full ? '' : `<button class="btn btn-coin btn-wide" data-act="restock" data-id="${b.id}">${icon('box', 2)} Restock ${coinAmt(Math.min(cost, Math.max(0, Math.floor(s.coins))), 2)}</button>`}
           <div class="seg" role="group" aria-label="Prices">${prices}</div>

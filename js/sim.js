@@ -70,6 +70,21 @@ export function statsOf(b) {
   return shopStats(catOf(b), b.tier || 0);
 }
 const qualityOf = (b) => (QUALITY[b.q] || QUALITY[0]).mult;
+const favOf = (b) => (defOf(b).fav ? 1 + TUNING.favBonus : 1);
+
+const LAND_WORDS = { mountain: 'mountains', forest: 'woods', water: 'water', sand: 'the beach' };
+/** Can this kind of building go here? Most can go anywhere; a few need a kind of land close by. */
+export function nearOk(state, type, x, y) {
+  const near = BUILDINGS[type]?.near;
+  if (!near) return true;
+  const r = TUNING.nearRadius;
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (near.includes(terrainOf(state, x + dx, y + dy))) return true;
+  return false;
+}
+export function nearHint(type) {
+  const near = BUILDINGS[type]?.near;
+  return near ? `Needs ${near.map((k) => LAND_WORDS[k] || k).join(' or ')} close by` : '';
+}
 export function buildingName(b) {
   const quality = QUALITY[b.q]?.name;
   return quality ? `${quality} ${defOf(b).name}` : defOf(b).name;
@@ -338,6 +353,7 @@ export function canBuild(state, type, x, y, cat = null) {
   if (!isUnlocked(state, type)) {
     return fail(population(state) < def.unlockAt ? `${def.name} unlocks at ${def.unlockAt} residents.` : `${def.name}: ${unlockHint(state, type)}.`);
   }
+  if (!nearOk(state, type, x, y)) return fail(`A ${def.name} ${nearHint(type).toLowerCase()}.`);
   // A shop with nobody in town to run it earns nothing, and could leave a new player stuck.
   if (def.kind === 'biz' && !state.buildings.some(isHome)) {
     return fail('Build a home first, so someone can work here!');
@@ -388,8 +404,10 @@ function rollQuality(state) {
 }
 
 /** The types a category can turn up, with how likely each is right now. */
-function drawPool(state, cat, now) {
-  const all = Object.values(BUILDINGS).filter((d) => (cat === 'gov' ? d.gov : d.kind === 'biz' && d.categories.includes(cat)));
+function drawPool(state, cat, now, x, y) {
+  // only what this lot allows (a ski lodge needs mountains) and what the town is big enough for
+  const all = Object.values(BUILDINGS).filter((d) => (cat === 'gov' ? d.gov : d.kind === 'biz' && d.categories.includes(cat)) &&
+    population(state) >= d.unlockAt && nearOk(state, d.id, x, y));
   const fresh = all.filter((d) => !state.buildings.some((b) => b.type === d.id));   // never a duplicate while something new is left
   const pool = fresh.length ? fresh : all;
   const needs = cat === 'gov' ? needsStatus(state, now) : [];
@@ -401,6 +419,8 @@ function drawPool(state, cat, now) {
     } else {
       weight += 3 * state.tenants.filter((t) => t.dream === d.id).length;   // dreams tend to come true
     }
+    if (d.fav) weight += 1;       // the mayor's favourites turn up a little more often
+    if (d.near) weight += 4;      // the right land usually brings its special building
     return { d, weight };
   });
 }
@@ -414,7 +434,7 @@ export function buildRandom(state, cat, x, y, now) {
   if (!categoryUnlocked(state, cat)) {
     return fail(`${cat === 'gov' ? GOV.name : SHOP_CATS[cat].name} opens at ${cat === 'gov' ? GOV.unlockAt : SHOP_CATS[cat].unlockAt} residents.`, { building: null });
   }
-  const pool = drawPool(state, cat, now);
+  const pool = drawPool(state, cat, now, x, y);
   // check the lot and the price before spending any luck, so a failed tap never changes the draw
   const probe = canBuild(state, pool[0].d.id, x, y, cat === 'gov' ? null : cat);
   if (!probe.ok) return { ok: false, reason: probe.reason, building: null };
@@ -508,7 +528,7 @@ function potentialRate(state, b, mode = b.price) {
   const menu = catOf(b) === 'food' ? 1 + TUNING.recipeBonus * state.recipes.length : 1;
   const price = PRICE_MODES[mode] || PRICE_MODES.normal;
   const trouble = problemOf(state, b.id) ? 1 - TUNING.problemSalesCut : 1;
-  return statsOf(b).baseRate * staff * skill * dream * menu * qualityOf(b) * levelMult(b.level) * price.speed * price.pay * trouble;
+  return statsOf(b).baseRate * staff * skill * dream * menu * qualityOf(b) * levelMult(b.level) * price.speed * price.pay * trouble * favOf(b);
 }
 
 export function ratePerMin(state, b) {
@@ -746,7 +766,7 @@ export function reachOf(b) {
   return (defOf(b).reach ?? TUNING.reach) + ((b.level || 1) - 1);
 }
 const inReach = (b, x, y) => Math.max(Math.abs(b.x - x), Math.abs(b.y - y)) <= reachOf(b);
-const servesOf = (b) => Math.round(defOf(b).provides.serves * levelMult(b.level) * qualityOf(b));
+const servesOf = (b) => Math.round(defOf(b).provides.serves * levelMult(b.level) * qualityOf(b) * favOf(b));
 
 /**
  * Who has what. `needs` are the needs this town cares about so far, `met` maps a resident's id

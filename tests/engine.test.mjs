@@ -96,8 +96,8 @@ test('config: shape, roads, every type complete, balance targets', () => {
   assert.equal(config.isRoad(3, 0), true); assert.equal(config.isRoad(0, 2), true); assert.equal(config.isRoad(0, 0), false);
   assert.equal(lots().length, 90);
   const ids = Object.keys(BUILDINGS);
-  assert.equal(ids.length, 46);
-  assert.equal(ids.filter((id) => BUILDINGS[id].kind === 'biz').length, 33);
+  assert.equal(ids.length, 54);
+  assert.equal(ids.filter((id) => BUILDINGS[id].kind === 'biz').length, 38);
   assert.deepEqual([...config.BUILD_ORDER].sort(), [...ids].sort());
   for (const id of ids) {
     const d = BUILDINGS[id];
@@ -1452,4 +1452,30 @@ test('government batch: reach, each resident\'s happiness and reasons, shop prob
   // saves from before problems existed load cleanly
   const old = JSON.parse(JSON.stringify(s)); delete old.problems; delete old.nextProblemAt;
   const mig = S.migrate(old); assert.deepEqual(mig.problems, []); assert.ok(Number.isFinite(mig.nextProblemAt));
+});
+
+test('mayor\'s places: favourites do more, special land is needed for a few, and the draw respects it', () => {
+  const s = fresh();
+  const tent = put(s, 'tent', T0); const cabin = put(s, 'cabin', T0);
+  const diner = put(s, 'diner', T0); const taco = put(s, 'taco', T0);
+  diner.tier = taco.tier = 0; diner.q = taco.q = 0;
+  sim.assignJob(s, person(s, tent, T0, { skill: 5 }).id, diner.id, T0);
+  sim.assignJob(s, person(s, cabin, T0, { skill: 5 }).id, taco.id, T0);
+  assert.ok(Math.abs(sim.ratePerMin(s, taco) / sim.ratePerMin(s, diner) - (1 + TUNING.favBonus)) < 1e-9);
+  // the middle of the first town is all grass: no ski lodge, no trail, no surf shop
+  const lot = lots().find(([x, y]) => x >= 4 && x <= 6 && y >= 5 && y <= 8 && !sim.tileAt(s, x, y));
+  for (const id of ['ski', 'trail', 'surf']) {
+    assert.equal(sim.nearOk(s, id, ...lot), false, id);
+    assert.equal(sim.canBuild(s, id, ...lot).ok, false);
+  }
+  assert.equal(sim.nearOk(s, 'diner', ...lot), true); assert.match(sim.nearHint('trail'), /woods or mountains/);
+  // surprise draws on plain land never turn up a land-bound shop, however many are opened
+  s.coins = 1e12;
+  for (const [x, y] of lots()) {
+    if (sim.tileAt(s, x, y) || sim.nearOk(s, 'ski', x, y) || sim.nearOk(s, 'surf', x, y)) continue;
+    const r = sim.buildRandom(s, 'creative', x, y, T0);
+    if (r.ok) assert.ok(!BUILDINGS[r.building.type].near, r.building.type);
+  }
+  // nobody dreams of a place the land can't give them
+  for (let i = 0; i < 300; i++) assert.ok(!BUILDINGS[S.makeApplicant(s).dream].near);
 });

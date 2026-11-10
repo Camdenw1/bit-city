@@ -94,6 +94,8 @@ export const TUNING = {
   problemAutoFixMs: 3 * 60000,   // a station or clinic in reach sorts it out after this long
   problemFeeMinutes: 4,          // fixing it yourself costs this many minutes of shop income
   problemMinFee: 40,
+  favBonus: 0.25,                // the mayor's favourite places sell (or serve) this much more
+  nearRadius: 2,                 // a building that needs mountains, woods or water must be this close to some
   cropPerHour: 10,               // crops one staffed farm grows per real hour (x staffFactor)
   recipeBonus: 0.1,              // extra sales for every food shop, per recipe the town knows
   parkRadius: 2,                 // parks boost homes this many lots away (2 reaches across a road)
@@ -218,9 +220,9 @@ export const BUILDINGS = {
   bakery:   biz('bakery',   'Bakery',         ['food', 'retail'],   60, 'Warm bread and sticky buns every morning.'),
   noodle:   biz('noodle',   'Noodle Bar',     ['food'],             60, 'Big steaming bowls, slurping encouraged.'),
   pizza:    biz('pizza',    'Pizzeria',       ['food'],             60, 'A slice for every mood.'),
-  taco:     biz('taco',     'Taco Stand',     ['food'],             45, 'Crunchy, saucy and gone in three bites.'),
+  taco:     biz('taco',     'Taco Shop',      ['food'],             45, 'Crunchy, saucy and gone in three bites.', { fav: true }),
   sushi:    biz('sushi',    'Sushi Bar',      ['food'],             90, 'Tiny, tidy and delicious.'),
-  icecream: biz('icecream', 'Ice Cream Shop', ['food'],             45, 'Two scoops and a wafer, please.'),
+  icecream: biz('icecream', 'Ice Cream Shop', ['food'],             45, 'Two scoops and a wafer, please.', { fav: true }),
   cafe:     biz('cafe',     'Café',           ['food', 'creative'], 60, 'Coffee, cake and somewhere to dream.'),
   // retail
   market:   biz('market',   'General Store',  ['retail'],            45, 'A little bit of everything on the shelves.'),
@@ -235,7 +237,9 @@ export const BUILDINGS = {
   barber:   biz('barber',   'Barber',         ['service'],           60, 'Fresh cuts and friendly chats.'),
   laundry:  biz('laundry',  'Laundromat',     ['service'],           60, 'Round and round until it is clean.'),
   bank:     biz('bank',     'Bank',           ['service'],           120, 'A safe place for everyone\'s savings.'),
-  gym:      biz('gym',      'Gym',            ['service'],           90, 'Stretch, lift and feel great.'),
+  gym:      biz('gym',      'Gym',            ['service'],           90, 'Stretch, lift and feel great.', { fav: true }),
+  bikes:    biz('bikes',    'Bike Shop',      ['retail', 'service'], 90, 'Tune-ups, tyres and trail maps.', { fav: true }),
+  surf:     biz('surf',     'Surf Shop',      ['retail', 'creative'], 90, 'Wax, boards and the morning swell report.', { near: ['water'] }),
   post:     biz('post',     'Post Office',    ['service', 'retail'], 90, 'Letters and parcels, in and out.'),
   // farming (a `crop` grows while staffed)
   farm:     biz('farm',     'Veggie Farm',    ['farming'],           120, 'Rows of crunchy carrots and leafy greens.', { crop: 'veggies' }),
@@ -246,7 +250,10 @@ export const BUILDINGS = {
   vineyard: biz('vineyard', 'Vineyard',       ['farming'],           120, 'Grapes ripening in neat rows.', { crop: 'fruit' }),
   // creative
   studio:   biz('studio',   'Art Studio',     ['creative'],          120, 'Paint, clay and big ideas.'),
-  music:    biz('music',    'Music Shop',     ['creative', 'retail'], 120, 'Guitars, drums and happy noise.'),
+  music:    biz('music',    'Music Shop',     ['creative', 'retail'], 120, 'Guitars, drums and happy noise.', { fav: true }),
+  hoops:    biz('hoops',    'Basketball Gym', ['creative', 'service'], 120, 'Squeaky sneakers and nothing but net.', { fav: true }),
+  venue:    biz('venue',    'Concert Venue',  ['creative'],          180, 'Lights down, amps up.', { fav: true }),
+  ski:      biz('ski',      'Ski Lodge',      ['creative', 'service'], 180, 'Fresh powder and hot chocolate.', { fav: true, near: ['mountain'] }),
   cinema:   biz('cinema',   'Cinema',         ['creative'],          180, 'Popcorn and a big screen.'),
   arcade:   biz('arcade',   'Arcade',         ['creative'],          120, 'Blinking lights and high scores.'),
   theatre:  biz('theatre',  'Theatre',        ['creative'],          180, 'Tonight only: the whole town on stage.'),
@@ -257,11 +264,15 @@ export const BUILDINGS = {
   clinic:   town('clinic',   'Clinic',   'civic',  1500,  300,  8, { gov: true, provides: { need: 'health', serves: 12 } }, 'A friendly doctor keeps the town healthy.'),
   police:   town('police',   'Police Station', 'civic', 1500, 300, 8, { gov: true, provides: { need: 'safety', serves: 12 } }, 'Friendly officers keep an eye on things.'),
   fire:     town('fire',     'Fire Station', 'civic', 1500, 300,  8, { gov: true, provides: { need: 'safety', serves: 12 } }, 'A shiny red engine, ready to roll.'),
-  school:   town('school',   'School',   'civic',  1500,  300,  8, { gov: true, provides: { need: 'education', serves: 12 }, lessons: 1 }, 'Residents learn new skills here, a little every hour.'),
+  school:   town('school',   'School',   'civic',  1500,  300,  8, { gov: true, fav: true, provides: { need: 'education', serves: 12 }, lessons: 1 }, 'Residents learn new skills here, a little every hour.'),
   park:     town('park',     'Park',     'park',   3000,  420, 18, { provides: { need: 'beauty', serves: 10 }, rentBoost: 0.15 }, 'Grass, a bench and fresh air. Nearby homes pay more rent.'),
   library:  town('library',  'Library',  'civic',  1500,  300,  8, { gov: true, provides: { need: 'education', serves: 16 }, lessons: 1 }, 'Quiet shelves where clever people get cleverer.'),
   fountain: town('fountain', 'Fountain', 'park',  12000, 1200, 30, { provides: { need: 'beauty', serves: 14 }, rentBoost: 0.2 }, 'The prettiest spot in town. Nearby homes pay much more rent.'),
 };
+// `near`: only buildable within TUNING.nearRadius lots of that kind of land. Rare on purpose.
+BUILDINGS.university = town('university', 'University', 'civic', 1500, 600, 20, { gov: true, fav: true, provides: { need: 'education', serves: 30 }, lessons: 3 }, 'Big ideas, late nights and a very good library.');
+BUILDINGS.track = town('track', 'Running Track', 'park', 2000, 300, 10, { fav: true, provides: { need: 'beauty', serves: 8 }, rentBoost: 0.1 }, 'Laps before breakfast. Nearby homes pay more rent.');
+BUILDINGS.trail = town('trail', 'Hiking Trail', 'park', 2500, 300, 12, { fav: true, near: ['forest', 'mountain'], provides: { need: 'beauty', serves: 12 }, rentBoost: 0.15 }, 'A path up into the hills. Nearby homes pay more rent.');
 BUILDINGS.trade = town('trade', 'Trading Post', 'trade', 2000, 300, 10, {}, 'Sell your harvest, import what you lack, and fill orders from neighbour towns.');
 BUILDINGS.fountain.unlockGoal = 'happy90';  // a milestone opens this one
 
