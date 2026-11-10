@@ -93,7 +93,7 @@ covers running and publishing. This file holds the design decisions and the road
   sends a truck (`state.trucks`). A sale or order pays when its truck leaves town; an import
   lands in the barn when it reaches the Trading Post. Trip = route length / `truckSpeed`,
   clamped 8-25 s, so a Trading Post near the entry road trades faster. One truck per
-  Trading Post level (`trucksPerLevel`); with all out, the next trade waits a few seconds.
+  Trading Post level (`trucksPerLevel`, Camden chose this over unlimited); with all out, the next trade waits a few seconds.
   Trucks finish in `advance()` by time, so closing the app never loses one.
 - Trade: farms fill a barn (`state.goods`) as well as the lifetime `state.crops`. The
   Trading Post sells the barn at a price that changes each local day, imports at a fixed
