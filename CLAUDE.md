@@ -145,6 +145,17 @@ covers running and publishing. This file holds the design decisions and the road
   (+50%) to the fare in `completeRide`. Never make the pedal required.
 - Cars (`CARS` in config, `state.car`): four, bought on the Jobs sheet, each faster and paying
   more on every ride, delivery and welcome drive.
+- Newcomers (2026-11-10): up to 3 wait at the Welcome spot on the entry road just outside town
+  (`welcomeSpot`; key bubble, tap it). They never leave on their own; a free spot fills
+  `arriveMs` (60 s) after it opens (half during an ad, double for `moveOutSlowMs` after a
+  move-out). Cards show skills as ranges (`seen`, width 3, a star's 1), the dream place and a
+  hint. Pick a home or "Not now" (`sendAway`, free). The real skills and trait show on move-in.
+  Stars (5%) have two strong skills and a gold card. Traits (40%, `TRAITS` in config) are
+  trade-offs, never simply bad, because Camden noted nobody would accept a known bad tenant:
+  Genius (+2 skills / shop problems x2), Go-getter (learns x2 / -10% rent), Party animal (+30%
+  rent / next-door homes -10%), Homebody (rent as if fully happy / learns at half speed). The
+  hint 'sharp' or 'friendly' fits two traits or none; 'Seems nice' means no trait.
+  "Ask X to move out" on a home sheet is free but slows newcomers for 10 minutes (`moveOut`).
 - Welcome drive: moving in is still instant. For 90 seconds afterwards a banner offers to drive
   the new resident home from a road at the edge of the first town (`startWelcome`, a ride of
   kind 'welcome' with `from` as a tile and no `fromId`). Once per resident, never required.
@@ -180,9 +191,9 @@ Done from it: hourly rent and rent/hour display, 10x play boost, distance fares,
 range for town buildings, per-resident happiness with reasons, happiness moving rent both ways,
 shop problems the government solves, the Mayor's desk, his own places, land-bound buildings,
 a jobs board with six ways to earn, the gas pedal, car upgrades and the welcome drive.
-Batch 1 (worker skill and count) is done. Moving in will change (Camden picked newcomers who
-arrive on the entry road, with some luck in how good a tenant turns out, and a way to deal with
-residents you don't want); design not settled yet. The game is now called Mini Mayor.
+Batch 1 (worker skill and count) and newcomers (arrivals on the entry road, traits, stars,
+moving out) are done. The game is now called Mini Mayor. Still open from the visitors idea:
+visitors who spend money and a social feed.
 Suggested order for the rest (he has not confirmed it): visitors and a social feed; moving
 buildings and terrain-only buildings; raw materials and a construction crew; prestige trees.
 His calls on the contested ideas (2026-11-10), still to build:
@@ -200,7 +211,7 @@ change when these are built.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (47 passing).
+- Tests: `node --test` from the project root (48 passing).
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
 

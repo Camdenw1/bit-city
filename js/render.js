@@ -5,7 +5,7 @@
 import { MAP_W, MAP_H, TILE, isRoad, DAY_LENGTH_MS, BUILDINGS, WORLD, PARCELS, TUNING, parcelAt } from './config.js';
 import { initSprites, getSprite, getPerson, buildingSpriteId } from './sprites.js';
 import { makeWorld, terrainAt } from './terrain.js';
-import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute } from './sim.js';
+import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot } from './sim.js';
 
 const SPRITE_H = 16;                 // building sprites are 16 x 16: each one fits its own lot
 const OVERLAP = SPRITE_H - TILE;     // 0: nothing pokes into the tile above
@@ -580,6 +580,26 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     return { x: lerp(a.x, b.x, t) * TILE + 8, y: lerp(a.y, b.y, t) * TILE + 6, dir: job.dir };
   }
 
+  const ARRIVE_DRIVE_MS = 6000;
+  /** Where a newcomer's car is, t from 0 (off the edge of the world) to 1 (at the Welcome spot). */
+  function arrivalPos(state, t) {
+    const e = safe(() => entryRoute(state), null);
+    if (!e) return null;
+    const path = [...entryOut.slice(0, 4).reverse(), ...e.tiles];
+    const f = clamp(t, 0, 1) * (path.length - 1);
+    const i = Math.min(path.length - 2, Math.floor(f)), k = f - i;
+    const a = path[i], b = path[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    return { x: lerp(a.x, b.x, k) * TILE + 8, y: lerp(a.y, b.y, k) * TILE + 6, dir: dx > 0 ? 'e' : dx < 0 ? 'w' : dy > 0 ? 's' : 'n' };
+  }
+  /** A newcomer standing and gently bobbing (feet at art px x, y). */
+  function drawStanding(a, x, y, rt) {
+    const sp = safe(() => getPerson(a.look || {}, Math.floor(rt / 600) % 2), null);
+    if (!sp) return;
+    const ws = Math.max(1, Math.round(scale * WALKER_SIZE));
+    ctx.drawImage(sp, toDevX(x) - Math.round((sp.width * ws) / 2), toDevY(y) - sp.height * ws, sp.width * ws, sp.height * ws);
+  }
+
   /** Where a trade truck is now: it drives its route at an even pace from leaveAt to arriveAt. */
   function truckPos(state, tr, now) {
     let path = truckPaths.get(tr.id);
@@ -894,6 +914,21 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         movers.push({ y: pos.y + s.height / 2, draw: () => drawTruck(pos, darkness) });
       }
       for (const id of truckPaths.keys()) if (!live.has(id)) truckPaths.delete(id);
+
+      // newcomers: a car drives in on the entry road, then they wait at the Welcome spot
+      const spot = safe(() => welcomeSpot(state), null);
+      if (spot) {
+        (state.applicants || []).forEach((a, i) => {
+          const age = now - (a.arrivedAt || 0);
+          if (age >= 0 && age < ARRIVE_DRIVE_MS) {
+            const pos = arrivalPos(state, age / ARRIVE_DRIVE_MS);
+            if (pos) movers.push({ y: pos.y + 5, draw: () => blit(getSprite(`taxi_${pos.dir}`), Math.round(pos.x - 7), Math.round(pos.y - 5)) });
+            return;
+          }
+          const px = spot.x * TILE + 3 + i * 5, py = spot.y * TILE + 12 - (i % 2) * 2;
+          movers.push({ y: py, draw: () => drawStanding(a, px, py, rt + i * 300) });
+        });
+      }
       movers.sort((a, b) => a.y - b.y);
 
       // rows top to bottom: buildings of the row, then anything standing in that row
@@ -953,6 +988,15 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         ctx.globalAlpha = 1;
       }
       if (selection && inMap(selection.x, selection.y)) drawSelection(selection, rt);
+
+      // a key bubble over the Welcome spot while newcomers are waiting there
+      const spot2 = (f.state.applicants || []).some((a) => now - (a.arrivedAt || 0) >= ARRIVE_DRIVE_MS) ? safe(() => welcomeSpot(f.state), null) : null;
+      if (spot2) {
+        const bubble = getSprite('bubble'), key = getSprite('key');
+        const by = spot2.y * TILE - 11 + (Math.sin(rt / 1000 * Math.PI * 2) > 0 ? -1 : 0);
+        blit(bubble, spot2.x * TILE + (TILE - bubble.width) / 2, by);
+        blit(key, spot2.x * TILE + Math.floor((TILE - key.width) / 2), by + Math.max(0, Math.floor((12 - key.height) / 2)) + 1);
+      }
 
       // a red pin marks where the taxi is taking its rider
       if (f.state.ride && f.state.ride.state === 'driving') {
@@ -1022,6 +1066,9 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       if (py >= 0 && py < OVERLAP && spriteOpaque(id, ax - below.x * TILE, py)) return hit(below);
     }
     // 3. the tapped tile itself
+    // the Welcome spot (newcomers wait there) and its bubble just above
+    const spot = safe(() => welcomeSpot(state), null);
+    if (spot && (state.applicants || []).length && tx === spot.x && (ty === spot.y || ty === spot.y - 1)) return { x: spot.x, y: spot.y, building: null, activity: 'newcomers' };
     const parcel = parcelAt(tx, ty);
     if (parcel && !OWNED.has(parcel.id)) return { x: tx, y: ty, building: null, parcel: parcel.id };   // land for sale
     // Pip the lost dog can sit on a road, which is otherwise not tappable

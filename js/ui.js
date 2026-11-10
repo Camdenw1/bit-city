@@ -120,6 +120,13 @@ export function createUI(root, api) {
   };
   const restockCostOf = (b) => call('restockCostOf', b) || 0;
   let wishBuild = null;
+  let moveOutAsk = null;   // tenant id waiting for a yes on "Ask to move out"
+  /** On move-in you learn the real skills and any trait. */
+  function revealToast(t) {
+    const ts = topSkill(t); const tr = t.trait && (config.TRAITS || {})[t.trait];
+    toast(`${t.name} moved in! Best at ${(CAT_LABEL[ts.cat] || ts.cat).toLowerCase()}: ${ts.value}.` +
+      (tr ? ` Turns out: ${tr.name}! ${tr.up}, but ${tr.down}.` : ' No surprises.'));
+  }
   /** Best open job that beats what the tenant has now, or null. */
   const betterJob = (t) => {
     const list = call('bestJobs', S(), t.id, N()) || [];
@@ -406,6 +413,36 @@ export function createUI(root, api) {
     }).join('')}</div>`;
   }
 
+  const arrivalText = (s) => { const ms = Math.max(0, (s.nextApplicantAt || 0) - N()); return ms > 0 ? `in ${formatDuration(Math.max(1000, ms))}` : 'soon'; };
+  const newcomerNote = (s) => `<p class="note">“Not now” is free; someone new drives in a minute later.${(s.slowArrivalsUntil || 0) > N() ? ' Newcomers are slower for a while: someone was asked to move out.' : ''}</p>`;
+  /** A newcomer's skills as ranges: you only learn the real numbers when they move in. */
+  function rangeBars(t) {
+    return `<div class="bars">${CATEGORIES.map((c) => {
+      const [lo, hi] = (t.seen && t.seen[c]) || [t.skills[c], t.skills[c]];
+      return `<div class="bar-row" style="--c:${catColor(c)}">${icon('cat_' + c, 1, 'i12')}` +
+        `<span class="bar range"><i style="margin-left:${Math.round((lo / 9) * 100)}%;width:${Math.max(6, Math.round(((hi - lo) / 9) * 100))}%"></i></span><b class="rng">${lo === hi ? lo : `${lo}-${hi}`}</b></div>`;
+    }).join('')}</div>`;
+  }
+  const traitLine = (t) => {
+    const tr = t.trait && (config.TRAITS || {})[t.trait];
+    return tr ? `<div class="p-trait"><b>${esc(tr.name)}</b>: ${esc(tr.up)}, but ${esc(tr.down)}</div>` : '';
+  };
+  /** A newcomer at the Welcome sign. With a home given, the card moves them in there. */
+  function newcomerCard(t, i, home) {
+    const dd = def(t.dream);
+    const inTown = S().buildings.some((b) => b.type === t.dream);
+    const hint = (config.HINTS || {})[t.hint] || '';
+    const go = home
+      ? `<button class="btn btn-small btn-go" data-act="move-in" data-i="${i}" data-id="${home.id}">${icon('key', 1, 'i12')} Move in here</button>`
+      : `<button class="btn btn-small btn-go" data-act="pick-home" data-i="${i}">${icon('key', 1, 'i12')} Pick a home</button>`;
+    return `<div class="app-card${t.star ? ' is-star' : ''}" data-key="a${t.id}">
+      <div class="app-who"><span class="avatar big">${person(t.look, 5)}</span><b>${esc(t.name)}</b>${t.star ? `<span class="tag tag-dream">${icon('star', 1, 'i12')}Star</span>` : ''}</div>
+      <div>${rangeBars(t)}<p class="app-hint">“${esc(hint)}”</p></div>
+      <div class="app-dream">${bld(t.dream, 2)}<span class="tiny">${icon('star', 1, 'i12')}Dream</span><b>${esc(dd.name)}</b>
+        ${inTown ? '<span class="tag tag-ok">In town ✓</span>' : ''}</div>
+      <div class="app-actions"><button class="btn btn-small btn-quiet" data-act="send-away" data-i="${i}">Not now</button>${go}</div></div>`;
+  }
+
   /** One tenant row used by the People sheet and home sheets. */
   function personRow(t) {
     const home = byId(t.homeId); const job = byId(t.jobId);
@@ -434,6 +471,7 @@ export function createUI(root, api) {
           <div class="p-sub">${home ? esc(bName(home)) : 'New in town'} · ${job
             ? `${esc(bName(job))} ${skillBadge(categoryOf(job), jf.skill)} ${fitChip(t, job)}`
             : '<span class="looking">Looking for work</span>'}</div>
+          ${traitLine(t)}
           ${home ? `<div class="p-wish">“${esc(call('tenantWish', S(), t, N(), mood()) || '')}”</div>` : ''}
           ${home && tm.missing.length ? `<div class="p-why">${tm.missing.slice(0, 3).map((m) => `<span>${icon(m.icon, 1, 'i12')}${esc(m.why)}</span>`).join('')}${tm.missing.length > 3 ? `<span>+${tm.missing.length - 3} more</span>` : ''}</div>` : ''}
         </div>
@@ -623,7 +661,10 @@ export function createUI(root, api) {
               <p class="note">${icon('coin', 1, 'i12')}${formatCoins(c.rentPerTenant || 0)} per resident each day, paid a little every hour</p>
               ${(call('homeBoost', s, b) || 0) > 0 ? `<p class="note">${icon('cat_farming', 1, 'i12')}+${Math.round(call('homeBoost', s, b) * 100)}% from ${call('isWaterfront', s, b.x, b.y) ? 'the waterfront and parks' : 'parks'} nearby</p>` : ''}</div></div>
             ${free > 0 ? `<button class="btn btn-go btn-wide" data-act="open-applicants" data-id="${b.id}">${icon('key', 2)} Move someone in</button>` : ''}
-            <div class="list">${res.map(personRow).join('')}${beds.join('')}</div>
+            <div class="list">${res.map((t) => personRow(t) + (moveOutAsk === t.id
+              ? `<div class="confirm" data-key="mo${t.id}"><span>Ask ${esc(t.name)} to move out? It's free, but newcomers will take twice as long for 10 minutes.</span>
+                  <div class="row"><button class="btn btn-quiet" data-act="move-out-no">Keep them</button><button class="btn btn-warn" data-act="move-out-yes" data-t="${t.id}">Move out</button></div></div>`
+              : `<button class="link" data-act="move-out-ask" data-t="${t.id}" data-key="mo${t.id}">Ask ${esc(t.name)} to move out</button>`)).join('')}${beds.join('')}</div>
             ${upgradeBlock}${demolish(res.length === 0)}`,
         };
       }
@@ -741,20 +782,36 @@ export function createUI(root, api) {
       const home = byId(d.id);
       if (!home) return null;
       const list = s.applicants || [];
-      const cards = list.map((t, i) => {
-        if (!t) return '';
-        const dd = def(t.dream);
-        const inTown = s.buildings.some((b) => b.type === t.dream);
-        return `<button class="app-card" data-act="move-in" data-i="${i}" data-id="${home.id}" data-key="a${t.id}">
-          <div class="app-who"><span class="avatar big">${person(t.look, 5)}</span><b>${esc(t.name)}</b></div>
-          ${skillBars(t)}
-          <div class="app-dream">${bld(t.dream, 2)}<span class="tiny">${icon('star', 1, 'i12')}Dream</span><b>${esc(dd.name)}</b>
-            ${inTown ? '<span class="tag tag-ok">In town ✓</span>' : ''}</div>
-          <span class="app-cta">${icon('key', 1, 'i12')} Move in</span></button>`;
-      }).join('');
+      const cards = list.map((t, i) => (t ? newcomerCard(t, i, home) : '')).join('');
       return {
         title: 'Who moves in?',
-        html: cards || empty('person', 'New folks are on their way. Check back in a moment!'),
+        html: (cards ? `${cards}${newcomerNote(s)}` : empty('person', `Nobody is waiting right now. Someone new drives in ${arrivalText(s)}.`)),
+      };
+    },
+
+    /* --- The Welcome sign: newcomers waiting on the entry road --- */
+    newcomers() {
+      const s = S();
+      const list = s.applicants || [];
+      const cards = list.map((t, i) => (t ? newcomerCard(t, i, null) : '')).join('');
+      return {
+        title: 'Newcomers',
+        html: `<p class="note">They drove in on the road from out of town. Skills show as a range; you find out the real numbers, and any trait, when they move in.</p>
+          ${cards || empty('person', `Nobody is waiting right now. Someone new drives in ${arrivalText(s)}.`)}${cards ? newcomerNote(s) : ''}`,
+      };
+    },
+
+    /* --- Pick a home for a newcomer --- */
+    pickHome(d) {
+      const s = S(); const t = s.applicants[d.i];
+      if (!t) return null;
+      const homes = s.buildings.filter((b) => def(b.type).kind === 'home' && built(b) && residentsOf(b.id).length < (def(b.type).capacity || 0));
+      const rows = homes.map((h) => `<div class="move-row" data-key="h${h.id}">${buildingArt(h, 2, 'mini')}
+          <span class="move-copy"><b>${esc(bName(h))}</b><small>${residentsOf(h.id).length}/${def(h.type).capacity} · ${formatCoins(def(h.type).rentPerTenant)} rent a day</small></span>
+          <button class="btn btn-small btn-go" data-act="move-in" data-i="${d.i}" data-id="${h.id}">Move in</button></div>`).join('');
+      return {
+        title: `A home for ${esc(t.name)}`,
+        html: rows || empty('key', 'Every home is full. Build a home first, then come back.'),
       };
     },
 
@@ -1111,6 +1168,7 @@ export function createUI(root, api) {
 
   /* ----- public: open things ----- */
   function openLand(id) { openSheet({ kind: 'land', id }); }
+  function openNewcomers() { openSheet({ kind: 'newcomers' }); }
   function openLot(x, y) {
     const existing = call('tileAt', S(), x, y);
     if (existing) { openBuilding(existing); return; }
@@ -1293,10 +1351,19 @@ export function createUI(root, api) {
       const homeId = Number(el.dataset.id);
       const r = act('moveIn', Number(el.dataset.i), homeId);
       if (r && r.ok !== false) {
-        if (r.tenant) { toast(`${r.tenant.name} moved in! Welcome!`); welcomeOffer = { id: r.tenant.id, until: N() + 90000 }; }
+        if (r.tenant) { revealToast(r.tenant); welcomeOffer = { id: r.tenant.id, until: N() + 90000 }; }
         const back = buildingSheet(homeId);
         if (back) openSheet(back); else closeSheet();
-      }
+      } else if (r && r.reason) toast(r.reason);
+    },
+    'pick-home': (el) => openSheet({ kind: 'pickHome', i: Number(el.dataset.i), back: { kind: 'newcomers' } }),
+    'send-away': (el) => { const r = act('sendAway', Number(el.dataset.i)); if (r && r.ok) toast('They drive on. Someone new arrives in a minute.'); },
+    'move-out-ask': (el) => { moveOutAsk = Number(el.dataset.t); refresh(); },
+    'move-out-no': () => { moveOutAsk = null; refresh(); },
+    'move-out-yes': (el) => {
+      const t = tenantById(Number(el.dataset.t)); moveOutAsk = null;
+      const r = act('moveOut', Number(el.dataset.t));
+      if (r && r.ok && t) toast(`${t.name} moved out. Newcomers will be slower for 10 minutes.`);
     },
 
     'open-hire': (el) => openSheet({
@@ -1423,7 +1490,7 @@ export function createUI(root, api) {
   refresh();
 
   return {
-    refresh, openLot, openLand, openBuilding, showAway, showRide, hideRide, celebrateDream, toast,
+    refresh, openLot, openLand, openNewcomers, openBuilding, showAway, showRide, hideRide, celebrateDream, toast,
     isModalOpen: () => !!sheet || !!celeb || queue.length > 0,
   };
 }

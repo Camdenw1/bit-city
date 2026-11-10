@@ -1,7 +1,7 @@
 // Mini Mayor — state: new game, save/load (with backup copy), export/import, local day.
 // Pure: the only platform access is localStorage inside save()/load(), always guarded.
 
-import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats } from './config.js';
+import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats, TRAITS, HINTS } from './config.js';
 
 export const SAVE_KEY = 'bitcity.save.v1';
 const EXPORT_PREFIX = 'BITCITY1:';
@@ -68,9 +68,29 @@ export function makeApplicant(state, opts = {}) {
   let name = pick(state, FIRST_NAMES);
   for (let i = 0; i < 12 && taken.has(name); i++) name = pick(state, FIRST_NAMES);
 
+  // A star has two strong skills; anyone may have a trait (a genius gets +2 everywhere).
+  const star = rand(state) < TUNING.starChance;
+  if (star) {
+    skills[best] = 8 + randInt(state, 2);
+    const second = pick(state, CATEGORIES.filter((c) => c !== best));
+    skills[second] = Math.max(skills[second], 6 + randInt(state, 3));
+  }
+  const trait = rand(state) < TUNING.traitChance ? pick(state, Object.keys(TRAITS)) : null;
+  if (trait === 'genius') for (const c of CATEGORIES) skills[c] = Math.min(9, skills[c] + 2);
+  // first impression: a trait always shows its hint; half of everyone else gets a hint too
+  const hint = trait ? TRAITS[trait].hint : rand(state) < 0.5 ? pick(state, ['sharp', 'friendly']) : 'nice';
+  // what you can see before they move in: each skill as a range around the real one
+  const w = star ? 1 : TUNING.skillRangeWidth;
+  const seen = {};
+  for (const c of CATEGORIES) {
+    const lo = Math.max(0, Math.min(9 - w, skills[c] - randInt(state, w + 1)));
+    seen[c] = [lo, Math.max(skills[c], Math.min(9, lo + w))];
+  }
+
   return {
     id: state.nextId++,
     name,
+    star, trait, hint, seen,
     look: {
       skin: randInt(state, 5),
       hair: randInt(state, 6),
@@ -105,6 +125,7 @@ export function newGame(now) {
     tenants: [],
     applicants: [],
     nextApplicantAt: now + TUNING.applicantEveryMs,
+    slowArrivalsUntil: 0,              // after asking someone to move out, newcomers come slower until then
     ride: null,
     job: null,
     nextRideAt: now + TUNING.rideFirstDelayMs,
@@ -172,6 +193,17 @@ function fixPerson(p) {
   if (!isNum(p.homeId)) p.homeId = null;
   if (!isNum(p.jobId)) p.jobId = null;
   p.dreamDone = !!p.dreamDone;
+  // newcomers and traits (2026-11-10): older people have no trait and fully known skills
+  p.star = !!p.star;
+  p.trait = TRAITS[p.trait] ? p.trait : null;
+  if (!HINTS[p.hint]) p.hint = p.trait ? TRAITS[p.trait].hint : 'nice';
+  if (p.homeId != null) { delete p.seen; return p; }   // residents' skills are known exactly
+  const seen = p.seen && typeof p.seen === 'object' ? p.seen : {};
+  p.seen = {};
+  for (const c of CATEGORIES) {
+    const r = Array.isArray(seen[c]) && seen[c].length === 2 && seen[c].every(isNum) ? seen[c] : [p.skills[c], p.skills[c]];
+    p.seen[c] = [Math.min(r[0], p.skills[c]), Math.max(r[1], p.skills[c])];
+  }
   return p;
 }
 
@@ -217,7 +249,10 @@ export function migrate(state) {
         if (!isNum(b.tier) || b.tier < 0) {
           b.tier = state.buildings.filter((o) => o !== b && o.id < b.id && BUILDINGS[o.type] && BUILDINGS[o.type].kind === 'biz' && (o.cat || BUILDINGS[o.type].category) === b.cat).length;
         }
-        const max = Math.round(shopStats(b.cat, b.tier).stockMax * levelMult(b.level));
+        // the same as stockMaxOf in sim: bigger shops (more jobs) hold more stock
+        const slots = (def.slots || 2) + (b.level >= TUNING.slotAtLevel ? 1 : 0);
+        const size = TUNING.staffFactor[Math.min(slots, TUNING.staffFactor.length - 1)] / TUNING.staffFactor[2];
+        const max = Math.round(shopStats(b.cat, b.tier).stockMax * levelMult(b.level) * size);
         b.stock = isNum(b.stock) ? Math.max(0, Math.min(max, Math.floor(b.stock))) : max;
         b.carry = isNum(b.carry) ? b.carry : 0;
         b.dreamStars = 0; // recounted below
@@ -237,7 +272,7 @@ export function migrate(state) {
     let maxId = 0;
     for (const o of [...state.buildings, ...state.tenants, ...state.applicants, ...(Array.isArray(state.orders) ? state.orders : []).filter((x) => x && isNum(x.id)), ...(Array.isArray(state.trucks) ? state.trucks : []).filter((x) => x && isNum(x.id))]) maxId = Math.max(maxId, o.id);
     state.nextId = Math.max(isNum(state.nextId) ? state.nextId : 1, maxId + 1);
-    while (state.applicants.length < TUNING.applicantCount) state.applicants.push(makeApplicant(state));
+    if (!isNum(state.slowArrivalsUntil)) state.slowArrivalsUntil = 0;
 
     if (!isNum(state.nextApplicantAt)) state.nextApplicantAt = state.lastTick + TUNING.applicantEveryMs;
     if (!isNum(state.nextRideAt)) state.nextRideAt = state.lastTick + TUNING.rideGapMinMs;

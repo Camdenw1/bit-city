@@ -142,6 +142,10 @@ sim.events.on('order', ({ order }) => {
   audio.play('goal');
   ui.toast(`${order.town} says thanks! +${order.coins} coins, +${order.gems} gem`);
 });
+sim.events.on('arrival', ({ applicant }) => {
+  if (quiet) return;
+  ui.toast(`${applicant.name} drove into town${applicant.star ? ' (a star!)' : ''}. Tap the key by the entry road to meet them.`);
+});
 sim.events.on('truckIn', ({ truck }) => {
   if (quiet || truck.kind === 'order') return;     // orders have their own thank-you
   audio.play('coin');
@@ -202,6 +206,7 @@ renderer.onTap(({ x, y, building, parcel, activity }) => {
   audio.unlock();
   if (ui.isModalOpen()) return;
   if (parcel) { if (state.ride?.state !== 'choosing') { audio.play('tap'); ui.openLand(parcel); } return; }
+  if (activity === 'newcomers') { audio.play('tap'); ui.openNewcomers(); return; }
   const now = getNow();
   const ride = state.ride;
 

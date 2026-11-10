@@ -42,12 +42,16 @@ function put(state, type, now) {
   r.building.readyAt = Math.min(now, state.lastTick);
   return r.building;
 }
+/** Fill the Welcome sign (in the game it refills over time). */
+function topUp(state) { while (state.applicants.length < TUNING.applicantCount) state.applicants.push(S.makeApplicant(state)); }
 /** Move the first applicant into a home, with fixed skills and dream. */
 function person(state, home, now, { skill = 6, dream = 'music' } = {}) {
+  if (!state.applicants.length) state.applicants.push(S.makeApplicant(state));   // the sign refills over time in the game
   const r = sim.moveIn(state, 0, home.id, now);
   assert.ok(r.ok, r.reason);
   for (const c of CATEGORIES) r.tenant.skills[c] = skill;
   r.tenant.dream = dream;
+  r.tenant.trait = null;   // rule tests use plain people; traits have their own test
   return r.tenant;
 }
 /** A new game on the even street grid, which the rule tests are written against. */
@@ -160,7 +164,8 @@ test('applicants: skills 0..9, one clear best, look ranges, dream is a business'
     for (const v of vals) assert.ok(Number.isInteger(v) && v >= 0 && v <= 9);
     const sorted = [...vals].sort((x, y) => y - x);
     assert.ok(sorted[0] >= 6, 'decent at something');
-    assert.ok(sorted[0] > sorted[1], 'one clearly best category');
+    if (!a.star && a.trait !== 'genius') assert.ok(sorted[0] > sorted[1], 'one clearly best category');
+    for (const c of CATEGORIES) assert.ok(a.seen[c][0] <= a.skills[c] && a.skills[c] <= a.seen[c][1], 'the real skill is inside the range shown');
     assert.ok(a.look.skin >= 0 && a.look.skin <= 4 && a.look.hair >= 0 && a.look.hair <= 5);
     assert.ok(a.look.hairStyle >= 0 && a.look.hairStyle <= 3 && a.look.shirt >= 0 && a.look.shirt <= 7);
     assert.equal(BUILDINGS[a.dream].kind, 'biz');
@@ -399,9 +404,9 @@ test('move-in, capacity, vacancies, fresh applicant, unlock events', () => {
   const others = [s.applicants[0], s.applicants[2]];
   const r = sim.moveIn(s, 1, tent.id, now);
   assert.ok(r.ok); assert.equal(r.tenant, chosen); assert.equal(chosen.homeId, tent.id); assert.equal(chosen.jobId, null);
-  assert.equal(s.applicants.length, 3);
-  assert.equal(s.applicants[0], others[0]); assert.equal(s.applicants[2], others[1]);
-  assert.notEqual(s.applicants[1].id, chosen.id);
+  // their spot at the Welcome sign stays open until someone new drives in
+  assert.deepEqual(s.applicants, others);
+  assert.equal(s.nextApplicantAt, now + TUNING.arriveMs);
   assert.equal(sim.population(s), 1); assert.equal(sim.vacancies(s), 0);
   assert.deepEqual(sim.homesWithVacancy(s, now), []);
   assert.deepEqual(sim.residentsOf(s, tent.id), [chosen]);
@@ -415,6 +420,7 @@ test('move-in, capacity, vacancies, fresh applicant, unlock events', () => {
 
   // unlocks by population
   const tent2 = put(s, 'tent', now);
+  topUp(s);
   const unlocked = [];
   const onUnlock = (p) => unlocked.push(p.type);
   sim.events.on('unlock', onUnlock);
@@ -430,6 +436,7 @@ test('move-in, capacity, vacancies, fresh applicant, unlock events', () => {
   assert.deepEqual(unlocked, [undefined], 'the Farming category opened, not one building');
   assert.ok(sim.canBuild(s, 'farm', 4, 4).ok);
   const cabin = put(s, 'cabin', now);
+  topUp(s);
   assert.equal(sim.capacity(s), 5);
   sim.moveIn(s, 0, cabin.id, now); sim.moveIn(s, 0, cabin.id, now);
   assert.equal(sim.moveIn(s, 0, cabin.id, now).ok, false);
@@ -735,8 +742,7 @@ test('three days offline: sane totals, exactly 72 hours of rent, fast', () => {
   assert.equal(log.filter((e) => e.type === 'coins' && e.reason === 'sales').length, 2, 'one sales event per business');
   assert.equal(log.filter((e) => e.type === 'rideRequest').length, 0); assert.equal(s.ride, null);
   assert.equal(s.applicants.length, 3);
-  assert.ok(s.applicants.every((a) => !firstApplicants.includes(a.id)), 'applicants refreshed');
-  assert.ok(s.nextApplicantAt > s.lastTick);
+  assert.ok(firstApplicants.every((id) => s.applicants.some((a) => a.id === id)), 'newcomers wait at the sign; nobody leaves on their own');
   assert.deepEqual(JSON.parse(JSON.stringify(s)), s);
   // nothing more happens inside the same hour
   const again = sim.advance(s, T0 + 3 * DAY + 10 * MIN, { live: false });
@@ -774,16 +780,61 @@ test('offline time is capped at 14 days; clock going backwards is harmless', () 
   assert.equal(back.elapsedMs, 0); assert.equal(back.rentPaid, 0); assert.equal(s.coins, coins);
 });
 
-test('applicants: the oldest is replaced about every 4 minutes', () => {
+test('newcomers: wait at the sign, "not now" is free, a new face arrives, moving out slows arrivals', () => {
   const s = gridGame(T0);
   const [a, b, c] = s.applicants;
-  sim.advance(s, T0 + 3 * MIN);
-  assert.deepEqual(s.applicants, [a, b, c]);
-  sim.advance(s, T0 + 4 * MIN);
-  assert.equal(s.applicants.length, 3);
-  assert.equal(s.applicants[0], b); assert.equal(s.applicants[1], c); assert.notEqual(s.applicants[2].id, a.id);
-  sim.advance(s, T0 + 8 * MIN);
-  assert.equal(s.applicants[0], c);
+  sim.advance(s, T0 + 30 * MIN);
+  assert.deepEqual(s.applicants, [a, b, c], 'nobody leaves on their own');
+  const coins = s.coins;
+  assert.equal(sim.sendAway(s, 0, s.lastTick).ok, true);
+  assert.deepEqual(s.applicants, [b, c]); assert.equal(s.coins, coins, 'turning someone away is free');
+  const t1 = s.lastTick;
+  sim.advance(s, t1 + TUNING.arriveMs - 1);
+  assert.equal(s.applicants.length, 2);
+  sim.advance(s, t1 + TUNING.arriveMs);
+  assert.equal(s.applicants.length, 3); assert.ok(s.applicants[2].arrivedAt === t1 + TUNING.arriveMs);
+  // asking a resident to move out: free, but newcomers take twice as long for a while
+  put(s, 'tent', s.lastTick);
+  const t = person(s, s.buildings[0], s.lastTick);
+  const t2 = s.lastTick;
+  assert.equal(sim.moveOut(s, t.id, t2).ok, true);
+  assert.equal(sim.population(s), 0); assert.equal(s.slowArrivalsUntil, t2 + TUNING.moveOutSlowMs);
+  sim.sendAway(s, 0, t2);
+  assert.equal(s.nextApplicantAt, t2 + 2 * TUNING.arriveMs);
+});
+
+test('traits: hints, ranges, reveal on move-in, rent and learning effects', () => {
+  const s = fresh();
+  const seen = { genius: 0, star: 0, none: 0 };
+  for (let i = 0; i < 400; i++) {
+    const a = S.makeApplicant(s);
+    if (a.trait) assert.equal(a.hint, config.TRAITS[a.trait].hint, 'a trait always shows its hint');
+    else assert.ok(['sharp', 'friendly', 'nice'].includes(a.hint));
+    if (a.hint === 'nice') assert.equal(a.trait, null, '"seems nice" means no trait');
+    if (a.trait === 'genius') seen.genius++;
+    if (a.star) { seen.star++; assert.ok(Math.max(...CATEGORIES.map((c) => a.skills[c])) >= 8); }
+    if (!a.trait) seen.none++;
+  }
+  assert.ok(seen.none > 180 && seen.none < 300, `about 60% have no trait (${seen.none})`);
+  assert.ok(seen.star > 5 && seen.star < 40, `stars are rare (${seen.star})`);
+  // rent: a party animal pays more and their next-door neighbour less; homebodies pay as if happy
+  const h1 = put(s, 'tent', T0), h2 = put(s, 'tent', T0);
+  const p1 = person(s, h1, T0), p2 = person(s, h2, T0);
+  const near = Math.max(Math.abs(h1.x - h2.x), Math.abs(h1.y - h2.y)) <= 1;
+  const base = sim.rentPerDay(s, T0);
+  p1.trait = 'party';
+  assert.ok(Math.abs(sim.traitRent(s, p1, h1) - 1.3) < 1e-9);
+  assert.ok(Math.abs(sim.traitRent(s, p2, h2) - (near ? 0.9 : 1)) < 1e-9);
+  assert.ok(sim.rentPerDay(s, T0) > base);
+  p1.trait = 'homebody';
+  const mood = sim.townMood(s, T0);
+  assert.ok(sim.rentBonusPerDay(s, T0, mood) >= 0);
+  // a newcomer's skills become exact when they move in
+  s.applicants.unshift(S.makeApplicant(s));
+  const r = sim.moveIn(s, 0, put(s, 'tent', T0).id, T0);
+  assert.ok(r.ok); assert.equal(r.tenant.seen, undefined);
+  const back = S.importSave(S.exportSave(s));
+  assert.ok(back.applicants.every((a) => CATEGORIES.every((c) => a.seen[c][0] <= a.skills[c] && a.skills[c] <= a.seen[c][1])));
 });
 
 // ---- rides ------------------------------------------------------------------
@@ -984,7 +1035,7 @@ test('goals: population, businesses and every-category milestones all pay out', 
   const log = record(() => {
     for (let i = 0; i < 4; i++) put(s, 'apartment', T0);
     const homes = s.buildings.slice();
-    for (let i = 0; i < 16; i++) assert.ok(sim.moveIn(s, 0, homes[i >> 2].id, T0).ok);
+    for (let i = 0; i < 16; i++) { s.applicants.push(S.makeApplicant(s)); assert.ok(sim.moveIn(s, 0, homes[i >> 2].id, T0).ok); }
     for (const type of ['diner', 'market', 'well', 'farm', 'studio']) put(s, type, T0);
     sim.advance(s, T0 + 1000);
   });
@@ -1364,7 +1415,7 @@ test('trade, orders, ads, shop pricing and milestone unlocks', () => {
   // milestone unlocks: the Fountain needs enough residents AND the happiness milestone
   const big = fresh();
   for (let i = 0; i < 8; i++) put(big, 'apartment', T0);
-  for (let i = 0; i < 30; i++) sim.moveIn(big, 0, big.buildings[i >> 2].id, T0);
+  for (let i = 0; i < 30; i++) { topUp(big); sim.moveIn(big, 0, big.buildings[i >> 2].id, T0); }
   assert.equal(sim.population(big), 30);
   assert.equal(sim.isUnlocked(big, 'fountain'), false);
   assert.match(sim.unlockHint(big, 'fountain'), /90% happy/);

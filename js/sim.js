@@ -584,12 +584,25 @@ export function homeBoost(state, home, now = state.lastTick) {
   return Math.min(TUNING.parkBoostMax, boost);
 }
 
+/** Rent share for one resident from traits: party animals pay more and their next-door neighbours less. */
+export function traitRent(state, t, home) {
+  let f = 1;
+  if (t.trait === 'party') f += 0.3;
+  if (t.trait === 'gogetter') f -= 0.1;
+  for (const o of state.tenants) {
+    if (o.trait !== 'party' || o.homeId === home.id) continue;
+    const h = buildingById(state, o.homeId);
+    if (h && Math.max(Math.abs(h.x - home.x), Math.abs(h.y - home.y)) <= 1) f -= 0.1;
+  }
+  return Math.max(0.5, f);
+}
+
 export function rentPerDay(state, now = state.lastTick) {
   let sum = 0;
   for (const home of state.buildings) {
     if (!isHome(home)) continue;
-    const n = residentsOf(state, home.id).length;
-    if (n) sum += Math.round(n * defOf(home).rentPerTenant * levelMult(home.level) * (1 + homeBoost(state, home, now)));
+    const res = residentsOf(state, home.id);
+    if (res.length) sum += Math.round(res.reduce((n, t) => n + traitRent(state, t, home), 0) * defOf(home).rentPerTenant * levelMult(home.level) * (1 + homeBoost(state, home, now)));
   }
   return sum;
 }
@@ -901,7 +914,8 @@ export function townIQ(state) {
 function teach(state) {
   const learners = state.tenants.filter((t) => CATEGORIES.some((c) => t.skills[c] < 9));
   if (!learners.length) return;
-  const t = pick(state, learners);
+  // go-getters learn twice as often, homebodies half as often
+  const t = pickWeighted(state, learners, (p) => (p.trait === 'gogetter' ? 2 : p.trait === 'homebody' ? 0.5 : 1));
   const job = buildingById(state, t.jobId);
   let cat = job && isBiz(job) ? catOf(job) : null;
   if (!cat || t.skills[cat] >= 9) {
@@ -1017,7 +1031,7 @@ export function rentBonusPerDay(state, now, mood = townMood(state, now)) {
     const res = residentsOf(state, home.id);
     if (!res.length) continue;
     const each = (defOf(home).rentPerTenant * levelMult(home.level) * (1 + homeBoost(state, home, now)));
-    for (const t of res) sum += each * moodRentFactor(residentMood(state, t, now, mood).score);
+    for (const t of res) sum += each * traitRent(state, t, home) * moodRentFactor(t.trait === 'homebody' ? 100 : residentMood(state, t, now, mood).score);
   }
   return Math.round(sum);
 }
@@ -1047,7 +1061,8 @@ function maybeProblem(state, now) {
   if (state.problems.length >= 1 + Math.floor(shops.length / TUNING.problemShopsPerSlot)) return;
   const open = shops.filter((b) => workersOf(state, b.id).length > 0 && !problemOf(state, b.id));
   if (!open.length) return;
-  const b = pick(state, open);
+  // a shop with a genius on the team has trouble twice as often
+  const b = pickWeighted(state, open, (s) => (workersOf(state, s.id).some((t) => t.trait === 'genius') ? 2 : 1));
   const kind = pick(state, Object.keys(PROBLEMS));
   const fixer = fixerFor(state, b, kind, now);
   const problem = { buildingId: b.id, kind, at: now, fixAt: fixer ? now + TUNING.problemAutoFixMs : null, fixerId: fixer ? fixer.id : null };
@@ -1218,10 +1233,12 @@ export function moveIn(state, applicantIndex, homeId, now) {
   const tenant = person;
   tenant.homeId = home.id;
   tenant.jobId = null;
+  delete tenant.seen;               // now you know their real skills (and their trait)
   tenant.welcome = true;            // can be driven home once for a bonus (optional)
   state.tenants.push(tenant);
-  state.applicants[applicantIndex] = makeApplicant(state);
-  events.emit('moveIn', { tenant });
+  state.applicants.splice(applicantIndex, 1);
+  openSpot(state, now);
+  events.emit('moveIn', { tenant, reveal: true });
   const after = population(state);
   for (const cat of [...Object.keys(SHOP_CATS), 'gov']) {
     const at = cat === 'gov' ? GOV.unlockAt : SHOP_CATS[cat].unlockAt;
@@ -1309,6 +1326,65 @@ export function bestJobs(state, tenantId, now) {
     (a, b) => (b.open - a.open) || (b.dream - a.dream) || (b.skill - a.skill) || (a.building.id - b.building.id)
   );
   return out.slice(0, 3);
+}
+
+// ---- newcomers -----------------------------------------------------------------
+// Newcomers drive in on the entry road and wait at the Welcome sign. You see their skills
+// as ranges and a first-impression hint; their real skills and trait show when they move in.
+
+function pickWeighted(state, list, weight) {
+  const total = list.reduce((n, x) => n + weight(x), 0);
+  let r = rand(state) * total;
+  for (const x of list) { r -= weight(x); if (r < 0) return x; }
+  return list[list.length - 1];
+}
+
+/** Time until the next newcomer: arriveMs, half that during an ad, twice that after a move-out. */
+function arrivalGap(state, at) {
+  let gap = TUNING.arriveMs;
+  if (at < (state.adUntil || 0)) gap /= 2;
+  if (at < (state.slowArrivalsUntil || 0)) gap *= 2;
+  return gap;
+}
+
+/** A spot at the Welcome sign just opened: someone new drives in a little later. */
+function openSpot(state, now) {
+  const next = now + arrivalGap(state, now);
+  if (state.nextApplicantAt <= now || state.nextApplicantAt > next) state.nextApplicantAt = next;
+}
+
+/** "Not now": a newcomer drives on, for free, and someone else arrives a little later. */
+export function sendAway(state, applicantIndex, now) {
+  const a = state.applicants[applicantIndex];
+  if (!a) return fail('They already left.');
+  state.applicants.splice(applicantIndex, 1);
+  openSpot(state, now);
+  events.emit('sendAway', { applicant: a });
+  return { ok: true, reason: '' };
+}
+
+/**
+ * Ask a resident to move out. It is always allowed and never costs coins; the mild catch is
+ * that word gets around, so newcomers take twice as long to arrive for a while.
+ */
+export function moveOut(state, tenantId, now) {
+  const t = tenantById(state, tenantId);
+  if (!t) return fail("We couldn't find that person.");
+  const job = buildingById(state, t.jobId);
+  state.tenants = state.tenants.filter((x) => x !== t);
+  if (job) recountStars(state, job);
+  if (state.ride && state.ride.tenantId === t.id) clearRide(state, now);
+  state.slowArrivalsUntil = now + TUNING.moveOutSlowMs;
+  if (state.nextApplicantAt > now) state.nextApplicantAt = Math.max(state.nextApplicantAt, now + arrivalGap(state, now));
+  events.emit('moveOut', { tenant: t });
+  checkGoals(state, now);
+  return { ok: true, reason: '' };
+}
+
+/** Where newcomers wait: on the entry road just outside the first town, so nothing built is covered. */
+export function welcomeSpot(state) {
+  const e = entryRoute(state);
+  return e ? e.tiles.at(e.tiles.length >= 2 ? -2 : -1) : null;
 }
 
 // ---- teams ---------------------------------------------------------------------
@@ -1883,7 +1959,8 @@ export function advance(state, now, { live = true, active = false } = {}) {
       // End at changes that affect rates or rent so a long catch-up applies them
       // at the same time as small live ticks.
       const end = Math.min(now, t + TUNING.stepMs, nextHour,
-        pending.at(-1)?.readyAt ?? Infinity, Math.max(t + 1, state.nextApplicantAt),
+        pending.at(-1)?.readyAt ?? Infinity,
+        state.applicants.length < TUNING.applicantCount ? Math.max(t + 1, state.nextApplicantAt) : Infinity,
         perHour > 0 ? Math.max(t + 1, state.nextLessonAt) : Infinity,
         state.adUntil > t ? state.adUntil : Infinity, t + msUntilRecipe(state, growth),
         ...state.problems.map((p) => (p.fixAt != null && p.fixAt > t ? p.fixAt : Infinity)));
@@ -1952,12 +2029,16 @@ export function advance(state, now, { live = true, active = false } = {}) {
         for (const shop of shops) shop.rate = potentialRate(state, shop.b);
       }
 
-      // 3. fresh faces: the oldest applicant makes way for a new one
-      while (end >= state.nextApplicantAt) {
-        if (state.applicants.length >= TUNING.applicantCount) state.applicants.shift();
-        state.applicants.push(makeApplicant(state));
-        state.nextApplicantAt += TUNING.applicantEveryMs / (end < (state.adUntil || 0) ? 2 : 1);   // ads bring people in faster
+      // 3. newcomers drive in on the entry road and wait at the Welcome sign. They never
+      //    leave on their own: an open spot fills arriveMs after it opened.
+      while (end >= state.nextApplicantAt && state.applicants.length < TUNING.applicantCount) {
+        const a = makeApplicant(state);
+        a.arrivedAt = state.nextApplicantAt;
+        state.applicants.push(a);
+        state.nextApplicantAt += arrivalGap(state, state.nextApplicantAt);
+        events.emit('arrival', { applicant: a });
       }
+      if (state.applicants.length >= TUNING.applicantCount && state.nextApplicantAt < end) state.nextApplicantAt = end;
 
       // 4. rent at the top of every hour
       if (end >= nextHour) {

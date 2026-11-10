@@ -52,8 +52,13 @@ export const TUNING = {
   startGems: 2,
   stepMs: 60000,                 // largest simulation step
   maxOfflineMs: 14 * 86400000,   // offline catch-up cap
-  applicantCount: 3,
-  applicantEveryMs: 4 * 60000,   // oldest applicant is replaced this often
+  applicantCount: 3,             // newcomers waiting at the Welcome sign at most
+  applicantEveryMs: 4 * 60000,   // (older saves) kept for the first arrival time of a new game
+  arriveMs: 60000,               // an open spot at the Welcome sign fills this long after it opens
+  moveOutSlowMs: 10 * 60000,     // asking someone to move out: newcomers take twice as long for this while
+  traitChance: 0.4,              // share of newcomers with a trait (each trait has an upside and a downside)
+  starChance: 0.05,              // share of newcomers who are stars: high skills, a gold card
+  skillRangeWidth: 3,            // a newcomer's skills show as a range this wide (a star's as 1)
   refundRate: 0.75,              // demolish refund (of what was paid)
   copyCostGrowth: 1.35,          // each copy of a building you already own multiplies its price by this
   hurryGems: 1,
@@ -176,6 +181,19 @@ export const ODD_JOBS = {
   farming: 'Plant a garden',
   creative: 'Paint a shop sign',
 };
+
+// ---- Traits -------------------------------------------------------------------
+// Most people have none. Each trait has a clear upside and downside, so there are no
+// simply bad people: the fun is placing them well. A newcomer's trait is only a hint
+// at the Welcome sign ('sharp' or 'friendly' fits two traits, or nothing special);
+// it is revealed when they move in.
+export const TRAITS = {
+  genius:   { name: 'Genius',       hint: 'sharp',    up: '+2 to every skill',             down: 'problems happen twice as often at their shop' },
+  gogetter: { name: 'Go-getter',    hint: 'sharp',    up: 'learns twice as fast',          down: 'pays 10% less rent (always out learning)' },
+  party:    { name: 'Party animal', hint: 'friendly', up: 'pays 30% more rent',            down: 'next-door homes pay 10% less rent' },
+  homebody: { name: 'Homebody',     hint: 'friendly', up: 'pays rent as if fully happy',   down: 'learns at half speed' },
+};
+export const HINTS = { sharp: 'Seems sharp', friendly: 'Easy to get along with', nice: 'Seems nice' };
 
 // ---- Buildings ------------------------------------------------------------
 // Homes and town buildings: x copyCostGrowth for every copy already owned.
