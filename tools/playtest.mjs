@@ -13,7 +13,8 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
   const s = store.newGame(now);
   const income = { sales: 0, ride: 0, delivery: 0, rent: 0, goal: 0, trade: 0, order: 0 };
   const onCoins = sim.events.on('coins', ({ amount, reason }) => { if (income[reason] != null) income[reason] += amount; });
-  let manualRestocks = 0;
+  let manualRestocks = 0; let fixes = 0; let problems = 0;
+  const onProblem = sim.events.on('problem', () => { problems++; });
   const marks = [];
   const mark = (text) => marks.push(`${fmt(now - seedTime).padStart(7)}  ${text}`);
   const seen = new Set();
@@ -36,6 +37,7 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
 
   function act() {
     manualRestocks += sim.restockAll(s, now).count;
+    for (const p of [...s.problems]) if (p.fixAt == null) { if (sim.fixProblem(s, p.buildingId, now).ok) fixes++; }
     // Move in a good match for an open job, or the best available skill.
     for (let guard = 0; guard < 20; guard++) {
       const home = sim.homesWithVacancy(s, now)[0];
@@ -123,11 +125,11 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
       mark(`evening: pop ${s.tenants.length}, ${s.buildings.length} buildings, ${Math.round(s.coins)} coins, shops ${Math.round(sim.townRatePerMin(s, now) * 60)}/h, rent ${sim.rentPerDay(s)}/day, happy ${sim.happiness(s, now)}%, IQ ${sim.townIQ(s)}, recipes ${s.recipes.length}/${config.RECIPES.length}`);
     }
   }
-  sim.events.off('coins', onCoins);
+  sim.events.off('coins', onCoins); sim.events.off('problem', onProblem);
   const total = Object.values(income).reduce((a, b) => a + b, 0) || 1;
   console.log(`\n=== ${label} ===`);
   if (detail) console.log(marks.join('\n'));
-  console.log(`population ${s.tenants.length}, happy ${sim.happiness(s, now)}%, IQ ${sim.townIQ(s)}, manual restocks ${manualRestocks}`);
+  console.log(`population ${s.tenants.length}, happy ${sim.happiness(s, now)}%, IQ ${sim.townIQ(s)}, manual restocks ${manualRestocks}, problems ${problems} (${fixes} paid for)`);
   console.log('income mix: ' + Object.entries(income).map(([k, v]) => `${k} ${Math.round(v)} (${Math.round(100 * v / total)}%)`).join(', '));
   console.log(`goals done ${s.goalsDone.length}/${config.GOALS.length}, dream jobs ${s.stats.dreamJobs}, rides ${s.stats.rides}, types owned ${new Set(s.buildings.map((b) => b.type)).size}/${Object.keys(BUILDINGS).length}`);
 }

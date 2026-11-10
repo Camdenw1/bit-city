@@ -579,6 +579,15 @@ const HINT_STOCK = [
   'kwwwwwk',
   '.kkkkk.',
 ];
+const HINT_TROUBLE = [
+  '.kkkkk.',
+  'krrwrrk',
+  'krrwrrk',
+  'krrwrrk',
+  'krrrrrk',
+  'krrwrrk',
+  '.kkkkk.',
+];
 const HINT_HOME = [
   '.kkk.',
   'kwgwk',
@@ -921,6 +930,7 @@ def('bubble', () => Grid.from(BUBBLE));
 def('hint_job', () => Grid.from(HINT_JOB));
 def('hint_home', () => Grid.from(HINT_HOME));
 def('hint_stock', () => Grid.from(HINT_STOCK));
+def('hint_trouble', () => Grid.from(HINT_TROUBLE));
 
 /** Every sprite id this module can draw. */
 export const SPRITE_IDS = Array.from(GRIDS.keys());

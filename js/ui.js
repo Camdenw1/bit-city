@@ -296,7 +296,25 @@ export function createUI(root, api) {
     select(null);
   }
   function goBack() { if (sheet && sheet.back) openSheet(sheet.back); else closeSheet(); }
-  function select(tile) { try { if (api.renderer && api.renderer.setSelection) api.renderer.setSelection(tile); } catch (e) { /* cosmetic */ } }
+  function select(tile) {
+    try {
+      if (api.renderer && api.renderer.setSelection) api.renderer.setSelection(tile);
+      // a town building shows the area it serves while its sheet is open
+      const b = tile && sheet && sheet.kind === 'building' ? byId(sheet.id) : null;
+      const reach = b && def(b.type).provides ? { x: b.x, y: b.y, r: call('reachOf', b) || 0 } : null;
+      if (api.renderer && api.renderer.setReach) api.renderer.setReach(reach);
+    } catch (e) { /* cosmetic */ }
+  }
+  // Who has what, worked out once per screen update and shared by every row.
+  let moodCache = null;
+  function mood() {
+    if (!moodCache) { moodCache = call('townMood', S(), N()) || null; queueMicrotask(() => { moodCache = null; }); }
+    return moodCache;
+  }
+  function moodOf(t) { return call('residentMood', S(), t, N(), mood()) || { score: 100, missing: [] }; }
+  function moodChip(score) {
+    return `<span class="tag ${score >= 75 ? 'tag-ok' : score >= 40 ? 'tag-mid' : 'tag-low'}">${icon('heart', 1, 'i12')}${score}%</span>`;
+  }
 
   function renderSheet() {
     if (!sheet) return false;
@@ -360,6 +378,7 @@ export function createUI(root, api) {
     const perfect = !!(jf && jf.dream);
     const better = perfect ? null : betterJob(t);
     const dreamDef = def(t.dream);
+    const tm = home ? moodOf(t) : { score: 100, missing: [] };
     let foot;
     if (perfect) {
       foot = `<div class="p-foot perfect">${icon('star', 2)}<span><b>Perfect fit!</b> Dream job at the ${esc(bName(job))}</span></div>`;
@@ -375,11 +394,12 @@ export function createUI(root, api) {
       <div class="p-main">
         <span class="avatar">${person(t.look, 4)}</span>
         <div class="p-info">
-          <div class="p-name"><b>${esc(t.name)}</b>${skillBadge(ts.cat, ts.value)}</div>
+          <div class="p-name"><b>${esc(t.name)}</b>${skillBadge(ts.cat, ts.value)}${home ? moodChip(tm.score) : ''}</div>
           <div class="p-sub">${home ? esc(bName(home)) : 'New in town'} · ${job
             ? `${esc(bName(job))} ${skillBadge(categoryOf(job), jf.skill)}`
             : '<span class="looking">Looking for work</span>'}</div>
-          ${home ? `<div class="p-wish">“${esc(call('tenantWish', S(), t, N()) || '')}”</div>` : ''}
+          ${home ? `<div class="p-wish">“${esc(call('tenantWish', S(), t, N(), mood()) || '')}”</div>` : ''}
+          ${home && tm.missing.length ? `<div class="p-why">${tm.missing.slice(0, 3).map((m) => `<span>${icon(m.icon, 1, 'i12')}${esc(m.why)}</span>`).join('')}${tm.missing.length > 3 ? `<span>+${tm.missing.length - 3} more</span>` : ''}</div>` : ''}
         </div>
       </div>${foot}</div>`;
   }
@@ -406,9 +426,10 @@ export function createUI(root, api) {
             <div class="happy-head">${icon('heart', 3)}<b>${s.tenants.length ? `${happy}% happy` : 'No residents yet'}</b></div>
             <div class="meter"><i style="width:${happy}%"></i></div>
             <p class="happy-rent">Rent every hour: <b>${formatCoins(Math.round((rent + bonus) / 24))}</b> ${icon('coin', 1, 'i12')}
-              ${bonus > 0 ? `<span class="tag tag-ok">+${formatCoins(Math.round(bonus / 24))} happy bonus</span>` : ''}</p>
+              ${bonus > 0 ? `<span class="tag tag-ok">+${formatCoins(Math.round(bonus / 24))} happy bonus</span>` : bonus < 0 ? `<span class="tag tag-low">−${formatCoins(Math.round(-bonus / 24))} unhappy residents</span>` : ''}</p>
             <p class="note">Next rent in ${formatDuration(Math.max(60000, 3600000 - (now % 3600000)))}.</p>
           </div>
+          <button class="btn btn-quiet btn-wide" data-act="open-mayor">${icon('key', 2)} Mayor's desk${(s.problems || []).length ? ` · ${(s.problems || []).length} to sort out` : ''}</button>
           <h3 class="sec">Most wanted</h3>
           ${wishes || `<p class="note">${s.tenants.length ? 'Everyone has what they need.' : 'Move someone in to see their wishes.'}</p>`}
           <details class="sheet-details" data-key="town-details"><summary>Town details</summary>
@@ -573,7 +594,12 @@ export function createUI(root, api) {
       // town buildings: nothing to staff or stock, they just help
       if (c.kind !== 'biz') {
         const lines = [];
-        if (c.provides) lines.push(`${icon(needOf(c).icon, 1, 'i12')}${esc(needOf(c).name)} for ${c.provides.serves} residents`);
+        if (c.provides) {
+          const reach = call('reachOf', b) || 0;
+          lines.push(`${icon(needOf(c).icon, 1, 'i12')}${esc(needOf(c).name)} for homes within ${reach} lots · serving ${mood()?.served.get(b.id) || 0} now`);
+          const fixes = Object.values(config.PROBLEMS || {}).some((p) => p.fixer === c.provides.need);
+          if (c.gov && fixes) lines.push(`${icon('star', 1, 'i12')}Fixes shop problems within ${reach} lots for free`);
+        }
         if (c.lessons) lines.push(`${icon('star', 1, 'i12')}Teaches ${c.lessons} skill ${c.lessons === 1 ? 'point' : 'points'} an hour`);
         if (c.rentBoost) {
           const near = s.buildings.filter((h) => def(h.type).kind === 'home' && Math.max(Math.abs(h.x - b.x), Math.abs(h.y - b.y)) <= (config.TUNING?.parkRadius ?? 2)).length;
@@ -594,6 +620,16 @@ export function createUI(root, api) {
         ? `<p class="note">${icon('star', 1, 'i12').repeat(1 + known.length)} ${known.length ? esc(known.map((r) => r.name).join(', ')) : 'Grow crops to discover recipes'}</p>` : '';
       const grown = c.crop ? `<p class="note">${icon('cat_farming', 1, 'i12')}${formatCoins(Math.floor((s.crops && s.crops[c.crop]) || 0))} ${esc((config.CROPS || {})[c.crop] || c.crop).toLowerCase()} grown so far</p>` : '';
       const status = call('bizStatus', s, b, now) || 'open';
+      const prob = call('problemOf', s, b.id);
+      const cut = Math.round((config.TUNING?.problemSalesCut ?? 0.25) * 100);
+      const fee = prob ? call('problemFee', s, now) || 0 : 0;
+      const helper = prob && byId(prob.fixerId);
+      const trouble = !prob ? '' : `<div class="trouble">
+          <p><b>${esc((config.PROBLEMS || {})[prob.kind]?.name || 'A problem')}!</b> Selling ${cut}% less until it is fixed.</p>
+          ${prob.fixAt != null
+            ? `<p class="note">${icon('star', 1, 'i12')}${helper ? esc(bName(helper)) : 'Help'} is on the way · ${formatDuration(Math.max(1000, prob.fixAt - now))}</p>`
+            : `<button class="btn ${fee <= s.coins ? 'btn-coin' : 'btn-quiet'} btn-wide" data-act="fix-problem" data-id="${b.id}">Fix it now ${coinAmt(fee, 2)}</button>
+               <p class="note">A ${(config.PROBLEMS || {})[prob.kind]?.fixer === 'health' ? 'clinic' : 'police or fire station'} within reach would fix this for free.</p>`}</div>`;
       const rate = (call('ratePerMin', s, b) || 0) * 60;
       const workers = workersOf(b.id);
       const stockMax = call('stockMaxOf', b) || c.stockMax || 1;
@@ -642,7 +678,7 @@ export function createUI(root, api) {
               <div class="meter meter-stock${pct === 0 ? ' is-empty' : ''}"><i style="width:${pct}%"></i></div></div>
             ${selfStock ? `<p class="note">${icon('star', 1, 'i12')}Restocks itself — dream worker!</p>` : ''}${menu}${grown}
           </div></div>
-          ${full ? '' : `<button class="btn btn-coin btn-wide" data-act="restock" data-id="${b.id}">${icon('box', 2)} Restock ${coinAmt(Math.min(cost, Math.max(0, Math.floor(s.coins))), 2)}</button>`}
+          ${trouble}${full ? '' : `<button class="btn btn-coin btn-wide" data-act="restock" data-id="${b.id}">${icon('box', 2)} Restock ${coinAmt(Math.min(cost, Math.max(0, Math.floor(s.coins))), 2)}</button>`}
           <div class="seg" role="group" aria-label="Prices">${prices}</div>
           <p class="note seg-note">${workers.length ? 'Estimated sales while stocked, before ad bonuses.' : 'Hire a worker to compare sales and stock.'}</p>
           <h3 class="sec">${icon('cat_' + cat, 1, 'i12')} ${CAT_LABEL[cat] || ''} jobs</h3>
@@ -710,8 +746,38 @@ export function createUI(root, api) {
       const sorted = s.tenants.slice().sort((a, z) => (!!betterJob(z) - !!betterJob(a)) || ((a.jobId != null) - (z.jobId != null)));
       return {
         title: 'People',
-        html: `<div class="summary">${icon('person', 2)}<b>${s.tenants.length}</b> residents<span class="sp"></span>${icon('star', 2)}<b>${perfect}</b> in dream jobs</div>
+        html: `<div class="summary">${icon('person', 2)}<b>${s.tenants.length}</b> residents<span class="sp"></span>${icon('star', 2)}<b>${perfect}</b> in dream jobs<span class="sp"></span>${icon('heart', 2)}<b>${call('happiness', s, N(), mood()) || 0}%</b></div>
           <div class="list">${sorted.map(personRow).join('')}</div>`,
+      };
+    },
+
+    /* --- Mayor's desk: problems, unhappy residents, and what each town building covers --- */
+    mayor() {
+      const s = S(); const now = N(); const m = mood();
+      const probs = (s.problems || []).map((p) => {
+        const b = byId(p.buildingId); if (!b) return '';
+        const helper = byId(p.fixerId);
+        return `<button class="want-row wish-button trouble-row" data-act="goto-building" data-id="${b.id}" data-key="p${b.id}">${buildingArt(b, 1, 'mini')}
+          <span class="wish-copy"><b>${esc((config.PROBLEMS || {})[p.kind]?.name || 'Problem')} · ${esc(bName(b))}</b>
+          <span>${p.fixAt != null ? `${helper ? esc(bName(helper)) : 'Help'} is on the way · ${formatDuration(Math.max(1000, p.fixAt - now))}` : `Fix it for ${formatCoins(call('problemFee', s, now) || 0)} coins`}</span></span><span aria-hidden="true">›</span></button>`;
+      }).join('');
+      const sad = s.tenants.map((t) => ({ t, m: moodOf(t) })).filter((x) => x.m.missing.length)
+        .sort((a, z) => a.m.score - z.m.score || a.t.id - z.t.id).slice(0, 5).map(({ t, m: tm }) => {
+          const home = byId(t.homeId);
+          return `<button class="want-row wish-button plain" data-act="goto-building" data-id="${home ? home.id : ''}" data-key="s${t.id}"><span class="avatar">${person(t.look, 2)}</span>
+            <span class="wish-copy"><b>${esc(t.name)} ${moodChip(tm.score)}</b><span>${esc(tm.missing.slice(0, 2).map((x) => x.why).join(' · '))}</span></span><span aria-hidden="true">›</span></button>`;
+        }).join('');
+      const services = s.buildings.filter((b) => def(b.type).provides && def(b.type).gov).map((b) => {
+        const c = def(b.type);
+        return `<button class="want-row wish-button plain" data-act="goto-building" data-id="${b.id}" data-key="g${b.id}">${buildingArt(b, 1, 'mini')}
+          <span class="wish-copy"><b>${esc(bName(b))}</b><span>${esc(needOf(c).name)} · serving ${m?.served.get(b.id) || 0} · reach ${call('reachOf', b) || 0} lots</span></span><span aria-hidden="true">›</span></button>`;
+      }).join('');
+      return {
+        title: "Mayor's desk",
+        html: `<h3 class="sec">Problems</h3>${probs || `<p class="note">Nothing to sort out. The town is running smoothly.</p>`}
+          <h3 class="sec">Residents who need something</h3>${sad || `<p class="note">${s.tenants.length ? 'Everyone has what they need.' : 'No residents yet.'}</p>`}
+          <h3 class="sec">Town services</h3>${services || `<p class="note">No government buildings yet. They keep people healthy, safe and learning, and fix shop problems nearby.</p>`}
+          <p class="note">Happy residents pay up to +${Math.round((config.TUNING?.happyRentBonus ?? 0.5) * 100)}% rent. Unhappy ones pay up to ${Math.round((config.TUNING?.unhappyRentCut ?? 0.2) * 100)}% less.</p>`,
       };
     },
 
@@ -956,6 +1022,17 @@ export function createUI(root, api) {
 
     'nav-build': () => { wishBuild = null; closeSheet(); refreshHUD(); toast('Tap an empty lot'); },
     'nav-people': () => openSheet({ kind: 'people' }),
+    'open-mayor': () => openSheet({ kind: 'mayor', back: { kind: 'town' } }),
+    'goto-building': (el) => {
+      const b = byId(Number(el.dataset.id));
+      if (!b) return;
+      try { api.renderer.focusTile({ x: b.x, y: b.y }); } catch (e) { /* cosmetic */ }
+      openSheet({ kind: 'building', id: b.id, tile: { x: b.x, y: b.y }, back: { kind: 'mayor', back: { kind: 'town' } } });
+    },
+    'fix-problem': (el) => {
+      const r = act('fixProblem', Number(el.dataset.id));
+      toast(r && r.ok ? 'All fixed!' : (r && r.reason) || '');
+    },
     'nav-menu': () => openSheet({ kind: 'menu', reset: 0 }),
     'nav-town': () => { wishBuild = null; openSheet({ kind: 'town' }); refreshHUD(); },
     'follow-wish': (el) => {

@@ -83,7 +83,17 @@ export const TUNING = {
   rideWrongTryPenalty: 0.2,
   rideMinBuildings: 2,
   needServes: 10,                // one staffed shop keeps this many residents happy with its kind of thing
-  happyRentBonus: 0.5,           // extra rent at 100% happiness (a bonus only: rent is never cut)
+  happyRentBonus: 0.5,           // extra rent from a resident who is 100% happy
+  unhappyRentCut: 0.2,           // rent lost from a resident who is 0% happy (a straight line in between)
+  reach: 5,                      // town buildings serve homes and shops this many lots away (+1 per level)
+  problemUnlockPop: 10,          // shops only get problems once the town is this big
+  problemGapMinMs: 6 * 60000,    // a new problem can turn up this often, only while playing
+  problemGapMaxMs: 14 * 60000,
+  problemShopsPerSlot: 12,       // one problem at a time, plus one more per this many shops
+  problemSalesCut: 0.25,         // a shop with a problem sells this much less
+  problemAutoFixMs: 3 * 60000,   // a station or clinic in reach sorts it out after this long
+  problemFeeMinutes: 4,          // fixing it yourself costs this many minutes of shop income
+  problemMinFee: 40,
   cropPerHour: 10,               // crops one staffed farm grows per real hour (x staffFactor)
   recipeBonus: 0.1,              // extra sales for every food shop, per recipe the town knows
   parkRadius: 2,                 // parks boost homes this many lots away (2 reaches across a road)
@@ -103,6 +113,13 @@ export const TUNING = {
   adCostMinutes: 20,             // an ad costs this many minutes of shop income (at least adMinCost)
   adMinCost: 300,
   safetyNetCoins: 200,           // an empty town never has less than this (tent + diner)
+};
+
+// Small troubles a shop can run into. `fixer` is the need whose town buildings sort it out for free.
+export const PROBLEMS = {
+  leak:   { name: 'Burst pipe',      fixer: 'safety' },
+  theft:  { name: 'Shoplifters',     fixer: 'safety' },
+  sniffles: { name: 'Staff caught a cold', fixer: 'health' },
 };
 
 export const TOWN_JOBS = {

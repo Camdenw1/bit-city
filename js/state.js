@@ -1,7 +1,7 @@
 // Bit City — state: new game, save/load (with backup copy), export/import, local day.
 // Pure: the only platform access is localStorage inside save()/load(), always guarded.
 
-import { BUILDINGS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, QUALITY, RECIPES, TUNING, levelMult, shopStats } from './config.js';
+import { BUILDINGS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats } from './config.js';
 
 export const SAVE_KEY = 'bitcity.save.v1';
 const EXPORT_PREFIX = 'BITCITY1:';
@@ -115,6 +115,8 @@ export function newGame(now) {
     orders: [],                        // standing orders from neighbour towns
     trade: { sold: 0, filled: 0 },
     adUntil: 0,
+    problems: [],                      // shop troubles: { buildingId, kind, at, fixAt|null, fixerId|null }
+    nextProblemAt: now + TUNING.problemGapMaxMs,
     settings: { sound: true },
   };
   // The first three applicants are good at the three starter categories and dream of
@@ -243,6 +245,9 @@ export function migrate(state) {
     const known = new Set(GOALS.map((g) => g.id));
     state.goalsDone = (Array.isArray(state.goalsDone) ? state.goalsDone : []).filter((id) => known.has(id));
     state.goalsDone = [...new Set(state.goalsDone)];
+    state.problems = (Array.isArray(state.problems) ? state.problems : []).filter((p) => p && typeof p === 'object' &&
+      byId.has(p.buildingId) && PROBLEMS[p.kind] && isNum(p.at) && (p.fixAt === null || isNum(p.fixAt)));
+    if (!isNum(state.nextProblemAt)) state.nextProblemAt = state.lastTick + TUNING.problemGapMaxMs;
     if (state.streets !== 'plan') state.streets = 'grid';   // a town keeps the streets it was founded with
     // phase 3: land. Every town owns its first parcel; buildings on land that isn't owned are kept by owning it.
     const parcelIds = new Set(PARCELS.map((p) => p.id));

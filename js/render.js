@@ -5,7 +5,7 @@
 import { MAP_W, MAP_H, TILE, isRoad, DAY_LENGTH_MS, BUILDINGS, WORLD, PARCELS, parcelAt } from './config.js';
 import { initSprites, getSprite, getPerson, buildingSpriteId } from './sprites.js';
 import { makeWorld, terrainAt } from './terrain.js';
-import { isBuilt, bizStatus, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt } from './sim.js';
+import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt } from './sim.js';
 
 const SPRITE_H = 16;                 // building sprites are 16 x 16: each one fits its own lot
 const OVERLAP = SPRITE_H - TILE;     // 0: nothing pokes into the tile above
@@ -115,6 +115,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   const particles = [];
   let taxi = null;
   let selection = null;
+  let reach = null;        // { x, y, r }: the area a town building serves, shown while its sheet is open
   const tapFns = [];
   let lastRt = clock();
   const alphaCache = new Map();        // sprite id → { w, h, data } | null
@@ -331,6 +332,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     if (!cfg) return null;
     if (cfg.kind === 'biz') {
       if (safe(() => bizStatus(f.state, b, f.now), null) === 'out-of-stock') return 'box';
+      if (safe(() => problemOf(f.state, b.id), null)) return 'trouble';
       if (f.anyUnemployed) {
         const slots = cfg.slots ?? 2;
         if (safe(() => workersOf(f.state, b.id).length, slots) < slots) return 'briefcase';
@@ -803,6 +805,14 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         }
       }
 
+      if (reach) {
+        const side = (reach.r * 2 + 1) * TILE;
+        const ax = (reach.x - reach.r) * TILE, ay = (reach.y - reach.r) * TILE;
+        ctx.globalAlpha = 0.16; ctx.fillStyle = '#fff6c8';
+        ctx.fillRect(toDevX(ax), toDevY(ay), side * scale, side * scale);
+        drawOutline(ax, ay, side, side, '#fff6c8', 0.9);
+        ctx.globalAlpha = 1;
+      }
       if (selection && inMap(selection.x, selection.y)) drawSelection(selection, rt);
 
       // status bubbles, always at full brightness so they read at night too
@@ -816,6 +826,10 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         // so a busy town doesn't fill with bubbles and nothing covers the lot behind.
         if (icon === 'key' || icon === 'briefcase') {
           blit(getSprite(icon === 'key' ? 'hint_home' : 'hint_job'), b.x * TILE + 11, b.y * TILE + bobOf(b, rt));
+          continue;
+        }
+        if (icon === 'trouble') {             // a shop problem: same corner as sold out, tap the shop to see it
+          blit(getSprite('hint_trouble'), b.x * TILE, b.y * TILE + bobOf(b, rt));
           continue;
         }
         if (icon === 'box') {                 // sold out: a bigger badge on the other corner, one tap restocks
@@ -979,6 +993,10 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     selection = tile && Number.isFinite(tile.x) && Number.isFinite(tile.y) ? { x: tile.x, y: tile.y } : null;
   }
 
+  function setReach(area) {
+    reach = area && Number.isFinite(area.x) && Number.isFinite(area.y) && area.r > 0 ? { x: area.x, y: area.y, r: area.r } : null;
+  }
+
   function focusTile(tile) {
     ox = W / 2 - (tile.x + 0.5) * TILE * scale;
     oy = H / 2 - (tile.y + 0.5) * TILE * scale;
@@ -989,7 +1007,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   resize();
 
   return {
-    resize, draw, onTap, floatText, burst, driveTaxi, setSelection, focusTile, tileToScreen,
+    resize, draw, onTap, floatText, burst, driveTaxi, setSelection, setReach, focusTile, tileToScreen,
     // extras beyond the spec
     gameClock,
     resetView() { userMoved = false; scale = fitScale; clampView(); },

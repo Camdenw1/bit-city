@@ -1140,7 +1140,8 @@ test('needs, happiness, rent bonus, most wanted and wishes', () => {
   const a = person(s, tent, T0, { dream: 'music' });
   // one resident, no job, no shops: jobs and food are both unmet
   assert.deepEqual(sim.needsStatus(s, T0).map((n) => [n.id, n.score]), [['jobs', 0], ['food', 0]]);
-  assert.equal(sim.happiness(s, T0), 0); assert.equal(sim.rentBonusPerDay(s, T0), 0);
+  assert.equal(sim.happiness(s, T0), 0);
+  assert.equal(sim.rentBonusPerDay(s, T0), -Math.round(BUILDINGS.tent.rentPerTenant * TUNING.unhappyRentCut), 'an unhappy resident pays a little less');
   assert.match(sim.tenantWish(s, a, T0), /Music Shop/);
   const wanted = sim.mostWanted(s, T0);
   assert.ok(wanted.length >= 2 && wanted.length <= 3);
@@ -1152,12 +1153,13 @@ test('needs, happiness, rent bonus, most wanted and wishes', () => {
   assert.equal(targets.find((w) => w.id === 'jobs').buildingId, diner.id);
   sim.assignJob(s, a.id, diner.id, T0);
   assert.equal(sim.happiness(s, T0), 100);
-  assert.equal(sim.rentBonusPerDay(s, T0), Math.floor(BUILDINGS.tent.rentPerTenant * TUNING.happyRentBonus));
+  assert.equal(sim.rentBonusPerDay(s, T0), Math.round(BUILDINGS.tent.rentPerTenant * TUNING.happyRentBonus));
   diner.stock = 0;
   assert.equal(sim.happiness(s, T0), 100, 'an empty shelf never makes anyone unhappy');
-  // happiness never lowers rent
+  // unhappy residents never cost more than the cut: rent stays well above zero
   for (let i = 0; i < 3; i++) person(s, put(s, 'tent', T0), T0);
-  assert.ok(sim.happiness(s, T0) < 100); assert.ok(sim.rentBonusPerDay(s, T0) >= 0);
+  assert.ok(sim.happiness(s, T0) < 100);
+  assert.ok(sim.rentPerDay(s) + sim.rentBonusPerDay(s, T0) >= sim.rentPerDay(s) * (1 - TUNING.unhappyRentCut) - 1);
   for (const t of s.tenants) assert.ok(sim.tenantWish(s, t, T0).length > 5);
 });
 
@@ -1392,4 +1394,62 @@ test('economy batch: play boost, same-kind ride destinations, old saves move to 
   delete old.lastRentHour; delete old.rentCarry; old.lastRentDay = '2026-06-15';
   const m = S.migrate(old);
   assert.equal(m.lastRentHour, Math.floor(T0 / HOUR) - 12); assert.equal(m.rentCarry, 0); assert.equal(m.lastRentDay, undefined);
+});
+
+test('government batch: reach, each resident\'s happiness and reasons, shop problems', () => {
+  const s = fresh();
+  const homes = []; const people = [];
+  for (let i = 0; i < 10; i++) { const h = put(s, 'tent', T0); homes.push(h); people.push(person(s, h, T0)); }
+  const clinic = put(s, 'clinic', T0);
+  const health = () => sim.needsStatus(s, T0).find((n) => n.id === 'health');
+  assert.ok(health(), 'health matters at 10 residents');
+  // a clinic only serves homes within its reach
+  Object.assign(clinic, { x: homes[0].x + 100, y: homes[0].y });
+  assert.equal(health().have, 0);
+  let m = sim.residentMood(s, people[0], T0);
+  assert.ok(m.missing.some((x) => x.id === 'health' && /too far/.test(x.why)));
+  assert.ok(m.missing.some((x) => x.id === 'jobs' && x.why === 'No job yet'));
+  Object.assign(clinic, { x: homes[0].x, y: homes[0].y + sim.reachOf(clinic) });
+  assert.ok(health().have > 0);
+  m = sim.residentMood(s, people[0], T0);
+  assert.ok(!m.missing.some((x) => x.id === 'health'));
+  // the town's happiness is the average of its residents
+  const avg = s.tenants.reduce((a, t) => a + sim.residentMood(s, t, T0).score, 0) / s.tenants.length;
+  assert.ok(Math.abs(avg - sim.happiness(s, T0)) <= 1);
+  assert.equal(sim.moodRentFactor(0), -TUNING.unhappyRentCut); assert.equal(sim.moodRentFactor(100), TUNING.happyRentBonus);
+
+  // problems: only while playing, cut sales a little, cost a small fee or get fixed by a station in reach
+  const diner = put(s, 'diner', T0);
+  sim.assignJob(s, people[0].id, diner.id, T0); allGoalsDone(s);
+  const away = structuredClone(s);
+  sim.advance(away, T0 + 2 * DAY, { live: false });
+  assert.equal(away.problems.length, 0, 'nothing goes wrong while you are away');
+  const rate = sim.ratePerMin(s, diner);
+  let log = record(() => { for (let t = T0; t <= T0 + HOUR && !s.problems.length; t += 30000) sim.advance(s, t); });
+  assert.equal(s.problems.length, 1); assert.equal(s.problems[0].buildingId, diner.id);
+  assert.equal(log.filter((e) => e.type === 'spend').length, 0);
+  assert.ok(Math.abs(sim.ratePerMin(s, diner) - rate * (1 - TUNING.problemSalesCut)) < 1e-9);
+  const now = s.lastTick; const fee = sim.problemFee(s, now);
+  const poor = structuredClone(s); poor.coins = 0;
+  assert.equal(sim.fixProblem(poor, diner.id, now).ok, false); assert.equal(poor.problems.length, 1);
+  const coins = s.coins;
+  assert.deepEqual(sim.fixProblem(s, diner.id, now), { ok: true, reason: '', cost: fee });
+  assert.equal(s.coins, coins - fee); assert.equal(s.problems.length, 0);
+  assert.ok(Math.abs(sim.ratePerMin(s, diner) - rate) < 1e-9);
+  assert.equal(sim.fixProblem(s, diner.id, now).ok, false);
+  // with a station in reach, help arrives by itself and costs nothing
+  const station = put(s, 'fire', now); Object.assign(station, { x: diner.x, y: diner.y + 1 });
+  s.problems.push({ buildingId: diner.id, kind: 'leak', at: now, fixAt: null, fixerId: null });
+  const before = s.coins;
+  sim.advance(s, now + 1000, { live: false });
+  assert.equal(s.problems[0].fixerId, station.id); assert.ok(s.problems[0].fixAt > now);
+  log = [];
+  const sub = sim.events.on('problemFixed', (e) => log.push(e));
+  const res = sim.advance(s, now + 1000 + TUNING.problemAutoFixMs + 1000, { live: false });
+  sim.events.off('problemFixed', sub);
+  assert.equal(s.problems.length, 0); assert.equal(log.length, 1); assert.equal(log[0].auto, true);
+  assert.equal(s.coins, before + res.coinsEarned + res.rentPaid);
+  // saves from before problems existed load cleanly
+  const old = JSON.parse(JSON.stringify(s)); delete old.problems; delete old.nextProblemAt;
+  const mig = S.migrate(old); assert.deepEqual(mig.problems, []); assert.ok(Number.isFinite(mig.nextProblemAt));
 });

@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick } from './state.js';
 
@@ -471,6 +471,7 @@ export function demolish(state, buildingId, now) {
   }
   if (state.job?.shopId === b.id && state.job.kind !== 'courier') state.job = null;
   state.buildings.splice(state.buildings.indexOf(b), 1);
+  state.problems = state.problems.filter((p) => p.buildingId !== b.id);
   if (refund > 0) {
     state.coins += refund;
     events.emit('coins', { amount: refund, buildingId: null, reason: 'refund' });
@@ -506,7 +507,8 @@ function potentialRate(state, b, mode = b.price) {
   const dream = 1 + TUNING.dreamBonus * (b.dreamStars || 0);
   const menu = catOf(b) === 'food' ? 1 + TUNING.recipeBonus * state.recipes.length : 1;
   const price = PRICE_MODES[mode] || PRICE_MODES.normal;
-  return statsOf(b).baseRate * staff * skill * dream * menu * qualityOf(b) * levelMult(b.level) * price.speed * price.pay;
+  const trouble = problemOf(state, b.id) ? 1 - TUNING.problemSalesCut : 1;
+  return statsOf(b).baseRate * staff * skill * dream * menu * qualityOf(b) * levelMult(b.level) * price.speed * price.pay * trouble;
 }
 
 export function ratePerMin(state, b) {
@@ -737,42 +739,176 @@ function teach(state) {
 
 // ---- needs and happiness ----------------------------------------------------
 // Everything here is worked out from the town as it is right now. Nothing is stored
-// and nothing decays: happiness only ever adds a rent bonus.
+// and nothing decays. Each resident is happy about the needs they personally have met.
 
-/** The needs this town cares about so far, each with a score from 0 (unmet) to 1 (met). */
-export function needsStatus(state, now) {
+/** How many lots away a town building reaches (homes it serves, shops it looks after). */
+export function reachOf(b) {
+  return (defOf(b).reach ?? TUNING.reach) + ((b.level || 1) - 1);
+}
+const inReach = (b, x, y) => Math.max(Math.abs(b.x - x), Math.abs(b.y - y)) <= reachOf(b);
+const servesOf = (b) => Math.round(defOf(b).provides.serves * levelMult(b.level) * qualityOf(b));
+
+/**
+ * Who has what. `needs` are the needs this town cares about so far, `met` maps a resident's id
+ * to the set of needs they have, `have` counts residents per need, `served` counts residents
+ * per town building.
+ * - jobs: you have one or you don't.
+ * - shop needs: every staffed shop serves `needServes` residents, longest-standing residents first.
+ * - town buildings: each serves its nearest residents whose home is within reach.
+ */
+export function townMood(state, now) {
   const pop = state.tenants.length;
-  if (pop === 0) return [];
-  const staffed = {};
+  const needs = NEEDS.filter((n) => pop >= n.unlockAt);
+  const met = new Map(state.tenants.map((t) => [t.id, new Set()]));
+  const have = {}; const served = new Map(); const staffed = {};
+  const give = (t, id) => { met.get(t.id).add(id); have[id] = (have[id] || 0) + 1; };
   for (const b of state.buildings) {
     if (!isBiz(b) || !isBuilt(b, now) || workersOf(state, b.id).length === 0) continue;
-    const cat = catOf(b);
-    staffed[cat] = (staffed[cat] || 0) + 1;
+    staffed[catOf(b)] = (staffed[catOf(b)] || 0) + 1;
   }
-  const employed = state.tenants.filter((t) => t.jobId != null).length;
-  const provided = {};
-  for (const b of state.buildings) {
-    const p = defOf(b).provides;
-    if (p && isBuilt(b, now)) provided[p.need] = (provided[p.need] || 0) + Math.round(p.serves * levelMult(b.level) * qualityOf(b));
+  const homes = new Map(state.buildings.map((b) => [b.id, b]));
+  for (const n of needs) {
+    if (n.id === 'jobs') {
+      for (const t of state.tenants) if (t.jobId != null) give(t, n.id);
+    } else if (CATEGORIES.includes(n.id)) {
+      const room = (staffed[n.id] || 0) * TUNING.needServes;
+      state.tenants.slice(0, room).forEach((t) => give(t, n.id));
+    } else {
+      for (const b of state.buildings) {
+        if (defOf(b).provides?.need !== n.id || !isBuilt(b, now)) continue;
+        const near = state.tenants
+          .filter((t) => !met.get(t.id).has(n.id) && homes.has(t.homeId) && inReach(b, homes.get(t.homeId).x, homes.get(t.homeId).y))
+          .map((t) => ({ t, d: Math.abs(homes.get(t.homeId).x - b.x) + Math.abs(homes.get(t.homeId).y - b.y) }))
+          .sort((a, z) => a.d - z.d || a.t.id - z.t.id)
+          .slice(0, servesOf(b));
+        for (const { t } of near) give(t, n.id);
+        served.set(b.id, near.length);
+      }
+    }
   }
-  return NEEDS.filter((n) => pop >= n.unlockAt).map((n) => {
-    const have = n.id === 'jobs' ? employed
-      : CATEGORIES.includes(n.id) ? Math.min(pop, (staffed[n.id] || 0) * TUNING.needServes)
-      : Math.min(pop, provided[n.id] || 0);
+  return { needs, met, have, served, staffed };
+}
+
+/** The needs this town cares about so far, each with a score from 0 (unmet) to 1 (met). */
+export function needsStatus(state, now, mood = townMood(state, now)) {
+  const pop = state.tenants.length;
+  if (pop === 0) return [];
+  return mood.needs.map((n) => {
+    const have = mood.have[n.id] || 0;
     return { id: n.id, name: n.name, icon: n.icon, have, want: pop, score: Math.min(1, have / pop) };
   });
 }
 
-/** Town happiness, 0..100. */
-export function happiness(state, now) {
-  const needs = needsStatus(state, now);
+/** Town happiness, 0..100: the average of everyone's own happiness. */
+export function happiness(state, now, mood = townMood(state, now)) {
+  const needs = needsStatus(state, now, mood);
   if (!needs.length) return 0;
   return Math.round((100 * needs.reduce((sum, n) => sum + n.score, 0)) / needs.length);
 }
 
-/** Extra coins tonight's rent gets for a happy town. Never negative. */
-export function rentBonusPerDay(state, now) {
-  return Math.floor((rentPerDay(state, now) * TUNING.happyRentBonus * happiness(state, now)) / 100);
+/**
+ * One resident's happiness (0..100) and, for every need they are missing, a plain reason.
+ * Pass `mood` when asking about many residents at once.
+ */
+export function residentMood(state, tenant, now, mood = townMood(state, now)) {
+  const mine = mood.met.get(tenant.id) || new Set();
+  const home = buildingById(state, tenant.homeId);
+  const missing = [];
+  for (const n of mood.needs) {
+    if (mine.has(n.id)) continue;
+    let why;
+    if (n.id === 'jobs') why = 'No job yet';
+    else if (CATEGORIES.includes(n.id)) why = mood.staffed[n.id] ? 'the places in town are full' : 'nowhere open in town yet';
+    else {
+      const all = state.buildings.filter((b) => defOf(b).provides?.need === n.id && isBuilt(b, now));
+      why = !all.length ? 'nothing in town yet'
+        : home && all.some((b) => inReach(b, home.x, home.y)) ? 'the nearest one is full' : 'too far from home';
+    }
+    missing.push({ id: n.id, name: n.name, icon: n.icon, why: n.id === 'jobs' ? why : `${n.name}: ${why}` });
+  }
+  const score = mood.needs.length ? Math.round((100 * (mood.needs.length - missing.length)) / mood.needs.length) : 100;
+  return { score, missing };
+}
+
+/** Rent change for a resident this happy: -unhappyRentCut at 0, +happyRentBonus at 100, a straight line between. */
+export function moodRentFactor(score) {
+  return (TUNING.happyRentBonus * score - TUNING.unhappyRentCut * (100 - score)) / 100;
+}
+
+/** What happiness adds to (or, for unhappy residents, takes from) a day's rent. */
+export function rentBonusPerDay(state, now, mood = townMood(state, now)) {
+  let sum = 0;
+  for (const home of state.buildings) {
+    if (!isHome(home)) continue;
+    const res = residentsOf(state, home.id);
+    if (!res.length) continue;
+    const each = (defOf(home).rentPerTenant * levelMult(home.level) * (1 + homeBoost(state, home, now)));
+    for (const t of res) sum += each * moodRentFactor(residentMood(state, t, now, mood).score);
+  }
+  return Math.round(sum);
+}
+
+// ---- shop problems ------------------------------------------------------------
+// A small trouble makes one shop sell a bit less until it is fixed. A police or fire station
+// (or a clinic, for health troubles) within reach fixes it for free; otherwise the mayor pays.
+
+export function problemOf(state, buildingId) {
+  return (state.problems || []).find((p) => p.buildingId === buildingId) || null;
+}
+
+function fixerFor(state, shop, kind, now) {
+  const need = PROBLEMS[kind].fixer;
+  return state.buildings.find((b) => defOf(b).gov && defOf(b).provides?.need === need && isBuilt(b, now) && inReach(b, shop.x, shop.y)) || null;
+}
+
+export function problemFee(state, now) {
+  return Math.round(Math.max(TUNING.problemMinFee, townRatePerMin(state, now) * TUNING.problemFeeMinutes));
+}
+
+function maybeProblem(state, now) {
+  if (now < state.nextProblemAt) return;
+  state.nextProblemAt = now + TUNING.problemGapMinMs + randInt(state, TUNING.problemGapMaxMs - TUNING.problemGapMinMs + 1);
+  if (population(state) < TUNING.problemUnlockPop) return;
+  const shops = builtBiz(state, now);
+  if (state.problems.length >= 1 + Math.floor(shops.length / TUNING.problemShopsPerSlot)) return;
+  const open = shops.filter((b) => workersOf(state, b.id).length > 0 && !problemOf(state, b.id));
+  if (!open.length) return;
+  const b = pick(state, open);
+  const kind = pick(state, Object.keys(PROBLEMS));
+  const fixer = fixerFor(state, b, kind, now);
+  const problem = { buildingId: b.id, kind, at: now, fixAt: fixer ? now + TUNING.problemAutoFixMs : null, fixerId: fixer ? fixer.id : null };
+  state.problems.push(problem);
+  events.emit('problem', { building: b, problem });
+}
+
+/** Clears problems whose helpers have finished, and sends help to any that a new station can now reach. */
+function resolveProblems(state, t) {
+  let changed = false;
+  for (const p of [...state.problems]) {
+    const shop = buildingById(state, p.buildingId);
+    if (!shop || (p.fixAt != null && p.fixAt <= t)) {
+      state.problems.splice(state.problems.indexOf(p), 1);
+      changed = true;
+      if (shop) events.emit('problemFixed', { building: shop, problem: p, auto: true });
+    } else if (p.fixAt == null) {
+      const fixer = fixerFor(state, shop, p.kind, t);
+      if (fixer) { p.fixAt = t + TUNING.problemAutoFixMs; p.fixerId = fixer.id; }
+    }
+  }
+  return changed;
+}
+
+/** The mayor pays to sort a problem out right away. */
+export function fixProblem(state, buildingId, now) {
+  const p = problemOf(state, buildingId);
+  if (!p) return fail('Everything is fine here.', { cost: 0 });
+  const cost = problemFee(state, now);
+  if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins to fix this.`, { cost: 0 });
+  state.coins -= cost;
+  state.problems.splice(state.problems.indexOf(p), 1);
+  events.emit('spend', { amount: cost, reason: 'fix' });
+  events.emit('problemFixed', { building: buildingById(state, buildingId), problem: p, auto: false });
+  return { ok: true, reason: '', cost };
 }
 
 /**
@@ -829,14 +965,14 @@ export function mostWanted(state, now) {
 }
 
 /** What this resident would say if you asked how things are going. Always a friendly sentence. */
-export function tenantWish(state, tenant, now) {
+export function tenantWish(state, tenant, now, mood = townMood(state, now)) {
   const job = buildingById(state, tenant.jobId);
   if (job && job.type === tenant.dream) return 'I have my dream job. Thank you!';
   const dream = BUILDINGS[tenant.dream];
   if (dream && !state.buildings.some((b) => b.type === tenant.dream)) return `I wish we had a ${dream.name}. I'd love to work there.`;
   if (!job) return NEEDS[0].wish;
   // otherwise they voice one of the town's unmet needs, a different one per person
-  const unmet = needsStatus(state, now).filter((n) => n.score < 1 && n.id !== 'jobs');
+  const unmet = residentMood(state, tenant, now, mood).missing.filter((n) => n.id !== 'jobs');
   if (unmet.length) return NEEDS.find((n) => n.id === unmet[tenant.id % unmet.length].id).wish;
   return HAPPY_LINES[tenant.id % HAPPY_LINES.length];
 }
@@ -1349,7 +1485,8 @@ export function advance(state, now, { live = true, active = false } = {}) {
       const end = Math.min(now, t + TUNING.stepMs, nextHour,
         pending.at(-1)?.readyAt ?? Infinity, Math.max(t + 1, state.nextApplicantAt),
         perHour > 0 ? Math.max(t + 1, state.nextLessonAt) : Infinity,
-        state.adUntil > t ? state.adUntil : Infinity, t + msUntilRecipe(state, growth));
+        state.adUntil > t ? state.adUntil : Infinity, t + msUntilRecipe(state, growth),
+        ...state.problems.map((p) => (p.fixAt != null && p.fixAt > t ? p.fixAt : Infinity)));
 
       // 1. construction that finishes in this step opens
       while (pending.length && pending.at(-1).readyAt <= end) {
@@ -1410,7 +1547,8 @@ export function advance(state, now, { live = true, active = false } = {}) {
           state.nextLessonAt += 3600000 / perHour;
         }
       }
-      if (state.recipes.length !== recipesBefore || lessonsBefore !== lessonCount) {
+      const fixed = state.problems.length > 0 && resolveProblems(state, end);
+      if (fixed || state.recipes.length !== recipesBefore || lessonsBefore !== lessonCount) {
         for (const shop of shops) shop.rate = potentialRate(state, shop.b);
       }
 
@@ -1462,6 +1600,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
     }
   }
   if (live) maybeRequestRide(state, now);
+  if (live) maybeProblem(state, now);
   checkGoals(state, now);
   return res;
 }

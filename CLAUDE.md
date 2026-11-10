@@ -91,10 +91,19 @@ covers running and publishing. This file holds the design decisions and the road
   (Library: Town IQ 100, Fountain: 90% happy).
 - Upgrades: every building has levels 1-3 (`b.level`), each +50% rent / sales and stock /
   reach. Upgraded buildings show gold stars on the roof; there is no redrawn art per level.
-- Happiness is worked out from the town as it is (nothing stored, nothing decays): the
-  share of needs in `NEEDS` that are met. A need is met by staffed shops of that category
-  (one shop serves `needServes` residents) or by town buildings that `provides` it; an
-  empty shelf never lowers it. It only adds a rent bonus of up to +50%.
+- Happiness is per resident and worked out from the town as it is (nothing stored, nothing
+  decays): the share of `NEEDS` that resident has (`townMood`, `residentMood` in sim). Jobs:
+  have one. Shop needs: each staffed shop serves `needServes` residents, longest-standing
+  first. Town buildings serve their nearest residents whose home is within `reachOf(b)` lots
+  (`TUNING.reach` 5, +1 per level). An empty shelf never lowers it. Town happiness is the
+  average. Rent per resident runs in a straight line from -20% at 0% happy to +50% at 100%.
+- Each resident's card shows their happiness and a plain reason for every need they miss.
+- Shop problems (`state.problems`, `PROBLEMS`): only start while playing, at 10+ residents,
+  one at a time plus one per 12 shops. A problem cuts that shop's sales 25%. A police or fire
+  station (or clinic, for health ones) within reach fixes it free in 3 minutes; otherwise the
+  player pays `problemFee`. The Mayor's desk (from the Town sheet) lists problems, the
+  unhappiest residents with reasons, and what each government building serves.
+- A town building's sheet shows its reach as a square on the map.
 - Town buildings (`kind` 'civic' or 'park': Tree, Clinic, School, Park, Library, Fountain)
   have no workers and no stock, on purpose. Parks boost rent of homes within 2 lots.
 - Crops are lifetime totals that only go up (`state.crops`); staffed farms grow them.
@@ -103,14 +112,14 @@ covers running and publishing. This file holds the design decisions and the road
 
 ## Camden's idea list (2026-11-10)
 
-Done from it: hourly rent and rent/hour display, 10x play boost, distance fares, any-tent rides.
+Done from it: hourly rent and rent/hour display, 10x play boost, distance fares, any-tent rides,
+range for town buildings, per-resident happiness with reasons, happiness moving rent both ways,
+shop problems the government solves, and the Mayor's desk.
 Suggested order for the rest (he has not confirmed it): mayor/government with per-citizen
 happiness and range benefits; his own places (taco shop, basketball gym, ski/bike/hike access,
 ice cream, university, music store, concert venue); visitors and a social feed; moving
 buildings and terrain-only buildings; raw materials and a construction crew; prestige trees.
-His calls on the contested ideas (2026-11-10), all still to build:
-- Town problems really do limit a business until the government fixes them.
-- Low happiness lowers income as well as high happiness raising it.
+His calls on the contested ideas (2026-11-10), still to build:
 - Demolition costs coins instead of refunding 75%.
 - The stock market can lose coins.
 - Hold-the-gas driving is an optional bonus: rides still finish on their own, holding the gas
@@ -128,7 +137,7 @@ change when these are built.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (40 passing).
+- Tests: `node --test` from the project root (41 passing).
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
 
@@ -140,7 +149,8 @@ change when these are built.
   in the browser, and its flat pay (`TOWN_JOBS`, about 12-45 coins) is tiny next to the boosted
   shop income, so it needs a balance pass.
 - Removing a surprise shop refunds 75%, so a reroll costs 25%. Left as is.
-- `bitcity.skip()` of more than about a minute counts as time away (no play boost).
+- `bitcity.skip()` of more than about a minute counts as time away (no play boost). The skip
+  is forgotten on reload, so a save made after skipping sits frozen until real time catches up.
 - After an update the preview (and the phone) can need two loads before new files show.
 - Three of the four build agents were cut off early, so art and menus had one polish
   pass, not several. Expect rough edges.

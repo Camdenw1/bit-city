@@ -104,6 +104,16 @@ sim.events.on('restocked', ({ building, auto }) => {
   renderer.burst(building.x, building.y, 'stars');
   if (!auto) audio.play('restock');
 });
+sim.events.on('problem', ({ building, problem }) => {
+  if (quiet) return;
+  audio.play('oops');
+  ui.toast(`${config.PROBLEMS[problem.kind].name} at the ${config.BUILDINGS[building.type].name}${problem.fixAt != null ? '. Help is on the way!' : '. Tap it to help.'}`);
+});
+sim.events.on('problemFixed', ({ building, auto }) => {
+  if (quiet || !building) return;
+  renderer.burst(building.x, building.y, 'stars');
+  if (auto) ui.toast(`All fixed at the ${config.BUILDINGS[building.type].name}!`);
+});
 sim.events.on('rideRequest', () => { if (!quiet) audio.play('ride'); });
 sim.events.on('rideGone', () => ui.hideRide());
 sim.events.on('rent', ({ amount }) => {
