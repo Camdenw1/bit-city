@@ -13,8 +13,9 @@ const HUD_TOP = 120, HUD_BOTTOM = 104; // CSS px of menu bars that cover the map
 const HOME_ZOOM = 1.5;               // default view is this much closer than "whole town"
 const WALKER_SIZE = 2 / 3;           // residents are drawn smaller than the buildings' pixels
 const INK = '#3b2f4a';
-const TAP_MOVE_PX = 8;               // CSS px
-const TAP_MS = 400;
+const TAP_MOVE_PX = 12;              // CSS px: a finger wobbles a little on a real phone
+const TAP_MS = 650;                  // a slow, careful tap still counts
+const TAP_SNAP = 5;                  // art px: a tap this close to a lot (on the road beside it) counts as that lot
 const WALK_SPEED = 1.5;              // tiles per second
 const TAXI_SPEED = 6;                // tiles per second
 const TAXI_MIN_MS = 1200;
@@ -1070,11 +1071,27 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     const spot = safe(() => welcomeSpot(state), null);
     if (spot && (state.applicants || []).length && tx === spot.x && (ty === spot.y || ty === spot.y - 1)) return { x: spot.x, y: spot.y, building: null, activity: 'newcomers' };
     const parcel = parcelAt(tx, ty);
-    if (parcel && !OWNED.has(parcel.id)) return { x: tx, y: ty, building: null, parcel: parcel.id };   // land for sale
+    if (parcel && !OWNED.has(parcel.id)) return nearLot(tx, ty, ax, ay) || { x: tx, y: ty, building: null, parcel: parcel.id };   // land for sale, unless you just missed your own lot
     // Pip the lost dog can sit on a road, which is otherwise not tappable
     if (state.job && state.job.kind === 'lost' && state.job.x === tx && state.job.y === ty) return { x: tx, y: ty, building: null };
-    if (!inMap(tx, ty) || !safe(() => isLot(state, tx, ty), true)) return null;
-    return { x: tx, y: ty, building: at(tx, ty) || null };
+    if (inMap(tx, ty) && safe(() => isLot(state, tx, ty), true)) return { x: tx, y: ty, building: at(tx, ty) || null };
+    return nearLot(tx, ty, ax, ay);
+  }
+
+  /** A fingertip just off the edge of a lot (on the road or the land beside it) still means that lot. */
+  function nearLot(tx, ty, ax, ay) {
+    const state = getState ? getState() : null;
+    if (!state) return null;
+    const at = (x, y) => safe(() => tileAt(state, x, y), null);
+    let best = null, bestD = TAP_SNAP + 1e-9;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = tx + dx, y = ty + dy;
+      if ((!dx && !dy) || !inMap(x, y) || !safe(() => isLot(state, x, y), false)) continue;
+      const ex = Math.max(x * TILE - ax, 0, ax - (x + 1) * TILE), ey = Math.max(y * TILE - ay, 0, ay - (y + 1) * TILE);
+      const d = Math.hypot(ex, ey);
+      if (d < bestD || (d === bestD && best && !best.building && at(x, y))) { bestD = d; best = { x, y, building: at(x, y) || null }; }
+    }
+    return best;
   }
 
   // ---------- input ----------

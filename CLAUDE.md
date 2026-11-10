@@ -136,6 +136,11 @@ covers running and publishing. This file holds the design decisions and the road
 - Job alerts (Camden: notify me, don't make me open the list): the Jobs button shows a count of
   jobs you can start now, and a toast says when a resting job is ready again (`jobRest` in ui).
   In-app only: the game makes no network calls, so there are no phone notifications while closed.
+- Taps (Camden: "the click is a little off" on iOS, 2026-11-10): the maths was exact (1,149
+  synthetic taps on every lot at three zooms all landed right), so taps were made forgiving:
+  a tap up to `TAP_SNAP` (5 art px) off a lot, on a road or on land not yet bought, counts as
+  that lot; a finger may drift 12 CSS px and a tap may last 650 ms. Land for sale opens only
+  from a tap clearly on it. Zoomed out, lots are only about 21-32 pt, under Apple's 44 pt.
 - Roads are not tappable, except the one tile Pip is sitting on (`hitTest` in render).
 - Driving: the car moves by itself at `TUNING.carBaseSpeed` lots a second and always arrives.
   Camden found it fast on the phone and wants it to start really slow and speed up through
