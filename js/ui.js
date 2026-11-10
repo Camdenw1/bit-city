@@ -365,7 +365,14 @@ export function createUI(root, api) {
           <span>Pays ${formatCoins(o.coins)} ${icon('coin', 1, 'i12')} + ${o.gems} ${icon('gem', 1, 'i12')} · you have ${formatCoins(Math.min(have, o.qty))}/${formatCoins(o.qty)}</span></div>
         <button class="btn btn-small ${ready ? 'btn-go' : 'btn-quiet'}" data-act="fill-order" data-id="${o.id}">${ready ? 'Deliver' : 'Not enough yet'}</button></div>`;
     }).join('');
-    return `<h3 class="sec">Your harvest</h3>${rows}<p class="note">Staffed farms fill the barn. Prices change every day.</p>
+    const out = (s.trucks || []).filter((t) => t.arriveAt > now).sort((a, b) => a.arriveAt - b.arriveAt);
+    const fleet = call('truckCount', s, now) || 1;
+    const what = (t) => t.kind === 'import' ? `${formatCoins(t.qty)} ${esc(cropName(t.crop))} coming in` :
+      t.kind === 'order' ? `${formatCoins(t.qty)} ${esc(cropName(t.crop))} to ${esc(t.town || 'a neighbour')}` : `${formatCoins(t.qty)} ${esc(cropName(t.crop))} going to market`;
+    const trucks = `<div class="trade-row" data-key="trucks"><div class="trade-head"><b>Trucks: ${fleet - out.length} of ${fleet} free</b>
+      <span>${out.length ? out.map((t) => `${what(t)} · ${Math.max(1, Math.ceil((t.arriveAt - now) / 1000))}s`).join('<br>') : 'Ready to go.'}</span></div></div>`;
+    return `<h3 class="sec">Trucks</h3>${trucks}<p class="note">Trade drives in and out on the road from out of town. Sales pay when the truck leaves town; imports land when it arrives. A Trading Post near the entry road makes shorter trips; each level adds a truck.</p>
+      <h3 class="sec">Your harvest</h3>${rows}<p class="note">Staffed farms fill the barn. Prices change every day.</p>
       <h3 class="sec">Orders from neighbours</h3>${orders || '<p class="note">Orders arrive soon.</p>'}<p class="note">Orders never run out of time.</p>`;
   }
   const dreamTag = (text = 'Dream job') => `<span class="tag tag-dream">${icon('star', 1, 'i12')}${text}</span>`;
@@ -565,7 +572,7 @@ export function createUI(root, api) {
       const upgradeBlock = `<div class="up-row"><span class="up-level">${icon('star', 1, 'i12').repeat(level)} Level ${level}</span>${level >= maxLevel
         ? '<span class="tag tag-ok">Fully upgraded</span>'
         : `<button class="btn btn-small ${upCost > s.coins ? 'btn-quiet' : 'btn-coin'}" data-act="upgrade" data-id="${b.id}">Upgrade · ${formatCoins(upCost)} ${icon('coin', 1, 'i12')}</button>`}</div>
-        ${level >= maxLevel ? '' : `<p class="note up-note">Level ${level + 1}: +${upPct}% ${gives}</p>`}`;
+        ${level >= maxLevel ? '' : `<p class="note up-note">Level ${level + 1}: ${c.kind === 'trade' ? 'one more truck' : `+${upPct}% ${gives}`}</p>`}`;
 
       if (!built(b)) {
         const total = Math.max(1, (c.buildSecs || 1) * 1000);
@@ -621,7 +628,7 @@ export function createUI(root, api) {
           title: esc(name),
           html: `<div class="hero">${buildingArt(b, 4)}<div class="hero-info">
               <p class="lead">${esc(c.blurb || '')}</p>${lines.map((l) => `<p class="note">${l}</p>`).join('')}</div></div>
-            ${c.kind === 'trade' ? tradePanel(s, now) + demolish(true) : upgradeBlock + demolish(true)}`,
+            ${c.kind === 'trade' ? upgradeBlock + tradePanel(s, now) + demolish(true) : upgradeBlock + demolish(true)}`,
         };
       }
 
@@ -1220,13 +1227,16 @@ export function createUI(root, api) {
     'set-price': (el) => { act('setPrice', Number(el.dataset.id), el.dataset.mode); },
     'sell-goods': (el) => {
       const r = act('sellGoods', el.dataset.crop);
-      toast(r && r.ok !== false ? `Sold ${formatCoins(r.qty)} ${cropName(el.dataset.crop)} for ${formatCoins(r.coins)} coins` : (r && r.reason) || '');
+      toast(r && r.ok !== false ? `Truck's off with ${formatCoins(r.qty)} ${cropName(el.dataset.crop)} · +${formatCoins(r.coins)} coins when it leaves town` : (r && r.reason) || '');
     },
     'buy-goods': (el) => {
       const r = act('buyGoods', el.dataset.crop, Number(el.dataset.qty));
-      toast(r && r.ok !== false ? `${el.dataset.qty} ${cropName(el.dataset.crop)} delivered` : (r && r.reason) || '');
+      toast(r && r.ok !== false ? `${el.dataset.qty} ${cropName(el.dataset.crop)} on the way · here in ${Math.ceil((r.truck.arriveAt - r.truck.leaveAt) / 1000)}s` : (r && r.reason) || '');
     },
-    'fill-order': (el) => { const r = act('fillOrder', Number(el.dataset.id)); if (r && r.ok === false && r.reason) toast(r.reason); },
+    'fill-order': (el) => {
+      const r = act('fillOrder', Number(el.dataset.id));
+      toast(r && r.ok !== false ? `Truck's off to ${r.truck.town} · they pay when it leaves town` : (r && r.reason) || '');
+    },
     'run-ad': () => { const r = act('runAd'); if (r && r.ok === false && r.reason) toast(r.reason); },
     upgrade: (el) => {
       const r = act('upgrade', Number(el.dataset.id));

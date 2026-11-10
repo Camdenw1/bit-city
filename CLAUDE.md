@@ -84,6 +84,17 @@ covers running and publishing. This file holds the design decisions and the road
   negative coordinates, so never assume x, y >= 0 or index by `y * MAP_W + x`. Bought land
   keeps its terrain: water and mountains can't be built on, roads cross water as bridges,
   and a home next to water gets +10% rent (this also applies to the first town's edge).
+- Entry road (2026-11-10, Camden's ask): one road leads in from the edge of the world to the
+  first town (`entryRoute` in sim). It follows the town's own streets (so it never takes a lot
+  or clashes with a save), is a road even on unowned land, and runs on past the world's edge.
+  Residents' walkers stay on town roads. The welcome drive starts at its town end. Visitors
+  should arrive on it; more entrances are a planned upgrade.
+- Trade trucks (Camden: "trucks should not only be for show"): every sale, import and order
+  sends a truck (`state.trucks`). A sale or order pays when its truck leaves town; an import
+  lands in the barn when it reaches the Trading Post. Trip = route length / `truckSpeed`,
+  clamped 8-25 s, so a Trading Post near the entry road trades faster. One truck per
+  Trading Post level (`trucksPerLevel`); with all out, the next trade waits a few seconds.
+  Trucks finish in `advance()` by time, so closing the app never loses one.
 - Trade: farms fill a barn (`state.goods`) as well as the lifetime `state.crops`. The
   Trading Post sells the barn at a price that changes each local day, imports at a fixed
   2.5x the usual price (always dearer than selling, so no buy-low-sell-high loop), and
@@ -165,7 +176,7 @@ change when these are built.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (44 passing).
+- Tests: `node --test` from the project root (45 passing).
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
 

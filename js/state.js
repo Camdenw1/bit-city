@@ -115,6 +115,7 @@ export function newGame(now) {
     land: ['home'],                    // parcels owned; see PARCELS
     goods: { veggies: 0, fruit: 0 },   // crops in the barn, ready to sell or deliver
     orders: [],                        // standing orders from neighbour towns
+    trucks: [],                        // trade trucks on the road: { id, kind, crop, qty, coins?, gems?, leaveAt, arriveAt }
     trade: { sold: 0, filled: 0 },
     adUntil: 0,
     car: 1,                            // which of CARS you drive (1 = the first)
@@ -234,13 +235,16 @@ export function migrate(state) {
     state.applicants.length = Math.min(state.applicants.length, TUNING.applicantCount);
 
     let maxId = 0;
-    for (const o of [...state.buildings, ...state.tenants, ...state.applicants, ...(Array.isArray(state.orders) ? state.orders : []).filter((x) => x && isNum(x.id))]) maxId = Math.max(maxId, o.id);
+    for (const o of [...state.buildings, ...state.tenants, ...state.applicants, ...(Array.isArray(state.orders) ? state.orders : []).filter((x) => x && isNum(x.id)), ...(Array.isArray(state.trucks) ? state.trucks : []).filter((x) => x && isNum(x.id))]) maxId = Math.max(maxId, o.id);
     state.nextId = Math.max(isNum(state.nextId) ? state.nextId : 1, maxId + 1);
     while (state.applicants.length < TUNING.applicantCount) state.applicants.push(makeApplicant(state));
 
     if (!isNum(state.nextApplicantAt)) state.nextApplicantAt = state.lastTick + TUNING.applicantEveryMs;
     if (!isNum(state.nextRideAt)) state.nextRideAt = state.lastTick + TUNING.rideGapMinMs;
     const r = state.ride;
+    // trade trucks (2026-11-10): older saves have none on the road
+    if (!Array.isArray(state.trucks)) state.trucks = [];
+    state.trucks = state.trucks.filter((t) => t && isNum(t.id) && isNum(t.arriveAt) && typeof t.crop === 'string');
     state.car = isNum(state.car) ? Math.max(1, Math.min(CARS.length, Math.round(state.car))) : 1;
     const fromOk = r && (byId.has(r.fromId) || (r.kind === 'welcome' && r.from && isNum(r.from.x) && isNum(r.from.y)));
     const rideOk = r && typeof r === 'object' && fromOk && byId.has(r.toId) &&

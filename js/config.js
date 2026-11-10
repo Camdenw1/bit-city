@@ -78,6 +78,10 @@ export const TUNING = {
   gasBonus: 0.5,                 // extra fare for holding the gas the whole trip (in proportion if less)
   gasSpeed: 2.5,                 // how much faster the car goes while the gas is held
   carBaseSpeed: 0.75,            // lots per second with no gas, in the first car
+  truckSpeed: 1.2,               // lots per second for a trade truck on the entry road
+  truckMinMs: 8000,              // shortest truck trip
+  truckMaxMs: 25000,             // longest truck trip (a Trading Post far from the entry road)
+  trucksPerLevel: 1,             // trucks per Trading Post level (all out = the next trade waits)
   welcomeFareMinutes: 4,         // driving a new resident home pays this many minutes of shop income
   rideDistanceBonus: 0.1,        // every lot of distance adds this much to a fare
   activeBoost: 10,               // shop sales pay this many times more while the game is open

@@ -673,6 +673,52 @@ const TAXI_S = [
   '..........',
 ];
 
+// trade truck: a cream box with a green stripe (farm goods) and a blue cab
+const TRUCK_E = [
+  'kkkkkkkk......',
+  'kppppppk......',
+  'kpgggppkkkkk..',
+  'kppppppkuCcuk.',
+  'kppppppkuCcuuk',
+  'kppppppkuuuuuk',
+  'kppppppkuuuuYk',
+  'kkAAkkkkkkAAkk',
+  '.kAAk....kAAk.',
+  '..kk......kk..',
+];
+const TRUCK_N = [
+  '..kkkkkk..',
+  '.kuuuuuuk.',
+  'kuCCCCCCuk',
+  'AuCccccCuA',
+  'kuuuuuuuuk',
+  'kkkkkkkkkk',
+  'kppppppppk',
+  'kpgggppppk',
+  'kppppppppk',
+  'AppppppppA',
+  'AppppppppA',
+  'kppppppppk',
+  '.kkkkkkkk.',
+  '..........',
+];
+const TRUCK_S = [
+  '.kkkkkkkk.',
+  'kppppppppk',
+  'kpgggppppk',
+  'AppppppppA',
+  'AppppppppA',
+  'kppppppppk',
+  'kkkkkkkkkk',
+  'kuuuuuuuuk',
+  'AuCCCCCCuA',
+  'AuCccccCuA',
+  'kuuuuuuuuk',
+  'kYuuuuuuYk',
+  '.kkkkkkkk.',
+  '..........',
+];
+
 // ---------------------------------------------------------------- 3e. icons (10x10)
 
 const ICONS = {
@@ -965,6 +1011,10 @@ def('taxi_e', () => Grid.from(TAXI_E));
 def('taxi_w', () => Grid.from(TAXI_E).flipH());
 def('taxi_n', () => Grid.from(TAXI_N));
 def('taxi_s', () => Grid.from(TAXI_S));
+def('truck_e', () => Grid.from(TRUCK_E));
+def('truck_w', () => Grid.from(TRUCK_E).flipH());
+def('truck_n', () => Grid.from(TRUCK_N));
+def('truck_s', () => Grid.from(TRUCK_S));
 for (const id of Object.keys(ICONS)) def(id, () => Grid.from(ICONS[id]));
 def('bubble', () => Grid.from(BUBBLE));
 def('hint_job', () => Grid.from(HINT_JOB));

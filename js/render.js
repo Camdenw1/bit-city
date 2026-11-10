@@ -5,7 +5,7 @@
 import { MAP_W, MAP_H, TILE, isRoad, DAY_LENGTH_MS, BUILDINGS, WORLD, PARCELS, TUNING, parcelAt } from './config.js';
 import { initSprites, getSprite, getPerson, buildingSpriteId } from './sprites.js';
 import { makeWorld, terrainAt } from './terrain.js';
-import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt } from './sim.js';
+import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute } from './sim.js';
 
 const SPRITE_H = 16;                 // building sprites are 16 x 16: each one fits its own lot
 const OVERLAP = SPRITE_H - TILE;     // 0: nothing pokes into the tile above
@@ -48,7 +48,10 @@ const OWNED = new Set(['home']);     // parcel ids, kept in step with state.land
 const inMap = (x, y) => { const p = parcelAt(x, y); return !!p && OWNED.has(p.id); };
 const tileKey = (x, y) => (y - WORLD.y0) * WW + (x - WORLD.x0);
 let STREET = (x, y) => isRoad(x, y);      // this town's streets; set by the renderer from its state
-const roadAt = (x, y) => inMap(x, y) && STREET(x, y);
+const ENTRY = new Set();                   // "x,y" of the entry road, on land not bought yet and off the edge of the world
+const townRoadAt = (x, y) => inMap(x, y) && STREET(x, y);
+const roadAt = (x, y) => townRoadAt(x, y) || ENTRY.has(`${x},${y}`);
+const inWorld = (x, y) => x >= WORLD.x0 && x <= WORLD.x1 && y >= WORLD.y0 && y <= WORLD.y1;
 
 function roadMask(x, y) {
   let m = 0;
@@ -112,6 +115,8 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   let groundKey = null;                // worldSeed + owned land the cached ground was drawn for
   let lotList = [];                    // buildable tiles on owned land: { x, y, sand }
   let saleSigns = [];                  // parcels that can be bought next: { id, x, y }
+  let entryOut = [];                   // entry road tiles beyond the world's edge, nearest first
+  const truckPaths = new Map();        // truck id → tile path it drives
 
   // local cosmetic state
   const walkers = new Map();           // tenant id → walker
@@ -233,6 +238,17 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     const seed = state?.worldSeed ?? 0;
     groundKey = `${seed}|${[...OWNED].join(',')}`;
     STREET = state ? (x, y) => isRoadAt(state, x, y) : (x, y) => isRoad(x, y);
+    ENTRY.clear(); entryOut = [];
+    const entry = state ? safe(() => entryRoute(state), null) : null;
+    if (entry) {
+      for (const t of entry.tiles) ENTRY.add(`${t.x},${t.y}`);
+      // carry on past the edge of the world, so the road leads somewhere
+      const edge = entry.tiles[0];
+      for (let i = 1; i <= 40; i++) {
+        const t = { x: edge.x + entry.out.dx * i, y: edge.y + entry.out.dy * i };
+        ENTRY.add(`${t.x},${t.y}`); entryOut.push(t);
+      }
+    }
     // enough extra landscape around the world to fill the screen at the smallest zoom
     groundPad = clamp(Math.ceil(Math.max(W, H) / minScale / TILE / 2) + 2, 3, 30);
     const g = document.createElement('canvas');
@@ -273,7 +289,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       }
     }
     roadTiles.length = 0;
-    for (let y = WORLD.y0; y <= WORLD.y1; y++) for (let x = WORLD.x0; x <= WORLD.x1; x++) if (roadAt(x, y)) roadTiles.push({ x, y });
+    for (let y = WORLD.y0; y <= WORLD.y1; y++) for (let x = WORLD.x0; x <= WORLD.x1; x++) if (townRoadAt(x, y)) roadTiles.push({ x, y });
     ground = g;
     // fallback fill colour = the colour of the far meadow, so nothing ever looks broken
     try {
@@ -391,7 +407,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
 
   function pickDir(w) {
     const options = [];
-    for (let d = 0; d < 4; d++) if (roadAt(w.x + DIRS[d].dx, w.y + DIRS[d].dy)) options.push(d);
+    for (let d = 0; d < 4; d++) if (townRoadAt(w.x + DIRS[d].dx, w.y + DIRS[d].dy)) options.push(d);   // residents stay in town
     if (!options.length) return -1;
     const back = (w.dir + 2) % 4;
     const forward = options.filter((d) => d !== back);
@@ -498,7 +514,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       }
       for (const d of DIRS) {
         const nx = cur.x + d.dx, ny = cur.y + d.dy;
-        if (!roadAt(nx, ny) || prev.has(key(nx, ny))) continue;
+        if (!inWorld(nx, ny) || !roadAt(nx, ny) || prev.has(key(nx, ny))) continue;
         prev.set(key(nx, ny), key(cur.x, cur.y));
         queue.push({ x: nx, y: ny });
       }
@@ -562,6 +578,41 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     const dx = b.x - a.x, dy = b.y - a.y;
     job.dir = dx > 0 ? 'e' : dx < 0 ? 'w' : dy > 0 ? 's' : 'n';
     return { x: lerp(a.x, b.x, t) * TILE + 8, y: lerp(a.y, b.y, t) * TILE + 6, dir: job.dir };
+  }
+
+  /** Where a trade truck is now: it drives its route at an even pace from leaveAt to arriveAt. */
+  function truckPos(state, tr, now) {
+    let path = truckPaths.get(tr.id);
+    if (!path) {
+      const route = safe(() => truckRoute(state, now), null);
+      if (!route || route.length < 2) return null;
+      path = [...route, ...entryOut.slice(0, 4)];          // drive on until it's out of sight
+      if (tr.kind === 'import') path.reverse();
+      truckPaths.set(tr.id, path);
+    }
+    const span = Math.max(1, tr.arriveAt - tr.leaveAt);
+    const f = clamp((now - tr.leaveAt) / span, 0, 1) * (path.length - 1);
+    const i = Math.min(path.length - 2, Math.floor(f)), t = f - i;
+    const a = path[i], b = path[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const dir = dx > 0 ? 'e' : dx < 0 ? 'w' : dy > 0 ? 's' : 'n';
+    return { x: lerp(a.x, b.x, t) * TILE + 8, y: lerp(a.y, b.y, t) * TILE + 6, dir };
+  }
+
+  function drawTruck(pos, night) {
+    const s = getSprite(`truck_${pos.dir}`);
+    const ax = Math.round(pos.x - s.width / 2), ay = Math.round(pos.y - s.height / 2);
+    ctx.fillStyle = 'rgba(40, 30, 60, 0.25)';
+    ctx.fillRect(toDevX(ax + 1), toDevY(ay + s.height - 1), (s.width - 2) * scale, 2 * scale);
+    blit(s, ax, ay);
+    if (night > 0.3) {
+      ctx.fillStyle = `rgba(255, 236, 160, ${0.35 * night})`;
+      const L = 6;
+      if (pos.dir === 'e') ctx.fillRect(toDevX(ax + s.width), toDevY(ay + 3), L * scale, (s.height - 5) * scale);
+      else if (pos.dir === 'w') ctx.fillRect(toDevX(ax - L), toDevY(ay + 3), L * scale, (s.height - 5) * scale);
+      else if (pos.dir === 's') ctx.fillRect(toDevX(ax + 2), toDevY(ay + s.height), (s.width - 4) * scale, L * scale);
+      else ctx.fillRect(toDevX(ax + 2), toDevY(ay - L), (s.width - 4) * scale, L * scale);
+    }
   }
 
   function drawTaxi(pos, night) {
@@ -833,6 +884,16 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
           movers.push({ y: pos.y + s.height / 2, draw: () => drawTaxi(pos, darkness) });
         }
       }
+      // trade trucks on their way in or out along the entry road
+      const live = new Set();
+      for (const tr of state.trucks || []) {
+        live.add(tr.id);
+        const pos = truckPos(state, tr, now);
+        if (!pos) continue;
+        const s = getSprite(`truck_${pos.dir}`);
+        movers.push({ y: pos.y + s.height / 2, draw: () => drawTruck(pos, darkness) });
+      }
+      for (const id of truckPaths.keys()) if (!live.has(id)) truckPaths.delete(id);
       movers.sort((a, b) => a.y - b.y);
 
       // rows top to bottom: buildings of the row, then anything standing in that row

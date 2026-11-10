@@ -142,6 +142,12 @@ sim.events.on('order', ({ order }) => {
   audio.play('goal');
   ui.toast(`${order.town} says thanks! +${order.coins} coins, +${order.gems} gem`);
 });
+sim.events.on('truckIn', ({ truck }) => {
+  if (quiet || truck.kind === 'order') return;     // orders have their own thank-you
+  audio.play('coin');
+  ui.toast(truck.kind === 'import' ? `${truck.qty} ${config.CROPS?.[truck.crop]?.toLowerCase?.() || truck.crop} reached the Trading Post`
+    : `The truck made it out of town · +${formatCoins(truck.coins)} coins`);
+});
 sim.events.on('ad', () => { audio.play('open'); ui.toast('Your ad is up! Sales pay more for 2 hours.'); });
 sim.events.on('recipe', ({ recipe }) => {
   if (quiet) return;

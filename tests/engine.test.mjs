@@ -1302,11 +1302,19 @@ test('trade, orders, ads, shop pricing and milestone unlocks', () => {
   const lifetime = s.crops.veggies;
   const coins0 = s.coins;
   const sale = sim.sellGoods(s, 'veggies', now);
-  assert.equal(sale.coins, Math.floor(30 * p.veggies.price)); assert.ok(s.coins >= coins0 + sale.coins);
+  assert.equal(sale.coins, Math.floor(30 * p.veggies.price));
   assert.ok(s.goods.veggies < 1); assert.equal(s.crops.veggies, lifetime, 'selling never touches recipe progress');
   assert.ok(s.goalsDone.includes('trade1'));
-  // importing counts for recipes
-  assert.equal(sim.buyGoods(s, 'fruit', 60, now).ok, true);
+  // the coins come when the truck leaves town; one truck, so the next trade waits for it
+  assert.equal(s.trucks.length, 1);
+  const sent = s.coins;
+  assert.match(sim.buyGoods(s, 'fruit', 60, now).reason, /on the road/);
+  sim.advance(s, sale.truck.arriveAt);
+  assert.ok(s.coins >= sent + sale.coins && s.coins >= coins0 + sale.coins);
+  // importing counts for recipes once the truck is in
+  const imp = sim.buyGoods(s, 'fruit', 60, s.lastTick);
+  assert.equal(imp.ok, true); assert.equal(s.goods.fruit || 0, 0, 'still on the road');
+  sim.advance(s, imp.truck.arriveAt);
   assert.equal(s.goods.fruit, 60); assert.ok(s.recipes.includes('applepie'));
   // orders: always two, grow, never expire, pay coins and a gem
   const orders = sim.ensureOrders(s);
@@ -1316,8 +1324,10 @@ test('trade, orders, ads, shop pricing and milestone unlocks', () => {
   assert.match(sim.fillOrder(s, o.id, now).reason, /more/);
   s.goods[o.crop] = o.qty + 5;
   const gems0 = s.gems;
-  const done = sim.fillOrder(s, o.id, now);
-  assert.equal(done.ok, true); assert.equal(s.goods[o.crop], 5); assert.ok(s.gems > gems0);
+  const done = sim.fillOrder(s, o.id, s.lastTick);
+  assert.equal(done.ok, true); assert.ok(Math.abs(s.goods[o.crop] - 5) < 1e-6); const gemsSent = s.gems;
+  sim.advance(s, done.truck.arriveAt);
+  assert.equal(s.gems, gemsSent + o.gems, 'the gem comes with the truck'); assert.ok(s.gems > gems0);
   assert.equal(s.orders.length, 2); assert.ok(!s.orders.some((x) => x.id === o.id)); assert.ok(s.goalsDone.includes('order1'));
 
   // shop pricing: premium sells fewer items for more coins each; bargain the other way
@@ -1585,4 +1595,45 @@ test('car: gas bonus, upgrades, and the optional welcome drive', () => {
   assert.equal(sim.startWelcome(t, r.tenant.id, T0 + 6000).ok, false, 'only once');
   assert.equal(sim.welcomeFare(t, r.tenant.id, T0 + 6000), 0);
   const old = JSON.parse(JSON.stringify(t)); delete old.car; assert.equal(S.migrate(old).car, 1);
+});
+
+test('entry road and trade trucks', () => {
+  // every town, old grid or street plan, has a road in from the edge that never takes a lot
+  for (let seed = 0; seed < 40; seed++) {
+    for (const streets of ['grid', 'plan']) {
+      const s = fresh(); s.worldSeed = seed; s.streets = streets;
+      const e = sim.entryRoute(s);
+      assert.ok(e && e.tiles.length >= 2, `seed ${seed} ${streets}`);
+      for (const t of e.tiles) { assert.ok(sim.isRoadAt(s, t.x, t.y)); assert.equal(sim.isLot(s, t.x, t.y), false); }
+      const last = e.tiles.at(-1);
+      assert.ok(sim.ownsTile(s, last.x, last.y), 'ends in the first town');
+    }
+  }
+  const s = fresh();
+  put(s, 'tent', T0);
+  const post = put(s, 'trade', T0);
+  const now = s.lastTick;
+  const trip = sim.truckTripMs(s, now);
+  assert.ok(trip >= TUNING.truckMinMs && trip <= TUNING.truckMaxMs);
+  assert.ok(sim.truckRoute(s, now).length >= 2);
+  // one truck per Trading Post level
+  assert.equal(sim.truckCount(s, now), 1);
+  post.level = 2;
+  assert.equal(sim.truckCount(s, now), 2);
+  s.goods.veggies = 100;
+  s.coins = 10000;
+  const a = sim.sellGoods(s, 'veggies', now);
+  const b = sim.buyGoods(s, 'veggies', 10, now);
+  assert.equal(a.ok, true); assert.equal(b.ok, true);
+  assert.equal(sim.buyGoods(s, 'veggies', 10, now).ok, false, 'both trucks are out');
+  // trucks finish even when the game was closed the whole time
+  const coins = s.coins;
+  sim.advance(s, now + 3 * HOUR, { live: false });
+  assert.equal(s.trucks.length, 0);
+  assert.ok(s.coins >= coins + a.coins);
+  assert.ok(s.goods.veggies >= 10);
+  // an older save without trucks loads with an empty road
+  const old = JSON.parse(JSON.stringify(s)); delete old.trucks;
+  const m = S.migrate(old);
+  assert.deepEqual(m.trucks, []);
 });

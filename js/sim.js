@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick } from './state.js';
 
@@ -639,12 +639,14 @@ export function sellGoods(state, crop, now) {
   if (!hasTrade(state, now)) return fail('Build a Trading Post first.', { coins: 0 });
   const qty = Math.floor(state.goods[crop] || 0);
   if (!(crop in CROP_PRICE) || qty <= 0) return fail('Nothing to sell yet. Staffed farms grow it.', { coins: 0 });
+  const busy = truckBusy(state, now);
+  if (busy) return fail(busy, { coins: 0 });
   const coins = Math.floor(qty * tradePrices(state, now)[crop].price);
   state.goods[crop] -= qty;
   state.trade.sold += qty;
-  gain(state, coins, 'trade');
+  const truck = sendTruck(state, now, { kind: 'sell', crop, qty, coins });
   checkGoals(state, now);
-  return { ok: true, reason: '', coins, qty };
+  return { ok: true, reason: '', coins, qty, truck };
 }
 
 /** Import crops you can't grow yet. They count towards recipes and can fill orders. */
@@ -653,13 +655,13 @@ export function buyGoods(state, crop, qty, now) {
   if (!(crop in CROP_PRICE) || !(qty > 0)) return fail("We can't import that.", { cost: 0 });
   const cost = Math.ceil(qty * CROP_PRICE[crop] * TUNING.importMarkup);
   if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins for that.`, { cost: 0 });
+  const busy = truckBusy(state, now);
+  if (busy) return fail(busy, { cost: 0 });
   state.coins -= cost;
-  state.goods[crop] = (state.goods[crop] || 0) + qty;
-  state.crops[crop] = (state.crops[crop] || 0) + qty;
   events.emit('spend', { amount: cost, reason: 'import' });
-  discoverRecipes(state);
+  const truck = sendTruck(state, now, { kind: 'import', crop, qty });   // the crop lands in the barn when it arrives
   checkGoals(state, now);
-  return { ok: true, reason: '', cost };
+  return { ok: true, reason: '', cost, truck };
 }
 
 function makeOrder(state) {
@@ -684,15 +686,157 @@ export function fillOrder(state, orderId, now) {
   const o = state.orders[i];
   const have = Math.floor(state.goods[o.crop] || 0);
   if (have < o.qty) return fail(`You need ${o.qty - have} more. Farms are growing it, or import some.`);
+  const busy = truckBusy(state, now);
+  if (busy) return fail(busy);
   state.goods[o.crop] -= o.qty;
   state.orders.splice(i, 1);
   state.trade.filled++;
-  gain(state, o.coins, 'order');
-  gainGems(state, o.gems);
-  events.emit('order', { order: o });
+  const truck = sendTruck(state, now, { kind: 'order', crop: o.crop, qty: o.qty, coins: o.coins, gems: o.gems, town: o.town });
   ensureOrders(state);
   checkGoals(state, now);
-  return { ok: true, reason: '', coins: o.coins, gems: o.gems };
+  return { ok: true, reason: '', coins: o.coins, gems: o.gems, truck };
+}
+
+// ---- the entry road and trucks ------------------------------------------------
+// One road leads in from the edge of the world to the first town. It follows the
+// town's own street plan (so it never takes a lot), crossing land not bought yet.
+// Trade travels on it by truck: a sale or an order pays when its truck leaves town,
+// an import lands in the barn when its truck reaches the Trading Post.
+
+const entryCache = new Map();
+const tkey = (x, y) => `${x},${y}`;
+const STEPS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+/**
+ * The entry road: tiles in order from the world's edge to the first road of the first
+ * town, plus `out`, the step that leads off the edge. null if no street reaches the edge.
+ */
+export function entryRoute(state) {
+  const id = `${state.worldSeed >>> 0}|${state.streets || 'grid'}`;
+  if (entryCache.has(id)) return entryCache.get(id);
+  const home = PARCELS[0];
+  const prev = new Map(), queue = [];
+  for (let y = home.y0; y <= home.y1; y++) for (let x = home.x0; x <= home.x1; x++) {
+    if (isRoadAt(state, x, y)) { prev.set(tkey(x, y), null); queue.push({ x, y }); }
+  }
+  const onEdge = (x, y) => x === WORLD.x0 || x === WORLD.x1 || y === WORLD.y0 || y === WORLD.y1;
+  let end = null;
+  for (let i = 0; i < queue.length && !end; i++) {
+    const cur = queue[i];
+    for (const [dx, dy] of STEPS4) {
+      const x = cur.x + dx, y = cur.y + dy, k = tkey(x, y);
+      if (prev.has(k) || x < WORLD.x0 || x > WORLD.x1 || y < WORLD.y0 || y > WORLD.y1 || !isRoadAt(state, x, y)) continue;
+      prev.set(k, cur);
+      if (onEdge(x, y)) { end = { x, y }; break; }
+      queue.push({ x, y });
+    }
+  }
+  let res = null;
+  if (end) {
+    const tiles = [];
+    for (let t = end; t; t = prev.get(tkey(t.x, t.y))) tiles.push({ x: t.x, y: t.y });
+    const out = end.x === WORLD.x0 ? { dx: -1, dy: 0 } : end.x === WORLD.x1 ? { dx: 1, dy: 0 } : end.y === WORLD.y0 ? { dx: 0, dy: -1 } : { dx: 0, dy: 1 };
+    res = { tiles, out, keys: new Set(tiles.map((t) => tkey(t.x, t.y))) };
+  }
+  if (entryCache.size > 8) entryCache.clear();
+  entryCache.set(id, res);
+  return res;
+}
+
+/** Is this tile part of the entry road (which is a road even on land you don't own)? */
+export function isEntryRoad(state, x, y) {
+  const e = entryRoute(state);
+  return !!e && e.keys.has(tkey(x, y));
+}
+
+function tradePost(state, now) {
+  return state.buildings.filter((b) => b.type === 'trade' && isBuilt(b, now)).sort((a, b) => a.id - b.id)[0] || null;
+}
+
+/**
+ * The road a truck drives: from the Trading Post's front road out along the entry road
+ * to the world's edge (an import drives it backwards). Only roads on your land or the entry road.
+ */
+export function truckRoute(state, now) {
+  const post = tradePost(state, now), e = entryRoute(state);
+  if (!post || !e) return null;
+  const ok = (x, y) => isRoadAt(state, x, y) && (ownsTile(state, x, y) || e.keys.has(tkey(x, y)));
+  let start = null;
+  for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) if (!start && ok(post.x + dx, post.y + dy)) start = { x: post.x + dx, y: post.y + dy };
+  if (!start) {                            // no road beside it: the nearest one will do
+    let best = Infinity;
+    for (let y = WORLD.y0; y <= WORLD.y1; y++) for (let x = WORLD.x0; x <= WORLD.x1; x++) {
+      const d = Math.abs(x - post.x) + Math.abs(y - post.y);
+      if (d < best && ok(x, y)) { best = d; start = { x, y }; }
+    }
+  }
+  if (!start) return null;
+  const goal = e.tiles[0];
+  const prev = new Map([[tkey(start.x, start.y), null]]), queue = [start];
+  for (let i = 0; i < queue.length; i++) {
+    const cur = queue[i];
+    if (cur.x === goal.x && cur.y === goal.y) {
+      const path = [];
+      for (let t = cur; t; t = prev.get(tkey(t.x, t.y))) path.push({ x: t.x, y: t.y });
+      return path.reverse();
+    }
+    for (const [dx, dy] of STEPS4) {
+      const x = cur.x + dx, y = cur.y + dy, k = tkey(x, y);
+      if (prev.has(k) || !ok(x, y)) continue;
+      prev.set(k, cur); queue.push({ x, y });
+    }
+  }
+  return null;
+}
+
+/** How long one trip takes: longer the farther the Trading Post is from the entry road. */
+export function truckTripMs(state, now) {
+  const path = truckRoute(state, now);
+  const lots = path ? path.length - 1 : 15;
+  return Math.round(Math.min(TUNING.truckMaxMs, Math.max(TUNING.truckMinMs, (lots / TUNING.truckSpeed) * 1000)));
+}
+
+/** Trucks the town has: one per level of each Trading Post. */
+export function truckCount(state, now) {
+  return state.buildings.filter((b) => b.type === 'trade' && isBuilt(b, now)).reduce((n, b) => n + (b.level || 1) * TUNING.trucksPerLevel, 0);
+}
+
+/** A friendly reason when every truck is out, else ''. */
+function truckBusy(state, now) {
+  const out = (state.trucks || []).filter((t) => t.arriveAt > now);
+  if (out.length < truckCount(state, now)) return '';
+  const back = Math.max(1, Math.ceil((Math.min(...out.map((t) => t.arriveAt)) - now) / 1000));
+  return `Your ${out.length > 1 ? 'trucks are' : 'truck is'} on the road. One is free in ${back}s (upgrade the Trading Post for more trucks).`;
+}
+
+function sendTruck(state, now, load) {
+  const ms = truckTripMs(state, now);
+  const truck = { id: state.nextId++, ...load, leaveAt: now, arriveAt: now + ms };
+  state.trucks.push(truck);
+  events.emit('truckOut', { truck });
+  return truck;
+}
+
+/** Trucks that have finished their trip hand over what they carry. Runs on every advance. */
+function finishTrucks(state, now) {
+  if (!state.trucks.length) return;
+  const done = state.trucks.filter((t) => t.arriveAt <= now).sort((a, b) => a.arriveAt - b.arriveAt);
+  if (!done.length) return;
+  state.trucks = state.trucks.filter((t) => t.arriveAt > now);
+  for (const t of done) {
+    if (t.kind === 'import') {
+      state.goods[t.crop] = (state.goods[t.crop] || 0) + t.qty;
+      state.crops[t.crop] = (state.crops[t.crop] || 0) + t.qty;
+      discoverRecipes(state);
+    } else if (t.kind === 'order') {
+      gain(state, t.coins, 'order');
+      gainGems(state, t.gems);
+      events.emit('order', { order: t });
+    } else {
+      gain(state, t.coins, 'trade');
+    }
+    events.emit('truckIn', { truck: t });
+  }
 }
 
 // ---- crops, recipes, learning -------------------------------------------------
@@ -1429,6 +1573,8 @@ export function rideGas(state, share, now) {
 
 // ---- welcome drive: take a new resident home from the edge of town for a bonus ----
 function edgeRoad(state, home) {
+  const e = entryRoute(state);
+  if (e) return e.tiles.at(-1);            // new residents arrive on the entry road
   const p = PARCELS[0];
   let best = null, bestD = -1;
   for (let y = p.y0; y <= p.y1; y++) for (let x = p.x0; x <= p.x1; x++) {
@@ -1697,6 +1843,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
   }
 
   if (hasTrade(state, now)) ensureOrders(state);   // neighbours start ordering once there is a Trading Post
+  finishTrucks(state, now);                        // even after a long time away, every truck arrives
   state.lastTick = now;
 
   // rides
