@@ -196,6 +196,8 @@ function resumeRide() {
   if (!ride) return;
   if (ride.state === 'driving') act('completeRide');        // app was closed mid-drive: just pay out
   else if (ride.state === 'choosing') {
+    // a taxi rider saved from before the game picked destinations: off they go to the pinned spot
+    if (ride.kind !== 'delivery' && act('pickupRide')?.driving) { startDrive(); return; }
     if (ride.kind === 'delivery') renderer.focusTile(tileOf(ride.toId));
     ui.showRide(ride);
   }

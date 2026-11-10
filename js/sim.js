@@ -1807,9 +1807,10 @@ export function startBoardRide(state, kind, now) {
  * the marked home.
  */
 export function pickupRide(state, now) {
-  const r = acceptRide(state, now);
+  const r = acceptRide(state, now);       // also fine for a rider already picked up (older saves)
   if (!r.ok || state.ride.kind === 'delivery') return r;
   const ride = state.ride;
+  if (ride.state === 'driving') return { ...r, fare: ride.fare, driving: true };
   const { pickupTipFastMs: fast, pickupTipSlowMs: slow, rideTipMax: max } = TUNING;
   const t = Math.max(0, now - ride.requestedAt);
   const tip = t <= fast ? max : t >= slow ? 1 : max - ((max - 1) * (t - fast)) / (slow - fast);

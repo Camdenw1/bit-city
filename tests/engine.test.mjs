@@ -1809,3 +1809,13 @@ test('jobs pop up on the map, at most two, never while busy', () => {
   s.job = { kind: 'odd' };
   assert.deepEqual(sim.jobSpots(s, s.lastTick), [], 'none while busy');
 });
+
+test('a taxi rider saved mid-choice (older version) sets off to the pinned spot', () => {
+  const { s } = rideTown();
+  sim.advance(s, T0 + 2000);
+  assert.ok(s.ride && s.ride.kind !== 'delivery');
+  sim.acceptRide(s, T0 + 3000);
+  assert.equal(s.ride.state, 'choosing');
+  const r = sim.pickupRide(s, T0 + 4000);
+  assert.ok(r.ok && r.driving); assert.equal(s.ride.state, 'driving'); assert.ok(s.ride.fare >= TUNING.rideMinFare);
+});
