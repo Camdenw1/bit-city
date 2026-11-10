@@ -110,6 +110,9 @@ covers running and publishing. This file holds the design decisions and the road
   Camden was warned this is the item most at odds with "really simple"; remove it if it
   feels like fiddling.
 - Ads: a paid 2-hour boost (+25% per sale, applicants twice as fast). Optional, no upkeep.
+- Goal progress (2026-11-10): goals with a number show it on the goal chip ("12/30", `goalProgress`
+  in sim). Camden likes goals as the guide through the game. The recipe goal now says it means
+  growing 30 veggies at 10 an hour per farmer; he had staffed a farm and thought it was broken.
 - Milestones are extra entries in `GOALS`; a building can need one via `unlockGoal`
   (Library: Town IQ 100, Fountain: 90% happy).
 - Upgrades: every building has levels 1-3 (`b.level`), each +50% rent / sales and stock /
@@ -216,7 +219,7 @@ change when these are built.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (48 passing).
+- Tests: `node --test` from the project root (49 passing).
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
 

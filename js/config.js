@@ -382,7 +382,7 @@ export const GOALS = [
   { id: 'allcats', text: 'Open one business of every kind',       reward: { coins: 500, gems: 2 } },
   { id: 'pop16',   text: 'Reach 16 residents',                    reward: { coins: 800, gems: 3 } },
   // milestones: the long game after the starter goals
-  { id: 'recipe1', text: 'Discover a recipe (staff a Veggie Farm)', reward: { coins: 300, gems: 1 } },
+  { id: 'recipe1', text: 'Grow 30 veggies for a recipe (a farmer grows 10/h)', reward: { coins: 300, gems: 1 } },
   { id: 'upgrade1', text: 'Upgrade a building',                    reward: { coins: 300, gems: 1 } },
   { id: 'trade1',  text: 'Sell crops at a Trading Post',          reward: { coins: 500, gems: 1 } },
   { id: 'iq100',   text: 'Town IQ 100 with 10+ residents (a School helps)',    reward: { coins: 1000, gems: 2 } },

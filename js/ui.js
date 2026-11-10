@@ -276,7 +276,8 @@ export function createUI(root, api) {
       h.goal.hidden = false;
     } else if (goal) {
       const rw = goal.reward || {};
-      const html = `${icon('star', 1, 'i12')}<span class="goal-text">${esc(goal.text)}</span>` +
+      const gp = call('goalProgress', s, goal, now);
+      const html = `${icon('star', 1, 'i12')}<span class="goal-text">${esc(goal.text)}${gp ? ` <b class="goal-prog">${formatCoins(gp.have)}/${formatCoins(gp.need)}</b>` : ''}</span>` +
         `<span class="goal-reward">${rw.coins ? `+${formatCoins(rw.coins)}${icon('coin', 1, 'i12')}` : ''}${rw.gems ? `+${rw.gems}${icon('gem', 1, 'i12')}` : ''}</span>`;
       setHTML(h.goal, html, 'goal');
       h.goal.hidden = false;

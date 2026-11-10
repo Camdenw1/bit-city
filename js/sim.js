@@ -291,6 +291,28 @@ const GOAL_TESTS = {
   land4: (s) => s.land.length >= 5,
 };
 
+/** How far along a goal is, for goals with a number to reach: { have, need }, or null. */
+export function goalProgress(state, goal, now = state.lastTick) {
+  const pop = state.tenants.length;
+  const n = (have, need) => ({ have: Math.max(0, Math.min(need, Math.floor(have))), need });
+  switch (goal.id) {
+    case 'pop4': return n(pop, 4);
+    case 'pop10': return n(pop, 10);
+    case 'pop16': return n(pop, 16);
+    case 'pop30': return n(pop, 30);
+    case 'pop60': return n(pop, 60);
+    case 'biz5': return n(builtBiz(state, now).length, 5);
+    case 'allcats': return n(new Set(builtBiz(state, now).map((b) => catOf(b))).size, CATEGORIES.length);
+    case 'recipe1': return n(state.crops.veggies || 0, RECIPES[0].needs.veggies);
+    case 'recipes': return n(state.recipes.length, RECIPES.length);
+    case 'iq100': return pop < 10 ? n(pop, 10) : n(townIQ(state), 100);
+    case 'happy90': return n(happiness(state, now), 90);
+    case 'land1': return n(state.land.length - 1, 1);
+    case 'land4': return n(state.land.length - 1, 4);
+    default: return null;
+  }
+}
+
 export function nextGoal(state) {
   return GOALS.find((g) => !state.goalsDone.includes(g.id)) || null;
 }

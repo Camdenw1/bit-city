@@ -1753,3 +1753,14 @@ test('taxi pickup: the game picks the destination and the car sets off; quick pi
   assert.equal(sim.completeRide(quick, ride.requestedAt + 9000).ok, true);
   assert.ok(quick.coins > before);
 });
+
+test('goal progress: goals with a number show how far along they are', () => {
+  const s = fresh();
+  const g = (id) => config.GOALS.find((x) => x.id === id);
+  assert.deepEqual(sim.goalProgress(s, g('recipe1'), T0), { have: 0, need: 30 });
+  s.crops.veggies = 12.7;
+  assert.deepEqual(sim.goalProgress(s, g('recipe1'), T0), { have: 12, need: 30 });
+  assert.deepEqual(sim.goalProgress(s, g('pop10'), T0), { have: 0, need: 10 });
+  assert.equal(sim.goalProgress(s, g('tent'), T0), null, 'yes/no goals have no number');
+  assert.equal(config.RECIPES[0].needs.veggies, 30);
+});
