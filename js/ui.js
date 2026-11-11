@@ -251,6 +251,17 @@ export function createUI(root, api) {
   }
 
   const jobRest = new Map();   // job kind → ms it was still resting at the last refresh
+  let nudgeAt = -Infinity;
+  let prestigeWas = null;
+  // a home can grow into a bigger one where it stands; the residents stay
+  function rebuildBlock(b) {
+    // the two biggest homes it could become (copies make every home pricier, so big ones are often the best buy)
+    const opts = (call('rebuildOptions', S(), b.id, N()) || []).filter((o) => !o.reason.startsWith('Opens')).slice(-2).reverse();
+    if (!opts.length) return '';
+    return `<div class="rebuild">${opts.map((o) => `<button class="btn ${o.ok ? 'btn-coin' : 'btn-quiet'} btn-wide" data-act="rebuild" data-id="${b.id}" data-type="${o.type}"${o.ok ? '' : ' disabled'}>
+      ${icon('hammer', 2)} Rebuild as ${esc(o.name)} for ${o.capacity} · ${formatCoins(o.cost)}${icon('coin', 1, 'i12')}</button>`).join('')}</div>`;
+  }
+
   function refreshHUD() {
     const s = S(); const now = N();
     h.saveWarning.hidden = !api.saveFailed();
@@ -259,7 +270,9 @@ export function createUI(root, api) {
     setCoins(Math.floor(s.coins || 0));
     setText(h.gems, formatCoins(s.gems || 0));
     const pop = call('population', s); const cap = call('capacity', s);
-    setText(h.pop, `${pop === undefined ? s.tenants.length : pop}/${cap === undefined ? 0 : cap}`);
+    const popText = `${pop === undefined ? s.tenants.length : pop}/${cap === undefined ? 0 : cap}`;
+    setText(h.pop, popText);
+    h.pop.classList.toggle('long', popText.length > 6);      // 132/140 needs a smaller font to fit
     const rate = (call('townRatePerMin', s, now) || 0) * 60 * PLAY_BOOST +
       ((call('rentPerDay', s, now) || 0) + (call('rentBonusPerDay', s, now) || 0)) / 24;   // shops while you play + rent
     setText(h.rate, `+${formatCoins(Math.round(rate))}/h`);
@@ -302,10 +315,18 @@ export function createUI(root, api) {
     }
 
     // A gentle dot on People when someone could be in a better job right now.
-    let nudge = false;
-    for (const t of s.tenants) { if (betterJob(t)) { nudge = true; break; } }
-    if (h.peopleDot.hidden === nudge) h.peopleDot.hidden = !nudge;
+    // (checking every resident against every job is slow in a big town: every 5 s is plenty)
+    if (now - nudgeAt >= 5000 || now < nudgeAt) {
+      nudgeAt = now;
+      let nudge = false;
+      for (const t of s.tenants) { if (betterJob(t)) { nudge = true; break; } }
+      if (h.peopleDot.hidden === nudge) h.peopleDot.hidden = !nudge;
+    }
 
+    // a toast the moment founding a new town opens up (not on launch)
+    const ready = s.tenants.length >= (config.TUNING?.prestigePop ?? 100) && (call('prestigePoints', s) || 0) >= 1;   // (ignores a ride in progress)
+    if (prestigeWas === false && ready) toast(`🏙️ You can found a new town now for ${call('prestigePoints', s) || 0} prestige points. It's on the Goals page, whenever you like.`);
+    prestigeWas = ready;
     // the night market: a toast when it opens (game hours 19-23)
     const nm = !!call('nightMarket', s, now);
     if (nightWas === false && nm) toast('🌙 The night market is open: food and fun shops sell 25% more until 11pm.');
@@ -397,26 +418,14 @@ export function createUI(root, api) {
   const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : d.kind === 'yard' ? { icon: 'hammer', name: 'Faster building' } : d.kind === 'exchange' ? { icon: 'coin', name: 'Stocks' } : d.kind === 'source' ? { icon: 'hammer', name: (config.MATERIALS || {})[d.makes]?.name || 'Materials' } : d.kind === 'landmark' ? { icon: 'star', name: 'Landmark' } : d.kind === 'transit' ? { icon: 'taxi', name: 'Transit' } : d.kind === 'gateway' ? { icon: 'person', name: 'Tourists' } : { icon: 'star', name: 'Town' });
   const cropName = (crop) => ((config.CROPS || {})[crop] || crop).toLowerCase();
 
-  /** Everything the Trading Post does: sell, import, and neighbour orders. */
+  /** Everything the Trading Post does: contracts, materials, trucks and the barn. */
   function tradePanel(s, now) {
     const prices = call('tradePrices', s, now) || {};
     const rows = Object.keys(prices).map((crop) => {
       const p = prices[crop]; const have = Math.floor((s.goods && s.goods[crop]) || 0);
-      const worth = Math.floor(have * p.price); const importQty = 50; const importCost = Math.ceil(importQty * p.importPrice);
-      return `<div class="trade-row" data-key="crop-${crop}">
-        <div class="trade-head"><b>${formatCoins(have)} ${esc(cropName(crop))}</b>
-          <span>${icon('coin', 1, 'i12')}${p.price} each today ${p.good ? '<span class="tag tag-dream">Good deal today!</span>' : `<small>(usually ${p.usual})</small>`}</span></div>
-        <div class="row">
-          <button class="btn btn-small ${have > 0 ? 'btn-coin' : 'btn-quiet'}" data-act="sell-goods" data-crop="${crop}">Sell all · +${formatCoins(worth)}</button>
-          <button class="btn btn-small btn-quiet" data-act="buy-goods" data-crop="${crop}" data-qty="${importQty}">Import ${importQty} · ${formatCoins(importCost)}</button>
-        </div></div>`;
-    }).join('');
-    const orders = (s.orders || []).map((o) => {
-      const have = Math.floor((s.goods && s.goods[o.crop]) || 0); const ready = have >= o.qty;
-      return `<div class="trade-row" data-key="order-${o.id}">
-        <div class="trade-head"><b>${esc(o.town)} wants ${formatCoins(o.qty)} ${esc(cropName(o.crop))}</b>
-          <span>Pays ${formatCoins(o.coins)} ${icon('coin', 1, 'i12')} + ${o.gems} ${icon('gem', 1, 'i12')} · you have ${formatCoins(Math.min(have, o.qty))}/${formatCoins(o.qty)}</span></div>
-        <button class="btn btn-small ${ready ? 'btn-go' : 'btn-quiet'}" data-act="fill-order" data-id="${o.id}">${ready ? 'Deliver' : 'Not enough yet'}</button></div>`;
+      const importQty = 50; const importCost = Math.ceil(importQty * p.importPrice);
+      return `<div class="trade-row" data-key="crop-${crop}"><div class="trade-head"><b>${formatCoins(have)} ${esc(cropName(crop))}</b></div>
+        <button class="btn btn-small btn-quiet" data-act="buy-goods" data-crop="${crop}" data-qty="${importQty}">Import ${importQty} · ${formatCoins(importCost)}</button></div>`;
     }).join('');
     const out = (s.trucks || []).filter((t) => t.arriveAt > now && t.kind !== 'contract' && t.kind !== 'care').sort((a, b) => a.arriveAt - b.arriveAt);
     const fleet = call('truckCount', s, now) || 1;
@@ -443,8 +452,7 @@ export function createUI(root, api) {
     const matRows = Object.keys(mats).map((k) => `<button class="btn btn-small btn-quiet" data-act="buy-mat" data-k="${k}" data-qty="20">${mats[k].emoji} ${Math.floor((s.mats || {})[k] || 0)} · import 20 for ${formatCoins(20 * mats[k].price)}</button>`).join('');
     const matBlock = `<h3 class="sec">Building materials</h3><div class="row wrap">${matRows}</div><p class="note">Materials take 30% off upgrades.</p>`;
     return `${contracts}${matBlock}<h3 class="sec">Trucks</h3>${trucks}
-      <h3 class="sec">Your harvest</h3>${rows}<p class="note">Staffed farms fill the barn. Prices change every day.</p>
-      <h3 class="sec">Orders from neighbours</h3>${orders || '<p class="note">Orders arrive soon.</p>'}<p class="note">Orders never run out of time.</p>`;
+      <h3 class="sec">Your barn</h3>${rows}<p class="note">Farms fill it. Spare crops sell by themselves every hour.</p>`;
   }
   /** A second upgrade button that pays partly in materials, when you have them. */
   function matUpgrade(s, b) {
@@ -762,7 +770,7 @@ export function createUI(root, api) {
               ? `<div class="confirm" data-key="mo${t.id}"><span>Ask ${esc(t.name)} to move out? It's free, but newcomers will take twice as long for 10 minutes.</span>
                   <div class="row"><button class="btn btn-quiet" data-act="move-out-no">Keep them</button><button class="btn btn-warn" data-act="move-out-yes" data-t="${t.id}">Move out</button></div></div>`
               : `<button class="link" data-act="move-out-ask" data-t="${t.id}" data-key="mo${t.id}">Ask ${esc(t.name)} to move out</button>`)).join('')}${beds.join('')}</div>
-            ${upgradeBlock}${buildingActions(res.length === 0)}`,
+            ${upgradeBlock}${rebuildBlock(b)}${buildingActions(res.length === 0)}`,
         };
       }
 
@@ -851,16 +859,6 @@ export function createUI(root, api) {
             <span class="avatar ghost">${icon('briefcase', 3)}</span><b>Hire someone</b><span class="plus">+</span></button>`);
         }
       }
-      const prices = Object.entries(config.PRICE_MODES).map(([mode, price]) => {
-        const active = (b.price || 'normal') === mode;
-        const forecast = call('priceForecast', s, b, mode);
-        const minutes = Math.ceil((forecast?.selloutMs || 0) / 60000);
-        const time = minutes > 0 ? formatDuration(minutes * 60000) + ' left' : 'Sold out';
-        return `<button class="seg-btn${active ? ' on' : ''}" aria-pressed="${active}" data-act="set-price" data-id="${b.id}" data-mode="${mode}">
-          <b>${esc(price.name)}</b>
-          ${workers.length ? `<span>${formatCoins(Math.round((forecast?.coinsPerHour || 0) * PLAY_BOOST))} coins/h</span><span>${selfStock ? 'Auto refill' : time}</span>` : ''}
-        </button>`;
-      }).join('');
       return {
         title: esc(name),
         html: `<div class="hero">${buildingArt(b, 4)}<div class="hero-info">
@@ -874,8 +872,6 @@ export function createUI(root, api) {
             ${b.buzzUntil > now ? `<p class="note">${icon('heart', 1, 'i12')}Celebrity buzz: sells double for ${formatDuration(b.buzzUntil - now)}</p>` : ''}
           </div></div>
           ${trouble}${full ? '' : `<button class="btn btn-coin btn-wide" data-act="restock" data-id="${b.id}">${icon('box', 2)} Restock ${coinAmt(Math.min(cost, Math.max(0, Math.floor(s.coins))), 2)}</button>`}
-          <div class="seg" role="group" aria-label="Prices">${prices}</div>
-          <p class="note seg-note">${workers.length ? 'Estimated sales while stocked, before ad bonuses.' : 'Hire a worker to compare sales and stock.'}</p>
           <h3 class="sec">${icon('cat_' + cat, 1, 'i12')} ${CAT_LABEL[cat] || ''} jobs · ${workers.length} of ${slotsOf(b)}</h3>
           ${team ? `<div class="team" data-key="team"><div class="team-head"><b>Team</b><span class="team-stars">${'★'.repeat(team.stars)}${'☆'.repeat(3 - team.stars)}</span><span class="team-pct">${Math.round(team.pct * 100)}%</span></div>
             <div class="meter meter-team"><i style="width:${Math.round(team.pct * 100)}%"></i></div>
@@ -906,7 +902,7 @@ export function createUI(root, api) {
       const cards = list.map((t, i) => (t ? newcomerCard(t, i, null) : '')).join('');
       return {
         title: 'Newcomers',
-        html: `${cards || empty('person', `Nobody is waiting right now. Someone new drives in ${arrivalText(s)}.`)}${cards ? newcomerNote(s) : ''}`,
+        html: `${list.length >= 2 && call('bestHome', s, N()) ? '<button class="btn btn-go btn-wide" data-act="welcome-all">Welcome everyone who fits</button>' : ''}${cards || empty('person', `Nobody is waiting right now. Someone new drives in ${arrivalText(s)}.`)}${cards ? newcomerNote(s) : ''}`,
       };
     },
 
@@ -1005,7 +1001,11 @@ export function createUI(root, api) {
       }).join('');
       const pr = call('promises', s, now) || { tasks: [] };
       const today = pr.tasks.map((t) => `<div class="goal-row${t.done ? ' is-done' : ' is-next'}" data-key="pr-${t.kind}"><span class="goal-mark">${t.done ? '✓' : '🎤'}</span><span class="goal-copy">${esc(t.text)}${t.done ? '' : ` <b>${formatCoins(t.have)}/${formatCoins(t.need)}</b>`}</span></div>`).join('');
-      return { title: `Goals · ${done.size}/${(config.GOALS || []).length}`, html: `<h3 class="sec">Today's promises${pr.paid ? ' · kept ✓' : ''}</h3>${today}
+      // the big next step, once it is open: found a new town
+      const pts = call('prestigePoints', s) || 0;
+      const bigStep = s.tenants.length >= (config.TUNING?.prestigePop ?? 100) && pts >= 1
+        ? `<button class="btn btn-go btn-wide" data-act="nav-prestige">🏙️ Ready for a new town · +${pts} prestige ${pts === 1 ? 'point' : 'points'}</button>` : '';
+      return { title: `Goals · ${done.size}/${(config.GOALS || []).length}`, html: `${bigStep}<h3 class="sec">Today's promises${pr.paid ? ' · kept ✓' : ''}</h3>${today}
         <p class="note">${pr.paid ? 'New promises tomorrow.' : 'Keep all three today for coins, 3 gems and mayor XP.'}</p><h3 class="sec">Goals</h3>${rows}` };
     },
 
@@ -1089,7 +1089,7 @@ export function createUI(root, api) {
         : why ? `<p class="note">${esc(why)} This city is worth ${earn} ${earn === 1 ? 'point' : 'points'} so far.</p>`
           : `<button class="btn btn-go btn-wide" data-act="town-ask">Found a new town · +${earn} prestige ${earn === 1 ? 'point' : 'points'}</button>`;
       const prestige = `<h3 class="sec">New town (prestige) · ${lg.points} ${lg.points === 1 ? 'point' : 'points'}${lg.towns > 1 ? ` · town #${lg.towns}` : ''}</h3>
-        <p class="note">Start over with points for perks you keep. Your old town becomes a sister town.</p>${found}
+        <p class="note">Start over with points for perks you keep. Everything you've built and saved counts. Your old town becomes a sister town.</p>${found}
         ${(lg.oldTowns || []).length ? `<h3 class="sec">Sister towns</h3>${lg.oldTowns.map((t) => `<div class="want-row plain" data-key="sis-${esc(t.name)}">${icon('heart', 2)}<div><b>${esc(t.name)}</b><span>${t.pop} residents · sends ${formatCoins(Math.round(t.income * (config.TUNING?.careHours ?? 1)))} coins every day</span></div></div>`).join('')}` : ''}
         ${permRows}`;
       return { title: 'Upgrades', html: `<h3 class="sec">Your car</h3>${carRow}<h3 class="sec">Advertising</h3>${adRow}<h3 class="sec">City</h3>${rows}${mayor}${prestige}
@@ -1147,7 +1147,7 @@ export function createUI(root, api) {
       }).join('');
       return {
         title: "Mayor's desk",
-        html: `<h3 class="sec">Problems</h3>${probs || `<p class="note">Nothing to sort out. The town is running smoothly.</p>`}
+        html: `${s.tenants.length ? '<button class="btn btn-go btn-wide" data-act="show-needs">🗺️ Show on the map who needs what</button>' : ''}<h3 class="sec">Problems</h3>${probs || `<p class="note">Nothing to sort out. The town is running smoothly.</p>`}
           <h3 class="sec">Residents who need something</h3>${sad || `<p class="note">${s.tenants.length ? 'Everyone has what they need.' : 'No residents yet.'}</p>`}
           <h3 class="sec">Town services</h3>${services || `<p class="note">No government buildings yet. They keep people healthy, safe and learning, and fix shop problems nearby.</p>`}
           <p class="note">Happy residents pay up to +${Math.round((config.TUNING?.happyRentBonus ?? 0.5) * 100)}% rent. Unhappy ones pay up to ${Math.round((config.TUNING?.unhappyRentCut ?? 0.2) * 100)}% less.</p>`,
@@ -1470,6 +1470,20 @@ export function createUI(root, api) {
 
     'nav-build': () => { wishBuild = null; closeSheet(); refreshHUD(); toast('Tap an empty lot'); },
     'nav-people': () => openSheet({ kind: 'people' }),
+    'show-needs': () => {
+      // every home where someone is missing a need (other than a job), marked with what is missing most
+      const s = S(); const per = new Map();
+      for (const t of s.tenants) {
+        for (const x of moodOf(t).missing) {
+          if (x.id === 'jobs') continue;
+          const m = per.get(t.homeId) || {}; m[x.id] = (m[x.id] || 0) + 1; per.set(t.homeId, m);
+        }
+      }
+      const marks = [...per].map(([id, m]) => { const b = byId(id); return b && { x: b.x, y: b.y, need: Object.entries(m).sort((a, z) => z[1] - a[1])[0][0] }; }).filter(Boolean);
+      closeSheet();
+      api.renderer.setOverlay(marks);
+      toast(marks.length ? `${marks.length} ${marks.length === 1 ? 'home is' : 'homes are'} missing something: the bubble says what. Build it nearby.` : 'Every home has what it needs!');
+    },
     'open-mayor': () => openSheet({ kind: 'mayor', back: { kind: 'town' } }),
     'goto-building': (el) => {
       const b = byId(Number(el.dataset.id));
@@ -1483,6 +1497,7 @@ export function createUI(root, api) {
     },
     'nav-menu': () => openSheet({ kind: 'menu', reset: 0 }),
     'nav-upgrades': () => openSheet({ kind: 'upgrades' }),
+    'nav-prestige': () => { openSheet({ kind: 'upgrades' }); setTimeout(() => { try { els.body.querySelector('[data-act="town-ask"]')?.scrollIntoView({ block: 'center' }); } catch (e) { /* cosmetic */ } }, 60); },
     'buy-town-perk': (el) => { const r = act('buyTownPerk', el.dataset.k); if (r && r.ok === false && r.reason) toast(r.reason); },
     'buy-perm-perk': (el) => { const r = act('buyPermPerk', el.dataset.k); if (r && r.ok === false && r.reason) toast(r.reason); },
     'town-ask': () => { sheet.confirmTown = true; renderSheet(); },
@@ -1644,6 +1659,12 @@ export function createUI(root, api) {
       els.body.scrollTop = els.body.scrollHeight;
     },
     'demolish-cancel': () => { if (sheet) { sheet.confirmDemolish = false; renderSheet(); } },
+    rebuild: (el) => {
+      const r = act('rebuildHome', Number(el.dataset.id), el.dataset.type);
+      if (r && r.ok !== false) toast(`Rebuilding as ${def(el.dataset.type).name}. Everyone stays while it's built.`);
+      else if (r?.reason) toast(r.reason);
+      refresh();
+    },
     'demolish-yes': (el) => {
       const r = act('demolish', Number(el.dataset.id));
       if (r && r.ok !== false) { closeSheet(); toast(`Demolished · ${r.cost.toLocaleString('en-US')} coins`); }
@@ -1666,6 +1687,17 @@ export function createUI(root, api) {
         revealToast(r.tenant);
         toast(`${r.tenant.name} lives in the ${bName(r.home)}${r.job ? ` and works at the ${bName(r.job)}${r.dream ? ' (dream job!)' : ''}` : ''}.`);
         welcomeOffer = { id: r.tenant.id, until: N() + 90000 };
+        if (!(S().applicants || []).length) closeSheet();
+      } else if (r && r.reason) toast(r.reason);
+    },
+    'welcome-all': () => {
+      const r = act('welcomeAll');
+      if (r && r.ok) {
+        if (r.welcomed.length === 1) revealToast(r.welcomed[0].tenant);
+        else {
+          const tr = r.welcomed.filter((w) => w.tenant.trait).map((w) => `${w.tenant.name} is a ${((config.TRAITS || {})[w.tenant.trait] || {}).name}`);
+          toast(`${r.welcomed.length} newcomers moved in.${tr.length ? ` Turns out ${tr.join(', ')}!` : ''}`);
+        }
         if (!(S().applicants || []).length) closeSheet();
       } else if (r && r.reason) toast(r.reason);
     },

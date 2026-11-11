@@ -320,6 +320,7 @@ export function unlockHint(state, type) {
 
 // ---- goals ----------------------------------------------------------------
 
+const LANDMARKS = Object.keys(BUILDINGS).filter((id) => BUILDINGS[id].kind === 'landmark');
 const builtBiz = (state, now) => state.buildings.filter((b) => isBiz(b) && isBuilt(b, now));
 
 const GOAL_TESTS = {
@@ -342,7 +343,7 @@ const GOAL_TESTS = {
   upgrade1: (s) => s.buildings.some((b) => (b.level || 1) > 1),
   trade1: (s) => s.trade.sold > 0,
   iq100: (s) => s.tenants.length >= 10 && townIQ(s) >= 100,
-  order1: (s) => s.trade.filled >= 1,
+  order1: (s) => s.trade.filled >= 1 || (s.contracts || []).some((c) => c.done > 0),
   happy90: (s, now) => s.tenants.length >= 4 && happiness(s, now) >= 90,
   land1: (s) => s.land.length >= 2,
   pop30: (s) => s.tenants.length >= 30,
@@ -368,6 +369,12 @@ const GOAL_TESTS = {
   collect1: (s) => collectionPages(s).some((p) => p.done),
   land8: (s) => s.land.length >= PARCELS.length,
   pop150: (s) => s.tenants.length >= 150,
+  landmark1: (s) => s.buildings.some((b) => defOf(b).kind === 'landmark'),
+  rebuild1: (s) => (s.stats.rebuilds || 0) >= 1,
+  mayor5: (s) => mayorLevel(s).level >= 5,
+  lmTop: (s) => s.buildings.some((b) => defOf(b).kind === 'landmark' && (b.level || 1) >= 3),
+  lmAll: (s) => LANDMARKS.every((id) => s.buildings.some((b) => b.type === id)),
+  pop250: (s) => s.tenants.length >= 250,
 };
 
 /** How far along a goal is, for goals with a number to reach: { have, need }, or null. */
@@ -391,6 +398,9 @@ export function goalProgress(state, goal, now = state.lastTick) {
     case 'land8': return n(state.land.length - 1, PARCELS.length - 1);
     case 'pop100': return n(pop, 100);
     case 'pop150': return n(pop, 150);
+    case 'pop250': return n(pop, 250);
+    case 'mayor5': return n(mayorLevel(state).level, 5);
+    case 'lmAll': return n(LANDMARKS.filter((id) => state.buildings.some((b) => b.type === id)).length, LANDMARKS.length);
     case 'visitors50': return n(state.stats.visitors || 0, 50);
     case 'dream10': return n(state.stats.dreamJobs, 10);
     case 'vip5': return n(state.stats.vips || 0, 5);
@@ -714,6 +724,53 @@ export function demolish(state, buildingId, now) {
   return { ok: true, reason: '', cost: check.cost };
 }
 
+// ---- rebuilding a home ----------------------------------------------------
+// A small home can be rebuilt in place as a bigger one, so old neighbourhoods grow up with the
+// town. The residents stay (and keep paying rent) while it is rebuilt; a third of what the old
+// home cost comes back off the price.
+
+/** The bigger homes this one could become: [{ type, name, capacity, cost, ok, reason }]. */
+export function rebuildOptions(state, buildingId, now) {
+  const b = buildingById(state, buildingId);
+  if (!b || !isHome(b)) return [];
+  const cap = defOf(b).capacity;
+  return Object.values(BUILDINGS)
+    .filter((d) => d.kind === 'home' && d.capacity > cap)
+    .sort((a, z) => a.capacity - z.capacity || a.cost - z.cost)
+    .map((d) => {
+      const cost = rebuildCost(state, b, d.id);
+      let reason = '';
+      if (!isUnlocked(state, d.id)) reason = `Opens at ${d.unlockAt} residents`;
+      else if (state.coins < cost) reason = `${cost - Math.floor(state.coins)} more coins`;
+      return { type: d.id, name: d.name, capacity: d.capacity, cost, ok: !reason, reason };
+    });
+}
+export function rebuildCost(state, b, type) {
+  return Math.max(0, costOf(state, type) - Math.round((b.paid ?? defOf(b).cost) / 3));
+}
+export function rebuildHome(state, buildingId, type, now) {
+  const b = buildingById(state, buildingId);
+  if (!b || !isHome(b)) return fail('Only homes can be rebuilt.');
+  if (!isBuilt(b, now)) return fail('Let it finish building first.');
+  const def = BUILDINGS[type];
+  if (!def || def.kind !== 'home' || def.capacity <= defOf(b).capacity) return fail('Pick a bigger home.');
+  if (!isUnlocked(state, type)) return fail(`${def.name} unlocks at ${def.unlockAt} residents.`);
+  const issue = buildingInUse(state, b, now);
+  if (issue) return fail(issue);
+  const cost = rebuildCost(state, b, type);
+  if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins for that.`);
+  state.coins -= cost;
+  b.type = type;
+  b.level = 1;
+  b.paid = (b.paid ?? 0) + cost;
+  b.readyAt = now + Math.round(def.buildSecs * 1000 * buildFactor(state, b.x, b.y, now));
+  state.stats.rebuilds = (state.stats.rebuilds || 0) + 1;
+  events.emit('spend', { amount: cost, reason: 'build' });
+  events.emit('built', { building: b });
+  checkGoals(state, now);
+  return { ok: true, reason: '', cost, building: b };
+}
+
 // ---- income ---------------------------------------------------------------
 
 /** Rate ignoring stock and construction: what this shop earns while it is selling. */
@@ -784,24 +841,34 @@ export function homeBoost(state, home, now = state.lastTick) {
 }
 
 /** Rent share for one resident from traits: party animals pay more and their next-door neighbours less. */
-export function traitRent(state, t, home) {
+export function traitRent(state, t, home, parties = partyHomes(state)) {
   let f = 1;
   if (t.trait === 'party') f += 0.3;
   if (t.trait === 'gogetter') f -= 0.1;
-  for (const o of state.tenants) {
-    if (o.trait !== 'party' || o.homeId === home.id) continue;
-    const h = buildingById(state, o.homeId);
-    if (h && Math.max(Math.abs(h.x - home.x), Math.abs(h.y - home.y)) <= 1) f -= 0.1;
+  for (const h of parties) {
+    if (h.id !== home.id && Math.max(Math.abs(h.x - home.x), Math.abs(h.y - home.y)) <= 1) f -= 0.1;
   }
   return Math.max(0.5, f);
 }
+/** The home of every party animal (one entry each), worked out once for a whole rent sum. */
+function partyHomes(state) {
+  const out = [];
+  for (const o of state.tenants) if (o.trait === 'party') { const h = buildingById(state, o.homeId); if (h) out.push(h); }
+  return out;
+}
 
+function residentsByHome(state) {
+  const m = new Map();
+  for (const t of state.tenants) { const a = m.get(t.homeId); if (a) a.push(t); else m.set(t.homeId, [t]); }
+  return m;
+}
 export function rentPerDay(state, now = state.lastTick) {
   let sum = 0;
+  const byHome = residentsByHome(state); const parties = partyHomes(state);
   for (const home of state.buildings) {
     if (!isHome(home)) continue;
-    const res = residentsOf(state, home.id);
-    if (res.length) sum += Math.round(res.reduce((n, t) => n + traitRent(state, t, home), 0) * defOf(home).rentPerTenant * levelMult(home.level) * (1 + homeBoost(state, home, now)) * rentPerk(state));
+    const res = byHome.get(home.id) || [];
+    if (res.length) sum += Math.round(res.reduce((n, t) => n + traitRent(state, t, home, parties), 0) * defOf(home).rentPerTenant * levelMult(home.level) * (1 + homeBoost(state, home, now)) * rentPerk(state));
   }
   return sum;
 }
@@ -990,6 +1057,28 @@ function runContracts(state, now) {
   }
 }
 
+/**
+ * At the top of every hour the Trading Post sells spare crops by itself at the day's price:
+ * whatever is beyond three hours of your contracts. (Selling by hand and neighbour orders were
+ * cut in v47: contracts do that job, and selling was one more button for very little.)
+ */
+function sellSurplus(state, now) {
+  if (!hasTrade(state, now)) return;
+  const prices = tradePrices(state, now);
+  const keep = {};
+  for (const c of state.contracts || []) { const t = contractTerms(state, c.town, now); keep[t.crop] = (keep[t.crop] || 0) + 3 * t.qty; }
+  let coins = 0, qty = 0;
+  for (const crop of Object.keys(prices)) {
+    const spare = Math.floor((state.goods[crop] || 0) - (keep[crop] || 0));
+    if (spare <= 0) continue;
+    state.goods[crop] -= spare;
+    state.trade.sold += spare;
+    qty += spare;
+    coins += Math.floor(spare * prices[crop].price);
+  }
+  if (coins > 0) { gain(state, coins, 'trade'); events.emit('surplusSold', { qty, coins }); }
+}
+
 // ---- stock market ------------------------------------------------------------------
 
 function marketOf(state) {
@@ -1134,11 +1223,12 @@ function sendCare(state, now) {
   });
 }
 
-/** What the city is worth: everything spent on buildings and land. */
+/** What the city is worth: everything spent on buildings and land, plus the coins in the bank
+ *  (so a late town's savings are never wasted: they become prestige points). */
 export function cityValue(state) {
   let land = 0;
   for (let i = 1; i < state.land.length; i++) land += Math.round(TUNING.landBasePrice * Math.pow(TUNING.landGrowth, i - 1));
-  return Math.round(state.buildings.reduce((n, b) => n + (b.paid ?? defOf(b).cost), 0) + land);
+  return Math.round(state.buildings.reduce((n, b) => n + (b.paid ?? defOf(b).cost), 0) + land + Math.max(0, state.coins || 0));
 }
 export function prestigePoints(state) {
   return Math.floor(Math.sqrt(cityValue(state) / TUNING.prestigeValuePerPoint));
@@ -1464,7 +1554,25 @@ const servesOf = (b) => Math.round(defOf(b).provides.serves * levelMult(b.level)
  * - shop needs: every staffed shop serves `needServes` residents, longest-standing residents first.
  * - town buildings: each serves its nearest residents whose home is within reach.
  */
+// townMood is asked for many times a second by the HUD and sheets; keep the last answer while
+// nothing it depends on has changed (same time, same homes, jobs, skills and buildings).
+const moodCache = new WeakMap();
+function moodKey(state, now) {
+  let k = `${now}|${state.recipes?.length || 0}|`;
+  for (const t of state.tenants) k += `${t.id},${t.homeId},${t.jobId},${CATEGORIES.reduce((a, c) => a + (t.skills?.[c] || 0), 0)};`;
+  k += '|';
+  for (const b of state.buildings) k += `${b.id},${b.type},${b.x},${b.y},${b.level || 1},${b.readyAt || 0};`;
+  return k;
+}
 export function townMood(state, now) {
+  const key = moodKey(state, now);
+  const hit = moodCache.get(state);
+  if (hit && hit.key === key) return hit.mood;
+  const mood = computeMood(state, now);
+  moodCache.set(state, { key, mood });
+  return mood;
+}
+function computeMood(state, now) {
   const pop = state.tenants.length;
   const needs = NEEDS.filter((n) => pop >= n.unlockAt);
   const met = new Map(state.tenants.map((t) => [t.id, new Set()]));
@@ -1546,12 +1654,20 @@ export function moodRentFactor(score) {
 /** What happiness adds to (or, for unhappy residents, takes from) a day's rent. */
 export function rentBonusPerDay(state, now, mood = townMood(state, now)) {
   let sum = 0;
+  const byHome = residentsByHome(state);
+  const nNeeds = mood.needs.length;
+  const perk = rentPerk(state);
+  const parties = partyHomes(state);
   for (const home of state.buildings) {
     if (!isHome(home)) continue;
-    const res = residentsOf(state, home.id);
-    if (!res.length) continue;
+    const res = byHome.get(home.id);
+    if (!res) continue;
     const each = (defOf(home).rentPerTenant * levelMult(home.level) * (1 + homeBoost(state, home, now)));
-    for (const t of res) sum += each * rentPerk(state) * traitRent(state, t, home) * moodRentFactor(t.trait === 'homebody' ? 100 : residentMood(state, t, now, mood).score);
+    for (const t of res) {
+      // the same score residentMood gives, without working out the reasons
+      const score = t.trait === 'homebody' || !nNeeds ? 100 : Math.round((100 * (mood.met.get(t.id)?.size || 0)) / nNeeds);
+      sum += each * perk * traitRent(state, t, home, parties) * moodRentFactor(score);
+    }
   }
   return Math.round(sum);
 }
@@ -2016,6 +2132,22 @@ export function welcomeNewcomer(state, applicantIndex, now) {
   const job = bestJobs(state, t.id, now).find((j) => j.open);
   const hired = job ? assignJob(state, t.id, job.building.id, now) : null;
   return { ok: true, reason: '', tenant: t, home, job: job && hired && hired.ok ? job.building : null, dream: !!(hired && hired.dream) };
+}
+
+/** Welcome everyone waiting who fits in a free home, best skills first. */
+export function welcomeAll(state, now) {
+  const done = [];
+  const order = state.applicants.map((a, i) => ({ a, v: Math.max(...Object.values(a.skills || { x: 0 })) + (a.star ? 10 : 0) }))
+    .sort((x, z) => z.v - x.v).map((o) => o.a);
+  for (const a of order) {
+    const i = state.applicants.indexOf(a);
+    if (i < 0 || !bestHome(state, now)) break;
+    const r = welcomeNewcomer(state, i, now);
+    if (!r.ok) break;
+    done.push(r);
+  }
+  if (!done.length) return fail('Every home is full. Build a home first.');
+  return { ok: true, reason: '', welcomed: done };
 }
 
 /** "Not now": a newcomer drives on, for free, and someone else arrives a little later. */
@@ -2930,7 +3062,6 @@ export function advance(state, now, { live = true, active = false } = {}) {
     const countLesson = events.on('lesson', () => { lessonsBefore++; });
     const pending = state.buildings.filter((b) => b.readyAt > t).sort((a, b) => b.readyAt - a.readyAt);
     let nextHour = (hourNumber(t) + 1) * HOUR_MS;
-    if (hasTrade(state, t)) ensureOrders(state);
 
     while (t < now) {
       const growth = {};
@@ -2955,7 +3086,6 @@ export function advance(state, now, { live = true, active = false } = {}) {
         res.finished.push(b.id);
         events.emit('opened', { building: b });
         state.ribbons.push({ id: b.id, until: b.readyAt + TUNING.ribbonMs });   // a ribbon to cut, for a minute
-        if (defOf(b).kind === 'trade') ensureOrders(state);
       }
 
       // 2. sales
@@ -3035,6 +3165,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
       if (end >= nextHour) {
         payRent(end);
         runContracts(state, end);
+        sellSurplus(state, end);
         runMarket(state, end);
         nextHour = (hourNumber(end) + 1) * HOUR_MS;
       }
@@ -3058,7 +3189,6 @@ export function advance(state, now, { live = true, active = false } = {}) {
     }
   }
 
-  if (hasTrade(state, now)) ensureOrders(state);   // neighbours start ordering once there is a Trading Post
   sendCare(state, now);                            // sister towns' daily care packages
   finishTrucks(state, now);                        // even after a long time away, every truck arrives
   state.lastTick = now;

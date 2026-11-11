@@ -139,6 +139,7 @@ body { position: fixed; inset: 0; }
 .stat:first-child { border-left: 0; }
 .stat .v { font-size: 15px; font-variant-numeric: tabular-nums; }
 .stat-coins { flex: 1.35 1 0; }
+.stat .v.long { font-size: 12px; letter-spacing: -0.3px; }
 .stat-clock { flex: 0 0 34px; }
 .stat-happy { flex: 1 1 0; background: none; border-top: 0; border-right: 0; border-bottom: 0; font: inherit; color: inherit; cursor: pointer; }
 .goal-chip[data-act] { cursor: pointer; }

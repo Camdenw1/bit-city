@@ -1,6 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
-export const VERSION = 46;           // shown in Menu; keep in step with CACHE in sw.js
+export const VERSION = 47;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;
@@ -72,7 +72,7 @@ export const TUNING = {
   postGapMs: 4 * 60000,          // a resident posts a wish to the feed this often while you play
   feedMax: 40,                   // posts kept
   jobSpots: 2,                   // jobs that can sit on the map as bubbles at once
-  applicantCount: 3,             // newcomers waiting at the Welcome sign at most
+  applicantCount: 5,             // newcomers waiting at the Welcome sign at most (3 until v47: kept casual towns small)
   applicantEveryMs: 4 * 60000,   // (older saves) kept for the first arrival time of a new game
   arriveMs: 60000,               // an open spot at the Welcome sign fills this long after it opens
   moveOutSlowMs: 10 * 60000,     // asking someone to move out: newcomers take twice as long for this while
@@ -463,11 +463,11 @@ function town(id, name, kind, cost, buildSecs, unlockAt, extra, blurb) {
 
 export const BUILDINGS = {
   //            id           name             cost  secs unlock cap rent
-  tent:      home('tent',      'Tent',           80,   10,  0, 1, 250, 'A cozy tent for one. Everyone starts somewhere!'),
-  cabin:     home('cabin',     'Cabin',         450,   90,  4, 2, 450, 'A snug log cabin with room for two.'),
-  apartment: home('apartment', 'Apartments',   4000,  420, 12, 4, 700, 'Four friendly neighbours under one roof.'),
-  house:     home('house',     'Family House',15000, 1500, 24, 3, 1400, 'The nicest home in town. Pays the best rent.'),
-  highrise:  home('highrise',  'High-rise',   60000, 2400, 50, 8, 1700, 'Twenty floors of city living. The densest home in town.'),
+  tent:      home('tent',      'Tent',           80,   10,  0, 1, 500, 'A cozy tent for one. Everyone starts somewhere!'),
+  cabin:     home('cabin',     'Cabin',         450,   90,  4, 2, 900, 'A snug log cabin with room for two.'),
+  apartment: home('apartment', 'Apartments',   4000,  420, 12, 4, 1400, 'Four friendly neighbours under one roof.'),
+  house:     home('house',     'Family House',15000, 1500, 24, 3, 2800, 'The nicest home in town. Pays the best rent.'),
+  highrise:  home('highrise',  'High-rise',   60000, 2400, 50, 8, 3400, 'Twenty floors of city living. The densest home in town.'),
 
   // food
   diner:    biz('diner',    'Burger Diner',   ['food'],             30, 'Burgers and pancakes all day.'),
@@ -542,7 +542,7 @@ BUILDINGS.grandpark = town('grandpark', 'Grand Park', 'landmark', 80000, 1800, 4
 BUILDINGS.stadium = town('stadium', 'Stadium', 'landmark', 150000, 2700, 60, { landmark: { per: 0.25, says: (l) => `${l * 25}% more visitors` } }, 'Game day brings the whole region to town.');
 BUILDINGS.skyscraper = town('skyscraper', 'Skyscraper HQ', 'landmark', 400000, 3600, 100, { landmark: { per: 0.05, says: (l) => `+${l * 5}% shop sales` } }, 'The tallest thing for miles. Business is booming.');
 BUILDINGS.yard = town('yard', 'Construction Yard', 'yard', 1500, 120, 8, { reach: 4 }, 'Cranes and hard hats. Anything built near it goes up twice as fast.');
-BUILDINGS.trade = town('trade', 'Trading Post', 'trade', 2000, 300, 10, {}, 'Sell your harvest, import what you lack, and fill orders from neighbour towns.');
+BUILDINGS.trade = town('trade', 'Trading Post', 'trade', 2000, 300, 10, {}, 'Trade with neighbour towns: contracts every hour, and spare crops sell themselves.');
 BUILDINGS.fountain.unlockGoal = 'happy90';  // a milestone opens this one
 
 // Government buildings are a surprise too: you ask for one, the council decides which.
@@ -616,12 +616,12 @@ export const GOALS = [
   // milestones: the long game after the starter goals
   { id: 'recipe1', text: 'Grow 30 veggies for a recipe (a farmer grows 10/h)', reward: { coins: 300, gems: 1 } },
   { id: 'upgrade1', text: 'Upgrade a building',                    reward: { coins: 300, gems: 1 } },
-  { id: 'trade1',  text: 'Sell crops at a Trading Post',          reward: { coins: 500, gems: 1 } },
+  { id: 'trade1',  text: 'Sell spare crops (a Trading Post does it hourly)',          reward: { coins: 500, gems: 1 } },
   { id: 'contract1', text: 'Sign a contract with a neighbour town', reward: { coins: 1000, gems: 2 } },
   { id: 'upgrade3', text: 'Buy 3 upgrades in the Upgrades tab',    reward: { coins: 1500, gems: 2 } },
   { id: 'yard',    text: 'Build a Construction Yard',             reward: { coins: 1500, gems: 2 } },
   { id: 'iq100',   text: 'Town IQ 100 with 10+ residents (a School helps)',    reward: { coins: 1000, gems: 2 } },
-  { id: 'order1',  text: "Fill a neighbour town's order",         reward: { coins: 1000, gems: 2 } },
+  { id: 'order1',  text: 'Deliver crops on a contract',         reward: { coins: 1000, gems: 2 } },
   { id: 'happy90', text: 'Make the town 90% happy',               reward: { coins: 2000, gems: 3 } },
   { id: 'visitors50', text: 'Welcome 50 visitors',                reward: { coins: 2500, gems: 3 } },
   { id: 'friend1', text: 'Make friends with a neighbour town (♥)', reward: { coins: 2500, gems: 3 } },
@@ -641,6 +641,13 @@ export const GOALS = [
   { id: 'land4',   text: 'Own five pieces of land',               reward: { coins: 20000, gems: 10 } },
   { id: 'land8',   text: 'Own all the land',                      reward: { coins: 100000, gems: 15 } },
   { id: 'pop150',  text: 'Reach 150 residents',                   reward: { coins: 100000, gems: 15 } },
+  // the late game: landmarks, growing up, and the road to a new town
+  { id: 'landmark1', text: 'Build a landmark',                    reward: { coins: 30000, gems: 8 } },
+  { id: 'rebuild1', text: 'Rebuild a home as a bigger one',       reward: { coins: 20000, gems: 5 } },
+  { id: 'mayor5',  text: 'Reach mayor level 5',                   reward: { coins: 60000, gems: 10 } },
+  { id: 'lmTop',   text: 'Finish a landmark (stage 3)',           reward: { coins: 150000, gems: 15 } },
+  { id: 'lmAll',   text: 'Build all four landmarks',              reward: { coins: 250000, gems: 20 } },
+  { id: 'pop250',  text: 'Reach 250 residents',                   reward: { coins: 400000, gems: 25 } },
 ];
 
 export const FIRST_NAMES = [

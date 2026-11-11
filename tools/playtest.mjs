@@ -13,7 +13,7 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
   const s = store.newGame(now);
   const income = { sales: 0, ride: 0, delivery: 0, job: 0, rent: 0, goal: 0, trade: 0, order: 0, visitor: 0, resident: 0, contract: 0, vip: 0 };
   const onCoins = sim.events.on('coins', ({ amount, reason }) => { if (income[reason] != null) income[reason] += amount; });
-  let manualRestocks = 0; let fixes = 0; let problems = 0;
+  let manualRestocks = 0; let rebuilds = 0; let fixes = 0; let problems = 0;
   const onProblem = sim.events.on('problem', () => { problems++; });
   const marks = [];
   const mark = (text) => marks.push(`${fmt(now - seedTime).padStart(7)}  ${text}`);
@@ -96,7 +96,17 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
       if (!s.buildings.length) { if (tryBuild('tent')) continue; break; }
       if (s.tenants.length && needShop && wantShop && tryBuild(wantShop, true)) continue;
       if (needHome && wantHome && tryBuild(wantHome)) continue;
+      // no lot left: rebuild the smallest home as the biggest one it can afford
+      if (needHome && !freeLot()) {
+        const small = s.buildings.filter((b) => BUILDINGS[b.type].kind === 'home' && sim.isBuilt(b, now)).sort((a, b) => BUILDINGS[a.type].capacity - BUILDINGS[b.type].capacity)[0];
+        const opt = small && sim.rebuildOptions(s, small.id, now).filter((o) => o.ok).pop();
+        if (opt && sim.rebuildHome(s, small.id, opt.type, now).ok) { rebuilds++; continue; }
+      }
       break;
+    }
+    // landmarks: one of each once there is plenty to spare
+    for (const id of ['cityhall', 'grandpark', 'stadium', 'skyscraper']) {
+      if (!s.buildings.some((b) => b.type === id) && sim.isUnlocked(s, id) && s.coins >= sim.costOf(s, id) * 2 && tryBuild(id)) mark(`landmark ${id}`);
     }
   }
 
@@ -147,6 +157,7 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
   const total = Object.values(income).reduce((a, b) => a + b, 0) || 1;
   console.log(`\n=== ${label} ===`);
   if (detail) console.log(marks.join('\n'));
+  console.log(`rebuilt homes ${rebuilds}`);
   console.log(`population ${s.tenants.length}, happy ${sim.happiness(s, now)}%, IQ ${sim.townIQ(s)}, manual restocks ${manualRestocks}, problems ${problems} (${fixes} paid for)`);
   console.log('income mix: ' + Object.entries(income).map(([k, v]) => `${k} ${Math.round(v)} (${Math.round(100 * v / total)}%)`).join(', '));
   console.log(`goals done ${s.goalsDone.length}/${config.GOALS.length}, dream jobs ${s.stats.dreamJobs}, rides ${s.stats.rides}, types owned ${new Set(s.buildings.map((b) => b.type)).size}/${Object.keys(BUILDINGS).length}`);

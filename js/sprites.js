@@ -1212,6 +1212,24 @@ def('grass2', () => grassTile(2));
 for (let m = 0; m < 16; m++) def('road' + m, () => roadTile(m));
 for (const id of BUILDING_IDS) def(id, BUILD[id]);
 for (const [id, make] of SHOP_SPRITES) def(id, make);
+// Map-only tall versions: the towers rise a few pixels into the lot behind them, so a big town
+// gets a skyline. Sheets and menus keep the square sprite.
+def('tall_highrise', () => {
+  const g = new Grid(16, 21);
+  g.set(8, 0, 'r').vl(8, 1, 2, 'A');                            // antenna with a red light
+  g.rect(3, 3, 12, 20, 'e').vl(12, 3, 20, 'a').hl(3, 12, 3, 'A');
+  for (let y = 5; y <= 17; y += 2) for (const x of [4, 6, 8, 10]) g.set(x, y, (x + y) % 4 ? 'c' : 'C');
+  g.rect(7, 18, 8, 20, 'B');                                    // door
+  return g.outline();
+});
+def('tall_skyscraper', () => {
+  const g = new Grid(16, 24);
+  g.set(8, 0, 'r').vl(8, 1, 3, 'A').set(7, 3, 'A').set(9, 3, 'A');   // spire
+  g.rect(4, 4, 11, 23, 'U').vl(11, 4, 23, 'k').hl(4, 11, 4, 'u');
+  for (let y = 6; y <= 20; y += 2) for (const x of [5, 7, 9]) g.set(x, y, (x * y) % 3 ? 'c' : 'Y');
+  g.rect(7, 22, 8, 23, 'C');
+  return g.outline();
+});
 def('lot', lotTile);
 def('pip', () => new Grid(7, 7).stamp(1, 1, ['..y..', 'yyyyy', '.yYy.', 'yy.yy', '.....']).outline());
 def('plaza', plazaTile);

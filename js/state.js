@@ -128,7 +128,7 @@ export function newGame(now) {
     coins: TUNING.startCoins,
     gems: TUNING.startGems,
     nextId: 1,
-    stats: { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0 },
+    stats: { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0, rebuilds: 0 },
     buildings: [],
     tenants: [],
     applicants: [],
@@ -181,7 +181,7 @@ export function newGame(now) {
   // a starter business, so the very first hires feel great.
   const starters = BIZ_TYPES.filter((id) => BUILDINGS[id].unlockAt === 0);
   const cats = [...new Set(starters.map((id) => BUILDINGS[id].category))];
-  for (let i = 0; i < TUNING.applicantCount; i++) {
+  for (let i = 0; i < 3; i++) {                     // three to start; the sign holds more later
     state.applicants.push(makeApplicant(state, { best: cats[i % cats.length], dreamPool: starters }));
   }
   state.townName = townNameFromSeed(state.worldSeed);
@@ -264,7 +264,7 @@ export function migrate(state) {
     state.gems = isNum(state.gems) ? Math.max(0, Math.floor(state.gems)) : 0;
     const st = state.stats && typeof state.stats === 'object' ? state.stats : {};
     state.stats = {};
-    for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks', 'visitors', 'vips', 'festivals', 'moveIns', 'jobsDone']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
+    for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks', 'visitors', 'vips', 'festivals', 'moveIns', 'jobsDone', 'rebuilds']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
 
     // City infrastructure no longer takes lots (2026-11-11): placed bus stops, stations, ports and
     // airports become City levels (none lost) and their lots are freed
@@ -286,7 +286,7 @@ export function migrate(state) {
       if (!isNum(b.readyAt)) b.readyAt = state.lastTick;
       if (!isNum(b.paid)) b.paid = def.cost;   // saves from before prices grew per copy
       b.level = isNum(b.level) ? Math.max(1, Math.min(TUNING.maxLevel, Math.round(b.level))) : 1;
-      if (def.kind === 'biz') { if (!['low', 'normal', 'high'].includes(b.price)) b.price = 'normal'; if (!isNum(b.cc)) b.cc = 0; }
+      if (def.kind === 'biz') { b.price = 'normal';   /* shop pricing was removed in v47: every shop sells at the normal price */ if (!isNum(b.cc)) b.cc = 0; }
       if (def.kind === 'biz' || def.gov) b.q = isNum(b.q) && QUALITY[b.q] ? b.q : 0;
       if (def.kind === 'biz') {
         if (!def.categories.includes(b.cat)) b.cat = def.category;
@@ -312,7 +312,7 @@ export function migrate(state) {
     }
     state.applicants = (Array.isArray(state.applicants) ? state.applicants : []).map(fixPerson).filter(Boolean);
     for (const a of state.applicants) { a.homeId = null; a.jobId = null; }
-    state.applicants.length = Math.min(state.applicants.length, TUNING.applicantCount);
+    state.applicants.length = Math.min(state.applicants.length, TUNING.applicantCount + 1);   // +1: the train station's spot
 
     let maxId = 0;
     for (const o of [...state.buildings, ...state.tenants, ...state.applicants, ...(Array.isArray(state.orders) ? state.orders : []).filter((x) => x && isNum(x.id)), ...(Array.isArray(state.trucks) ? state.trucks : []).filter((x) => x && isNum(x.id))]) maxId = Math.max(maxId, o.id);

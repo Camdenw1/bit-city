@@ -75,11 +75,18 @@ const tileOf = (id) => {
   return b ? { x: b.x, y: b.y } : null;
 };
 const COIN = '#f2c14e';
+let floorAt = 0, floorVal = 1;
+function popFloor() {        // a twentieth of a minute of the town's play income, worked out every 5 s
+  const now = getNow();
+  if (now - floorAt > 5000) { floorAt = now; floorVal = Math.max(1, (sim.townRatePerMin(state, now) || 0) * (config.TUNING.activeBoost || 10) / 20); }
+  return floorVal;
+}
 
 sim.events.on('coins', ({ amount, buildingId, reason }) => {
   if (quiet || amount <= 0) return;
   const t = tileOf(buildingId);
-  if (t && reason === 'sales') renderer.floatText(t.x, t.y, `+${Math.round(amount)}`, COIN);
+  // only sales worth seeing get a coin pop (small change everywhere was just noise in a big town)
+  if (t && reason === 'sales' && amount >= popFloor()) renderer.floatText(t.x, t.y, `+${formatCoins(Math.round(amount))}`, COIN);
 });
 sim.events.on('built', ({ building }) => {
   if (quiet) return;
@@ -166,7 +173,7 @@ sim.events.on('arrival', ({ applicant, visitor }) => {
 sim.events.on('residentBuy', ({ tenant, building, amount }) => {
   if (quiet) return;
   renderer.sendWalker(tenant.id, building);          // you see them walk over and pop in
-  renderer.floatText(building.x, building.y, `+${formatCoins(amount)}`, COIN);
+  if (amount >= popFloor()) renderer.floatText(building.x, building.y, `+${formatCoins(amount)}`, COIN);
 });
 sim.events.on('vipArrive', ({ vip }) => {
   if (quiet) return;

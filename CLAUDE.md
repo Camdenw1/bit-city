@@ -213,13 +213,13 @@ covers running and publishing. This file holds the design decisions and the road
   part's share of your shop income, kept within 20-500. Buy a quarter of your cap per tap, sell
   all at the hour's price; you can lose coins. Invested coins are capped at `stockCapMinutes`
   (60) of the town's base shop income. `state.market` is made when first needed.
-- Trade: farms fill a barn (`state.goods`) as well as the lifetime `state.crops`. The
-  Trading Post sells the barn at a price that changes each local day, imports at a fixed
-  2.5x the usual price (always dearer than selling, so no buy-low-sell-high loop), and
-  holds two neighbour orders that never expire. Selling never touches recipe progress.
-- Shop pricing: Bargain / Normal / Premium trade selling speed against coins per item.
-  Camden was warned this is the item most at odds with "really simple"; remove it if it
-  feels like fiddling.
+- Trade: farms fill a barn (`state.goods`) as well as the lifetime `state.crops`. Since v47 the
+  barn sells itself: at the top of each hour `sellSurplus` sells everything beyond three hours of
+  your contracts at the day's price. Selling by hand and neighbour orders were cut (0-2% of income;
+  contracts do that job); `sellGoods`/`fillOrder` stay in sim for old saves and tests, and no new
+  orders are made. Imports stay, at 2.5x the usual price. Selling never touches recipe progress.
+- Shop pricing (Bargain / Normal / Premium) was removed in v47 (it changed nothing about growth);
+  migrate sets every shop to 'normal'. `setPrice` stays in sim, unused.
 - Ads: a paid 2-hour boost (+25% per sale, applicants twice as fast). Optional, no upkeep.
   "Run an ad" sits in the Upgrades tab right above Marketing (Camden couldn't find ads in Town
   details, so Marketing meant nothing); `adLengthMs` = 2 h + Marketing.
@@ -330,7 +330,7 @@ covers running and publishing. This file holds the design decisions and the road
   (+50%) to the fare in `completeRide`. Never make the pedal required.
 - Cars (`CARS` in config, `state.car`): four, bought on the Jobs sheet, each faster and paying
   more on every ride, delivery and welcome drive.
-- Newcomers (2026-11-10): up to 3 wait at the Welcome spot on the entry road just outside town
+- Newcomers (2026-11-10): up to 5 wait (3 until v47; casual towns were capped by it) at the Welcome spot on the entry road just outside town
   (`welcomeSpot`; key bubble, tap it). They never leave on their own; a free spot fills
   `arriveMs` (60 s) after it opens (half during an ad, double for `moveOutSlowMs` after a
   move-out). Cards show skills as ranges (`seen`, width 3, a star's 1), the dream place and a
@@ -369,6 +369,37 @@ covers running and publishing. This file holds the design decisions and the road
 - Crops are lifetime totals that only go up (`state.crops`); staffed farms grow them.
   Recipes unlock from those totals and each adds a star and +20% sales to its restaurant.
 - School and library teach skill points over time (job skill first). Skills cap at 9.
+
+## The analysis batch (2026-11-11, v47; Camden: "Do all of it")
+An audit (bot runs, a 130-resident town in the preview, timings) found, and this batch changed:
+- Smoothness: the once-a-second HUD refresh took 12-29 ms at 130 residents (the People dot
+  checked every resident against every job; mood was recalculated several times). Now the dot
+  is checked every 5 s, `townMood` keeps its last answer while a cheap key (time, homes, jobs,
+  skills, buildings) is unchanged, and rent sums use one residents-by-home map and the party
+  animals' homes worked out once. Worst case 29 -> 16 ms on a Mac.
+- Map: level stars only on landmarks; levels show as flower boxes (2) and gold trim (3), shops
+  add an awning and a small flag. Coin pops only for amounts over a twentieth of a minute's play
+  income (`popFloor` in main). High-rise and Skyscraper HQ use map-only tall sprites
+  (`tall_highrise`, `tall_skyscraper`, `TALL` in render) that rise 5-8 px into the lot behind:
+  Camden accepted breaking the "fits its own lot" rule for towers only. The population HUD
+  shrinks its font past 6 characters.
+- Rebuild a home in place (`rebuildOptions`, `rebuildHome`): any bigger home type, a third of
+  what the old one cost comes off, level resets to 1, residents stay and keep paying while it is
+  rebuilt. The home sheet offers the two biggest (copies make small homes as dear as big ones).
+- Economy: rent per resident doubled (tent 500 ... high-rise 3400): rent is now ~22% of a casual
+  player's income and 6-9% of a keen one's, and it is the money that comes in while away. City
+  value (prestige) now counts coins in the bank, so a late town's savings are never wasted. The
+  Goals page shows "Ready for a new town · +N points" and a toast says when it first opens.
+- "Welcome everyone who fits" on the Newcomers sheet (`welcomeAll`, best skills first).
+- Mayor's desk: "Show on the map who needs what" (`renderer.setOverlay`, 45 s or until the next
+  map tap): a red square on each home missing a need, with a bubble of what to build (clinic,
+  police, school, park at half size, or the shop category icon).
+- Six late goals (48 now): landmark, rebuild a home, mayor level 5, landmark stage 3, all four
+  landmarks, 250 residents.
+- Bot (`tools/playtest.mjs` now builds landmarks and rebuilds homes when out of lots): keen 155 ->
+  171 residents at 3 days; casual 56-58 -> 53-63 (noisy; the newcomer sign was the cap); one week
+  341 residents, happiness 57% (civic coverage, the overlay is the player's tool for it). Late
+  keen towns are capped by newcomer arrivals, not lots or coins, so the bot never rebuilt.
 
 ## Camden's idea list (2026-11-10)
 
@@ -429,7 +460,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` and `VERSION` in config.js together when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (72 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (73 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

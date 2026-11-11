@@ -8,6 +8,8 @@ import { makeWorld, terrainAt } from './terrain.js';
 import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots, vipSpot, festivalSpot, festivalIssue, seasonOf, cityTier, paradeRoute } from './sim.js';
 
 const SPRITE_H = 16;                 // building sprites are 16 x 16: each one fits its own lot
+const NEED_FIX = { health: 'clinic', safety: 'police', education: 'school', beauty: 'park' };   // overlay: what to build
+const TALL = { highrise: 'tall_highrise', skyscraper: 'tall_skyscraper' };   // map-only tall sprites
 const OVERLAP = SPRITE_H - TILE;     // 0: nothing pokes into the tile above
 const HUD_TOP = 120, HUD_BOTTOM = 104; // CSS px of menu bars that cover the map
 const HOME_ZOOM = 1.5;               // default view is this much closer than "whole town"
@@ -130,6 +132,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   let tapRing = null;                  // { x, y, at }: device px of the last tap, drawn briefly
   let reach = null;        // { x, y, r }: the area a town building serves, shown while its sheet is open
   const tapFns = [];
+  let overlay = null;       // { marks: [{ x, y, icon }], until }: homes missing something, from the Mayor's desk
   let lastRt = clock();
   const alphaCache = new Map();        // sprite id → { w, h, data } | null
   const glowCache = new Map();         // sprite id → [{x, y}] window pixels
@@ -929,19 +932,30 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   function drawBuilding(b, f) {
     const top = b.y * TILE - OVERLAP;
     if (f.built.get(b)) {
-      blit(getSprite(buildingSpriteId(b)), b.x * TILE, top);
+      const tall = TALL[b.type];
+      if (tall) {                                            // towers rise into the lot behind
+        const spr = getSprite(tall);
+        blit(spr, b.x * TILE, b.y * TILE + TILE - spr.height);
+      } else blit(getSprite(buildingSpriteId(b)), b.x * TILE, top);
       const lv = b.level || 1, x0 = b.x * TILE;
-      const plain = BUILDINGS[b.type]?.kind === 'landmark';     // landmarks have their own look: stars only
-      if (lv >= 2 && !plain) {                               // level 2: a striped awning and flower boxes
-        for (let i = 0; i < 7; i++) rect(x0 + 1 + i * 2, top + 5, 2, 1, i % 2 ? '#fff6e0' : '#d9574a');
+      const kind = BUILDINGS[b.type]?.kind;
+      if (kind === 'landmark') {                             // landmarks keep their stage stars
+        const sy = tall ? b.y * TILE + TILE - getSprite(tall).height + 2 : b.y * TILE - 1;
+        for (let i = 1; i < lv; i++) blit(getSprite('pip'), x0 + (i - 1) * 6, sy);
+        return;
+      }
+      // levels show in the building itself, kept quiet so a big town doesn't turn into a wall of
+      // gold: flower boxes at level 2, gold trim at level 3; shops add an awning and a flag
+      const shop = kind === 'biz';
+      if (lv >= 2) {
+        if (shop) for (let i = 0; i < 7; i++) rect(x0 + 1 + i * 2, top + 5, 2, 1, i % 2 ? '#fff6e0' : '#d9574a');
         rect(x0 + 1, top + 15, 3, 1, '#5bb450'); rect(x0 + 12, top + 15, 3, 1, '#5bb450');
         rect(x0 + 2, top + 14, 1, 1, '#e85d8a'); rect(x0 + 13, top + 14, 1, 1, '#f2c14e');
       }
-      if (lv >= 3 && !plain) {                     // level 3: gold trim and a flag
+      if (lv >= 3 && !tall) {
         rect(x0 + 1, top + 1, 14, 1, '#f2c14e');
-        rect(x0 + 14, top - 4, 1, 5, '#3b2f4a'); rect(x0 + 11, top - 4, 3, 2, '#e85d8a');
+        if (shop) { rect(x0 + 14, top - 1, 1, 3, '#3b2f4a'); rect(x0 + 12, top - 1, 2, 1, '#e85d8a'); }
       }
-      for (let i = 1; i < lv; i++) blit(getSprite('pip'), x0 + (i - 1) * 6, b.y * TILE - 1);   // gold stars for levels
       return;
     }
     blit(getSprite('site'), b.x * TILE, top);
@@ -1131,7 +1145,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
             if (pos) movers.push({ y: pos.y + 5, draw: () => blit(getSprite(`taxi_${pos.dir}`), Math.round(pos.x - 7), Math.round(pos.y - 5)) });
             return;
           }
-          const px = spot.x * TILE + 3 + i * 5, py = spot.y * TILE + 12 - (i % 2) * 2;
+          const px = spot.x * TILE + 2 + (i % 3) * 5, py = spot.y * TILE + 12 - Math.floor(i / 3) * 4 - (i % 2);   // two little rows
           movers.push({ y: py, draw: () => drawStanding(a, px, py, rt + i * 300) });
         });
       }
@@ -1282,6 +1296,26 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
           ctx.drawImage(pin, toDevX(ax), toDevY(ay), pin.width * 2 * scale, pin.height * 2 * scale);
         }
       }
+
+      // the Mayor's desk overlay: a soft red square and a bubble with what each home is missing
+      if (overlay && f.now < overlay.until) {
+        for (const m of overlay.marks) {
+          ctx.globalAlpha = 0.22; ctx.fillStyle = '#e85d5d';
+          ctx.fillRect(toDevX(m.x * TILE), toDevY(m.y * TILE), TILE * scale, TILE * scale);
+          ctx.globalAlpha = 1;
+          drawOutline(m.x * TILE, m.y * TILE, TILE, TILE, '#e85d5d', 0.9);
+          // shop needs show their category icon; town needs show what to build, at half size
+          const bub = getSprite('bubble'); const by = m.y * TILE - 6;
+          blit(bub, m.x * TILE + (TILE - bub.width) / 2, by);
+          const fix = NEED_FIX[m.need];
+          if (fix) {
+            ctx.drawImage(getSprite(fix), toDevX(m.x * TILE + 4), toDevY(by + 2), 8 * scale, 8 * scale);
+          } else {
+            const ic = getSprite('cat_' + m.need);
+            blit(ic, m.x * TILE + Math.floor((TILE - ic.width) / 2), by + Math.max(0, Math.floor((12 - ic.height) / 2)) + 1);
+          }
+        }
+      } else overlay = null;
 
       // status bubbles, always at full brightness so they read at night too
       const bubble = getSprite('bubble');
@@ -1492,6 +1526,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     if (moved || clock() - tc.time > TAP_MS) return;
     tapRing = { x: tc.x, y: tc.y, at: clock() };              // a small ring shows where the tap landed
     const res = hitTest((tc.x - ox) / scale, (tc.y - oy) / scale);
+    if (res) overlay = null;                 // any map tap puts the overlay away
     if (res) for (const fn of tapFns.slice()) fn(res);
   }
 
@@ -1542,6 +1577,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     walkerStats: () => { const o = { walking: 0, inside: 0, strolling: 0, plans: {} }; for (const w of walkers.values()) { if (w.inside) o.inside++; else if (w.path) o.walking++; else o.strolling++; const p = (w.planKey || '').replace(/\d+$/, ''); o.plans[p] = (o.plans[p] || 0) + 1; } return o; },
     resize, draw, onTap, floatText, burst, driveTaxi, sendWalker, setGas, setSelection, setReach, focusTile, tileToScreen,
     setMovePreview(preview) { movePreview = preview; },
+    setOverlay(marks, ms = 45000) { overlay = marks && marks.length ? { marks, until: (getNow ? getNow() : Date.now()) + ms } : null; },
     // extras beyond the spec
     gameClock,
     resetView() { userMoved = false; scale = fitScale; clampView(); },

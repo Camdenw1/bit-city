@@ -140,7 +140,7 @@ test('newGame: shape and JSON round trip', () => {
   assert.equal(s.v, 1); assert.equal(s.createdAt, T0); assert.equal(s.lastTick, T0);
   assert.equal(s.lastRentHour, Math.floor(T0 / HOUR)); assert.equal(s.rentCarry, 0);
   assert.equal(s.coins, 250); assert.equal(s.gems, 2);
-  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0 });
+  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0, rebuilds: 0 });
   assert.deepEqual(s.buildings, []); assert.deepEqual(s.tenants, []);
   assert.equal(s.applicants.length, 3);
   assert.equal(s.ride, null); assert.deepEqual(s.goalsDone, []); assert.deepEqual(s.settings, { sound: true });
@@ -777,7 +777,7 @@ test('three days offline: sane totals, exactly 72 hours of rent, fast', () => {
   assert.equal(log.filter((e) => e.type === 'coins' && e.reason === 'rent').length, 1);
   assert.equal(log.filter((e) => e.type === 'coins' && e.reason === 'sales').length, 2, 'one sales event per business');
   assert.equal(log.filter((e) => e.type === 'rideRequest').length, 0); assert.equal(s.ride, null);
-  assert.equal(s.applicants.length, 3);
+  assert.equal(s.applicants.length, TUNING.applicantCount, 'the sign fills up while you are away');
   assert.ok(firstApplicants.every((id) => s.applicants.some((a) => a.id === id)), 'newcomers wait at the sign; nobody leaves on their own');
   assert.deepEqual(JSON.parse(JSON.stringify(s)), s);
   // nothing more happens inside the same hour
@@ -818,17 +818,18 @@ test('offline time is capped at 14 days; clock going backwards is harmless', () 
 
 test('newcomers: wait at the sign, "not now" is free, a new face arrives, moving out slows arrivals', () => {
   const s = gridGame(T0);
-  const [a, b, c] = s.applicants;
+  topUp(s);                                   // a full sign
+  const first = [...s.applicants]; const n = first.length;
   sim.advance(s, T0 + 30 * MIN);
-  assert.deepEqual(s.applicants, [a, b, c], 'nobody leaves on their own');
+  assert.deepEqual(s.applicants, first, 'nobody leaves on their own');
   const coins = s.coins;
   assert.equal(sim.sendAway(s, 0, s.lastTick).ok, true);
-  assert.deepEqual(s.applicants, [b, c]); assert.equal(s.coins, coins, 'turning someone away is free');
+  assert.deepEqual(s.applicants, first.slice(1)); assert.equal(s.coins, coins, 'turning someone away is free');
   const t1 = s.lastTick;
   sim.advance(s, t1 + TUNING.arriveMs - 1);
-  assert.equal(s.applicants.length, 2);
+  assert.equal(s.applicants.length, n - 1);
   sim.advance(s, t1 + TUNING.arriveMs);
-  assert.equal(s.applicants.length, 3); assert.ok(s.applicants[2].arrivedAt === t1 + TUNING.arriveMs);
+  assert.equal(s.applicants.length, n); assert.ok(s.applicants[n - 1].arrivedAt === t1 + TUNING.arriveMs);
   // asking a resident to move out: free, but newcomers take twice as long for a while
   put(s, 'tent', s.lastTick);
   const t = person(s, s.buildings[0], s.lastTick);
@@ -1204,7 +1205,7 @@ test('first 15 minutes of casual play still reaches about 6 buildings', () => {
   assert.ok(sim.population(s) >= 3);
 });
 
-test('balance: rent is worth about 8-12 hours of business income in a balanced town', () => {
+test('balance: rent is worth about 16-24 hours of business income in a balanced town (doubled in v47)', () => {
   // 12 residents, 6 fully staffed shops with ordinary workers (skill 5), one dream worker in town
   const s = fresh();
   const homes = [put(s, 'tent', T0), put(s, 'tent', T0), put(s, 'cabin', T0), put(s, 'cabin', T0), put(s, 'cabin', T0), put(s, 'apartment', T0)];
@@ -1217,7 +1218,7 @@ test('balance: rent is worth about 8-12 hours of business income in a balanced t
   });
   const hours = sim.rentPerDay(s) / (sim.townRatePerMin(s, T0) * 60);
   console.log(`\nBalanced 12-resident town: ${(sim.townRatePerMin(s, T0) * 60).toFixed(0)} coins/h from shops, rent ${sim.rentPerDay(s)}/day = ${hours.toFixed(1)} h of income\n`);
-  assert.ok(hours >= 8 && hours <= 12, `${hours.toFixed(1)} h`);
+  assert.ok(hours >= 16 && hours <= 24, `${hours.toFixed(1)} h`);
 });
 
 test('needs, happiness, rent bonus, most wanted and wishes', () => {
@@ -1374,8 +1375,10 @@ test('trade, orders, ads, shop pricing and milestone unlocks', () => {
   put(s, 'trade', T0);
   assert.equal(sim.sellGoods(s, 'veggies', s.lastTick).ok, false, 'nothing grown yet');
   sim.advance(s, s.lastTick + 3 * HOUR);
-  assert.ok(Math.abs(s.goods.veggies - 3 * TUNING.cropPerHour) < 1e-6);
-  assert.ok(Math.abs(s.crops.veggies - s.goods.veggies) < 1e-6);
+  assert.ok(Math.abs(s.crops.veggies - 3 * TUNING.cropPerHour) < 1e-6);
+  assert.ok(s.goods.veggies < 1, 'spare crops sell by themselves at the top of the hour (v47)');
+  assert.ok(s.trade.sold > 0 && s.goalsDone.includes('trade1'));
+  s.goods.veggies = 3 * TUNING.cropPerHour;   // selling by hand still works underneath, for old saves
   // prices: stable within a day, within the drift range, and importing always costs more than selling pays
   const now = s.lastTick;
   const p = sim.tradePrices(s, now);
@@ -2309,4 +2312,40 @@ test('landmarks: one of each, stages need materials, and they lift the whole tow
   const home = s.buildings.find((b) => config.BUILDINGS[b.type].kind === 'home');
   assert.ok(sim.homeBoost(s, home, now) >= config.BUILDINGS.grandpark.landmark.per - 1e-9);
   assert.ok(park);
+});
+
+test('v47: rebuild a home in place, welcome everyone, savings count for a new town, mood cache stays fresh', () => {
+  const s = fresh();
+  const tent = put(s, 'tent', T0);
+  const t = person(s, tent, T0);
+  // rebuilding: bigger homes only, a third of the old price back, residents stay
+  for (let i = 0; i < 12; i++) person(s, put(s, 'tent', T0), T0);       // 13 residents: apartments open
+  const opts = sim.rebuildOptions(s, tent.id, T0);
+  assert.ok(opts.every((o) => BUILDINGS[o.type].capacity > 1));
+  const apt = opts.find((o) => o.type === 'apartment');
+  assert.equal(apt.cost, sim.costOf(s, 'apartment') - Math.round(BUILDINGS.tent.cost / 3));
+  s.coins = apt.cost - 1;
+  assert.equal(sim.rebuildHome(s, tent.id, 'apartment', T0).ok, false);
+  s.coins = apt.cost;
+  const r = sim.rebuildHome(s, tent.id, 'apartment', T0);
+  assert.equal(r.ok, true, r.reason); assert.equal(r.cost, apt.cost);
+  assert.equal(tent.type, 'apartment'); assert.equal(t.homeId, tent.id, 'the resident stays');
+  assert.ok(!sim.isBuilt(tent, T0)); assert.ok(s.goalsDone.includes('rebuild1'));
+  assert.equal(sim.rebuildHome(s, tent.id, 'house', T0).ok, false, 'let it finish first');
+  // welcome everyone: fills free homes, best first, stops when homes run out
+  const s2 = fresh();
+  put(s2, 'cabin', T0); topUp(s2);
+  const w = sim.welcomeAll(s2, T0);
+  assert.equal(w.ok, true); assert.equal(w.welcomed.length, 2); assert.equal(sim.population(s2), 2);
+  assert.equal(sim.welcomeAll(s2, T0).ok, false);
+  // city value counts coins in the bank
+  const v = sim.cityValue(s2); s2.coins += 5000;
+  assert.equal(sim.cityValue(s2), v + 5000);
+  // the mood cache: a change at the same moment is seen straight away
+  const s3 = fresh();
+  const h = put(s3, 'tent', T0); const p = person(s3, h, T0);
+  const before = sim.happiness(s3, T0);
+  const diner = put(s3, 'diner', T0);
+  sim.assignJob(s3, p.id, diner.id, T0);
+  assert.ok(sim.happiness(s3, T0) > before);
 });
