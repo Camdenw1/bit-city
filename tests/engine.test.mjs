@@ -2280,3 +2280,12 @@ test("the mayor's daily promises: three a day, counted from stats, paid once whe
   sim.advance(s, s.lastTick + DAY, { live: false });
   assert.equal(sim.promises(s, s.lastTick).paid, false);
 });
+
+test('the parade loop goes round the town and returns to its start', () => {
+  const { s } = smallTown();
+  const r = sim.paradeRoute(s);
+  assert.ok(r && r.length > 4);
+  assert.deepEqual(r[0], r.at(-1), 'a loop');
+  for (let i = 1; i < r.length; i++) assert.equal(Math.abs(r[i].x - r[i - 1].x) + Math.abs(r[i].y - r[i - 1].y), 1, 'one step at a time');
+  assert.ok(r.every((t) => sim.isRoadAt(s, t.x, t.y)));
+});

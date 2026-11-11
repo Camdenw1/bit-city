@@ -164,6 +164,10 @@ covers running and publishing. This file holds the design decisions and the road
   `PROMISES` (rides, restocks, newcomers, town jobs, visitors, a VIP, coins earned), counted
   from `state.stats` since the day began (`state.daily`); all three kept pays
   `promiseRewardMinutes` (20) of play income, 3 gems and 5 mayor XP, once. Top of the Goals page.
+- Parade (Camden picked it): during a festival a float and four marchers go round the town loop
+  (`paradeRoute`: through the roads nearest the four corners of your roads, also the bus's
+  loop); shops next to the route get the festival boost twice. Automatic: drawing a route by
+  hand was judged too fiddly on a phone.
 - Ribbon cutting (Camden picked it): a building that finishes gets a ribbon for `ribbonMs` (60 s,
   `state.ribbons`); tapping the building cuts it for `ribbonMinutes` (0.5) of play income,
   confetti and a feed post (`cutRibbon`). Uncut ribbons just go.
@@ -418,7 +422,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` and `VERSION` in config.js together when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (70 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (71 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

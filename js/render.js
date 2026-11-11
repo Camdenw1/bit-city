@@ -5,7 +5,7 @@
 import { MAP_W, MAP_H, TILE, isRoad, DAY_LENGTH_MS, BUILDINGS, WORLD, PARCELS, TUNING, parcelAt } from './config.js';
 import { initSprites, getSprite, getPerson, buildingSpriteId } from './sprites.js';
 import { makeWorld, terrainAt } from './terrain.js';
-import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots, vipSpot, festivalSpot, festivalIssue, seasonOf, cityTier } from './sim.js';
+import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots, vipSpot, festivalSpot, festivalIssue, seasonOf, cityTier, paradeRoute } from './sim.js';
 
 const SPRITE_H = 16;                 // building sprites are 16 x 16: each one fits its own lot
 const OVERLAP = SPRITE_H - TILE;     // 0: nothing pokes into the tile above
@@ -738,30 +738,20 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     return { x: lerp(a.x, b.x, t) * TILE + 8, y: lerp(a.y, b.y, t) * TILE + 6, dir: job.dir };
   }
 
-  let busRoute = null, busKey = '';
-  /** Where the bus is: it drives a loop through every bus stop at a steady pace. */
-  function busPos(state, rt) {
-    // with the Bus network (City upgrades) a bus loops round the town: through the road tiles
-    // nearest each corner of the land you own
-    if (!((state.upgrades || {}).bus > 0) || !roadTiles.length) return null;
-    const xs = roadTiles.map((t) => t.x), ys = roadTiles.map((t) => t.y);
-    const corners = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)], [Math.min(...xs), Math.max(...ys)]];
-    const stops = corners.map(([cx, cy]) => roadTiles.reduce((best, t) => (Math.abs(t.x - cx) + Math.abs(t.y - cy) < Math.abs(best.x - cx) + Math.abs(best.y - cy) ? t : best), roadTiles[0]));
-    const key = stops.map((b) => `${b.x},${b.y}`).join('|');
-    if (key !== busKey) {
-      busKey = key; busRoute = [];
-      for (let i = 0; i < stops.length; i++) {
-        const leg = bfsPath(nearestRoad(stops[i]), nearestRoad(stops[(i + 1) % stops.length]));
-        if (leg) busRoute.push(...(busRoute.length ? leg.slice(1) : leg));
-      }
-      if (busRoute.length < 2) busRoute = null;
-    }
-    if (!busRoute) return null;
-    const f = ((rt / 1000) * 1.2) % (busRoute.length - 1);
+  /** A point along the town loop (`paradeRoute` in sim), `lots` along it, wrapping round. */
+  function loopPos(state, lots) {
+    const route = safe(() => paradeRoute(state), null);
+    if (!route) return null;
+    const f = ((lots % (route.length - 1)) + (route.length - 1)) % (route.length - 1);
     const i = Math.floor(f), t = f - i;
-    const a = busRoute[i], b = busRoute[i + 1];
+    const a = route[i], b = route[i + 1];
     const dx = b.x - a.x, dy = b.y - a.y;
     return { x: lerp(a.x, b.x, t) * TILE + 8, y: lerp(a.y, b.y, t) * TILE + 6, dir: dx > 0 ? 'e' : dx < 0 ? 'w' : dy > 0 ? 's' : 'n' };
+  }
+  /** The bus (with the Bus network upgrade) drives the town loop at a steady pace. */
+  function busPos(state, rt) {
+    if (!((state.upgrades || {}).bus > 0)) return null;
+    return loopPos(state, (rt / 1000) * 1.2);
   }
   const ARRIVE_DRIVE_MS = 6000;
   /** Where a newcomer's car is, t from 0 (off the edge of the world) to 1 (at the Welcome spot). */
@@ -1105,6 +1095,19 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       // the bus line: with two or more bus stops, a bus loops between them
       const bus = busPos(state, rt);
       if (bus) movers.push({ y: bus.y + 5, draw: () => { const sp = getSprite(`bus_${bus.dir}`); blit(sp, Math.round(bus.x - sp.width / 2), Math.round(bus.y - sp.height / 2)); } });
+
+      // a festival parade: a float and four marchers going round the town loop
+      if (state.festivalUntil > now) {
+        for (let k = 0; k < 5; k++) {
+          const p = loopPos(state, (rt / 1000) * 0.8 - k * 0.6);
+          if (!p) break;
+          if (k === 0) movers.push({ y: p.y + 4, draw: () => {
+            rect(Math.round(p.x) - 6, Math.round(p.y) - 4, 12, 6, '#e85d8a'); rect(Math.round(p.x) - 6, Math.round(p.y) - 4, 12, 1, '#f2c14e');
+            rect(Math.round(p.x) - 1, Math.round(p.y) - 11, 3, 4, '#4a90d9'); rect(Math.round(p.x), Math.round(p.y) - 7, 1, 3, '#3b2f4a');   // a balloon
+          } });
+          else { const ten = (state.tenants || [])[k % Math.max(1, (state.tenants || []).length)]; if (ten) movers.push({ y: p.y + 6, draw: () => drawStanding(ten, Math.round(p.x), Math.round(p.y) + 6, rt + k * 200) }); }
+        }
+      }
 
       // trade trucks on their way in or out along the entry road
       const live = new Set();

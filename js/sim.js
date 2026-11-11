@@ -2148,10 +2148,51 @@ function vipBoost(state, b) {
 /** Extra pay per sale while you play: the night market (food and fun) and a festival (everything). */
 function playExtras(state, b, t) {
   const night = nightMarket(state, t) && ['food', 'creative'].includes(catOf(b)) ? 1 + TUNING.nightMarketBoost : 1;
-  return night * (state.festivalUntil > t ? 1 + TUNING.festivalBoost : 1);
+  if (!(state.festivalUntil > t)) return night;
+  // shops on the parade route get the festival boost twice over
+  return night * (1 + TUNING.festivalBoost * (onParade(state, b) ? 2 : 1));
 }
 
 // ---- festivals and the night market ----------------------------------------------
+/**
+ * The parade route (and the bus loop): through the roads nearest the four corners of your
+ * roads, back to the start. Pure: the same land gives the same loop. Cached by town and land.
+ */
+const routeCache = new Map();
+export function paradeRoute(state) {
+  const key = `${state.worldSeed}|${state.streets}|${state.land.join(',')}`;
+  if (routeCache.has(key)) return routeCache.get(key);
+  const roads = [];
+  for (let y = WORLD.y0; y <= WORLD.y1; y++) for (let x = WORLD.x0; x <= WORLD.x1; x++) if (ownsTile(state, x, y) && isRoadAt(state, x, y)) roads.push({ x, y });
+  let route = null;
+  if (roads.length) {
+    const xs = roads.map((t) => t.x), ys = roads.map((t) => t.y);
+    const corners = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)], [Math.min(...xs), Math.max(...ys)]];
+    const stops = corners.map(([cx, cy]) => roads.reduce((best, t) => (Math.abs(t.x - cx) + Math.abs(t.y - cy) < Math.abs(best.x - cx) + Math.abs(best.y - cy) ? t : best), roads[0]));
+    const ok = (x, y) => ownsTile(state, x, y) && isRoadAt(state, x, y);
+    const leg = (a, b) => {
+      const prev = new Map([[tkey(a.x, a.y), null]]), q = [a];
+      for (let i = 0; i < q.length; i++) {
+        const c = q[i];
+        if (c.x === b.x && c.y === b.y) { const p = []; for (let t = c; t; t = prev.get(tkey(t.x, t.y))) p.push({ x: t.x, y: t.y }); return p.reverse(); }
+        for (const [dx, dy] of STEPS4) { const x = c.x + dx, y = c.y + dy, k = tkey(x, y); if (!prev.has(k) && ok(x, y)) { prev.set(k, c); q.push({ x, y }); } }
+      }
+      return null;
+    };
+    route = [];
+    for (let i = 0; i < stops.length; i++) { const l = leg(stops[i], stops[(i + 1) % stops.length]); if (l) route.push(...(route.length ? l.slice(1) : l)); }
+    if (route.length < 2) route = null;
+  }
+  if (routeCache.size > 8) routeCache.clear();
+  routeCache.set(key, route);
+  return route;
+}
+/** Is this building right next to the parade route? */
+function onParade(state, b) {
+  const r = paradeRoute(state);
+  return !!r && r.some((t) => Math.max(Math.abs(t.x - b.x), Math.abs(t.y - b.y)) <= 1);
+}
+
 /** Is the night market on? Game hours nightMarketFrom..nightMarketTo. */
 export function nightMarket(state, now) {
   const h = gameHour(now);
