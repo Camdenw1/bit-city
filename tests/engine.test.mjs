@@ -2027,3 +2027,12 @@ test('festivals start from a happy town square and boost play; the night market 
   assert.equal(sim.nightMarket(s, day + config.DAY_LENGTH_MS * 12 / 24), false);
   assert.ok(diner);
 });
+
+test('a taxi job bubble starts the ride at the building you tapped', () => {
+  const { s } = rideTown();
+  allGoalsDone(s);
+  const homes = s.buildings.filter((b) => config.BUILDINGS[b.type].kind === 'home' && sim.residentsOf(s, b.id).length);
+  const home = homes.at(-1);
+  const r = sim.startBoardRide(s, 'taxi', home.id, s.lastTick);
+  assert.ok(r.ok); assert.equal(s.ride.fromId, home.id);
+});

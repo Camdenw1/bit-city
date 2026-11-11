@@ -262,7 +262,7 @@ export const UPGRADES = {
   repair:    { name: 'Repair team',       icon: 'star',   per: 0.2,  costs: [2000, 10000, 50000],
                says: (l) => `Shop problems cost ${Math.round(l * 20)}% less and stations fix them ${Math.round(l * 20)}% faster` },
   marketing: { name: 'Marketing',         icon: 'coin',   per: 0.5,  costs: [1500, 9000, 45000],
-               says: (l) => `Ads run ${l * 30} minutes longer` },
+               says: (l) => `Ads (see "Run an ad" above) last ${l * 30} minutes longer` },
 };
 
 // ---- Traits -------------------------------------------------------------------

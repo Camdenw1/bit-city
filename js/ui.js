@@ -1004,7 +1004,12 @@ export function createUI(root, api) {
             ${cost ? `<button class="btn btn-small ${cost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="buy-upgrade" data-id="${id}">${formatCoins(cost)} ${icon('coin', 1, 'i12')}</button>` : '<span class="tag tag-ok">Max</span>'}</div>
           <p class="note">${lvl ? `Now: ${esc(u.says(lvl))}.` : 'Not bought yet.'}${cost ? ` Next: ${esc(u.says(lvl + 1))}.` : ''}</p></div>`;
       }).join('');
-      return { title: 'Upgrades', html: `<h3 class="sec">Your car</h3>${carRow}<h3 class="sec">Running the town</h3>${rows}
+      const adOn = call('adActive', s, N()); const adCost = call('adCost', s, N()) || 0;
+      const adRow = `<div class="up-card" data-key="ad"><div class="up-head">${icon('star', 2)}<b>Run an ad</b>
+          ${adOn ? `<span class="tag tag-ok">${formatDuration(Math.max(0, (s.adUntil || 0) - N()))} left</span>`
+            : `<button class="btn btn-small ${adCost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="run-ad">${formatCoins(adCost)} ${icon('coin', 1, 'i12')}</button>`}</div>
+        <p class="note">An ad makes every sale pay +${Math.round((config.TUNING?.adSalesBonus ?? 0.25) * 100)}% and brings newcomers twice as fast, for ${formatDuration(call('adLengthMs', s) || 7200000)}. Marketing (below) makes ads last longer.</p></div>`;
+      return { title: 'Upgrades', html: `<h3 class="sec">Your car</h3>${carRow}<h3 class="sec">Advertising</h3>${adRow}<h3 class="sec">Running the town</h3>${rows}
         <p class="note">Jobs now pop up on the map as gold bubbles: tap one to play. A Construction Yard (in Build) makes anything built near it go up twice as fast.</p>` };
     },
 
@@ -1301,7 +1306,7 @@ export function createUI(root, api) {
   function startJob(kind, anchorId) {
     const s = S();
     if (kind === 'taxi' || kind === 'delivery') {
-      const r = act('startBoardRide', kind);
+      const r = act('startBoardRide', kind, anchorId ?? null);
       if (!r.ok) { if (r.reason) toast(r.reason); return; }
       closeSheet();
       if (r.driving) { try { api.startDrive(); } catch (e) { /* the ride still pays when it ends */ } return; }
@@ -1315,7 +1320,8 @@ export function createUI(root, api) {
     if (!r.ok) { if (r.reason) toast(r.reason); return; }
     if (kind === 'rush' || kind === 'odd') { openSheet({ kind: 'job' }); return; }
     closeSheet();
-    try { const at = byId(r.job.shopId) || r.job; if (at) api.renderer.focusTile({ x: at.x, y: at.y }); } catch (e) { /* cosmetic */ }
+    // Lost & Found is a search: the map stays where you are (Camden). Other jobs show their shop.
+    if (kind !== 'lost') { try { const at = byId(r.job.shopId) || r.job; if (at) api.renderer.focusTile({ x: at.x, y: at.y }); } catch (e) { /* cosmetic */ } }
   }
   function openNewcomers() { openSheet({ kind: 'newcomers' }); }
   /** While sending a VIP: the tapped building is where they go. Returns true if the tap was used. */

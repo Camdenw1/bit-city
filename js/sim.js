@@ -758,12 +758,17 @@ export function adCost(state, now) {
 }
 
 /** Pay for an ad campaign: for a while every sale pays more and applicants arrive twice as often. */
+/** How long an ad runs: 2 hours, plus Marketing. */
+export function adLengthMs(state) {
+  return TUNING.adMs + UPGRADES.marketing.per * 3600000 * upLevel(state, 'marketing');
+}
+
 export function runAd(state, now) {
   if (adActive(state, now)) return fail('Your ad is already running.');
   const cost = adCost(state, now);
   if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins for an ad.`);
   state.coins -= cost;
-  state.adUntil = now + TUNING.adMs + UPGRADES.marketing.per * 3600000 * upLevel(state, 'marketing');
+  state.adUntil = now + adLengthMs(state);
   events.emit('spend', { amount: cost, reason: 'ad' });
   events.emit('ad', { until: state.adUntil });
   return { ok: true, reason: '', cost };
@@ -2159,16 +2164,19 @@ function rideGap(state) {
   return TUNING.rideGapMinMs + randInt(state, TUNING.rideGapMaxMs - TUNING.rideGapMinMs + 1);
 }
 
-function makeRide(state, now, kind = null) {
+function makeRide(state, now, kind = null, fromId = null) {
   const built = state.buildings.filter((b) => isBuilt(b, now));
   if (built.length < TUNING.rideMinBuildings) return;
-  const riders = state.tenants.filter((t) => built.some((b) => b.id === t.homeId));
+  // a job bubble's building is where the ride starts: a rider from that home, or a parcel from that shop
+  const atHome = kind === 'taxi' && fromId != null ? state.tenants.filter((t) => t.homeId === fromId) : [];
+  const riders = atHome.length ? atHome : state.tenants.filter((t) => built.some((b) => b.id === t.homeId));
   if (!riders.length) return;
   const tenant = pick(state, riders);
   const others = built.filter((b) => b.id !== tenant.homeId);
   if (!others.length) return;
   const to = pick(state, others);
-  const shops = others.filter(isBiz);
+  const fromShop = kind === 'delivery' && fromId != null ? others.find((b) => b.id === fromId && isBiz(b)) : null;
+  const shops = fromShop ? [fromShop] : others.filter(isBiz);
   const delivery = kind ? kind === 'delivery' : state.stats.rides > 0 &&
     state.tenants.length >= TUNING.deliveryUnlockPop && shops.length > 0 && rand(state) < TUNING.deliveryChance;
   if (delivery && !shops.length) return;
@@ -2193,12 +2201,13 @@ function maybeRequestRide(state, now) {
   events.emit('rideRequest', { ride: state.ride });
 }
 
-export function startBoardRide(state, kind, now) {
+export function startBoardRide(state, kind, ...rest) {
+  const now = rest[rest.length - 1], fromId = rest.length > 1 ? rest[0] : null;   // (state, kind, now) or (state, kind, fromId, now)
   if (state.job || (state.ride && state.ride.state !== 'waiting')) return fail('Finish or skip your current job first.');
   if (kind !== 'taxi' && kind !== 'delivery') return fail('Choose a ride or delivery.');
   if (!townJobOptions(state, now)[kind]) return fail('This job needs an open shop and a resident.');
   if (jobReadyIn(state, kind, now) > 0) return fail(waitText(jobReadyIn(state, kind, now)));
-  const ride = makeRide(state, now, kind);
+  const ride = makeRide(state, now, kind, fromId);
   if (!ride) return fail('No route is available yet.');
   state.ride = ride;
   restJob(state, kind, now);

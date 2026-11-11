@@ -123,6 +123,11 @@ covers running and publishing. This file holds the design decisions and the road
   Camden was warned this is the item most at odds with "really simple"; remove it if it
   feels like fiddling.
 - Ads: a paid 2-hour boost (+25% per sale, applicants twice as fast). Optional, no upkeep.
+  "Run an ad" sits in the Upgrades tab right above Marketing (Camden couldn't find ads in Town
+  details, so Marketing meant nothing); `adLengthMs` = 2 h + Marketing.
+- Fixes (2026-11-11): Lost & Found no longer recentres the map (Camden: a search shouldn't show
+  you the answer). A taxi or parcel job bubble now starts the ride at the building tapped
+  (`startBoardRide(state, kind, fromId, now)`); before, it picked a random home.
 - Goal progress (2026-11-10): goals with a number show it on the goal chip ("12/30", `goalProgress`
   in sim). Camden likes goals as the guide through the game. The recipe goal now says it means
   growing 30 veggies at 10 an hour per farmer; he had staffed a farm and thought it was broken.
@@ -327,7 +332,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (60 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (61 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
