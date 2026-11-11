@@ -1065,6 +1065,6 @@ body { position: fixed; inset: 0; }
 .nc-mid { flex: 1; min-width: 0; }
 .nc-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 15px; }
 .nc-skill { display: inline-flex; align-items: center; gap: 2px; padding: 0 5px; border-radius: 999px; font-size: 12px; background: color-mix(in srgb, var(--c) 22%, white); }
-.nc-sub { font-size: 12px; opacity: 0.8; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nc-sub { font-size: 12px; opacity: 0.8; margin-top: 2px; }
 .nc-btns { display: flex; align-items: center; gap: 6px; }
 .addr { display: block; font-size: 11px; font-weight: normal; opacity: 0.65; }

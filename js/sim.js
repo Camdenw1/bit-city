@@ -235,6 +235,9 @@ export function upgrade(state, buildingId, now) {
   const cost = upgradeCost(state, b);
   if (!cost) return fail("It's already the best it can be!");
   if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins to upgrade.`);
+  const mats = landmarkNeeds(state, b);
+  if (mats && !hasMaterials(state, mats)) return fail(`The next stage needs ${mats.wood} wood, ${mats.stone} stone and ${mats.bricks} bricks.`);
+  if (mats) for (const k of Object.keys(MATERIALS)) state.mats[k] -= mats[k];
   state.coins -= cost;
   b.level = (b.level || 1) + 1;
   b.paid = (b.paid ?? defOf(b).cost) + cost;
@@ -244,10 +247,22 @@ export function upgrade(state, buildingId, now) {
   return { ok: true, reason: '', cost, level: b.level };
 }
 
+/** Materials a landmark's next stage needs ({ wood, stone, bricks }), or null for other buildings. */
+export function landmarkNeeds(state, b) {
+  if (defOf(b).kind !== 'landmark') return null;
+  const n = TUNING.landmarkMats[(b.level || 1) + 1] || 0;
+  return { wood: n, stone: n, bricks: Math.ceil(n / 2) };
+}
+/** A landmark's stage (0 if you don't have it). */
+export function landmarkLevel(state, type) {
+  const b = state.buildings.find((x) => x.type === type && isBuilt(x, state.lastTick));
+  return b ? b.level || 1 : 0;
+}
+
 /** What an upgrade paid partly in materials uses: { wood, stone, bricks, coins }. */
 export function materialUpgrade(state, b) {
   const cost = upgradeCost(state, b);
-  if (!cost) return null;
+  if (!cost || defOf(b).kind === 'landmark') return null;     // landmarks always need materials
   const n = TUNING.matPerLevel[(b.level || 1) + 1] || 0;
   return { wood: n, stone: n, bricks: Math.ceil(n / 2), coins: Math.round(cost * (1 - TUNING.matDiscount)) };
 }
@@ -453,7 +468,7 @@ function checkGoals(state, now) {
     addXp(state, MAYOR_XP.goal);
     // a milestone can open a building
     for (const d of Object.values(BUILDINGS)) if (d.unlockGoal === goal.id && population(state) >= d.unlockAt) events.emit('unlock', { type: d.id });
-    if (goal.reward && goal.reward.coins) gain(state, goal.reward.coins, 'goal');
+    if (goal.reward && goal.reward.coins) gain(state, Math.round(goal.reward.coins * (1 + 0.1 * landmarkLevel(state, 'cityhall'))), 'goal');
     if (goal.reward && goal.reward.gems) gainGems(state, goal.reward.gems);
   }
 }
@@ -500,6 +515,7 @@ export function canBuild(state, type, x, y, cat = null) {
   if (!def) return fail("Hmm, we don't know how to build that.");
   const issue = placementIssue(state, x, y);
   if (issue) return fail(issue);
+  if (def.kind === 'landmark' && state.buildings.some((b) => b.type === type)) return fail(`Your town already has a ${def.name}. Build it up instead.`);
   if (!isUnlocked(state, type)) {
     return fail(population(state) < def.unlockAt ? `${def.name} unlocks at ${def.unlockAt} residents.` : `${def.name}: ${unlockHint(state, type)}.`);
   }
@@ -763,7 +779,8 @@ export function homeBoost(state, home, now = state.lastTick) {
   }
   if (isWaterfront(state, home.x, home.y)) boost += TUNING.waterfrontBoost;
   // the bus network and bike lanes (City upgrades) come on top of the park cap, for every home
-  return Math.min(TUNING.parkBoostMax, boost) + UPGRADES.bus.per * upLevel(state, 'bus') + UPGRADES.bikes.per * upLevel(state, 'bikes');
+  return Math.min(TUNING.parkBoostMax, boost) + UPGRADES.bus.per * upLevel(state, 'bus') + UPGRADES.bikes.per * upLevel(state, 'bikes')
+    + BUILDINGS.grandpark.landmark.per * landmarkLevel(state, 'grandpark');
 }
 
 /** Rent share for one resident from traits: party animals pay more and their next-door neighbours less. */
@@ -1052,7 +1069,7 @@ export function sellStock(state, id, now) {
 export const townPerk = (state, k) => Math.max(0, Math.min(TOWN_PERKS[k].max, ((state.mayor || {}).spent || {})[k] || 0));
 export const permPerk = (state, k) => Math.max(0, Math.min(PERM_PERKS[k].max, ((state.legacy || {}).perks || {})[k] || 0));
 const rentPerk = (state) => 1 + TOWN_PERKS.rent.per * townPerk(state, 'rent');
-const salesPerk = (state) => (1 + TOWN_PERKS.sales.per * townPerk(state, 'sales')) * (1 + PERM_PERKS.sales.per * permPerk(state, 'sales')) * (1 + cityTier(state).sales);
+const salesPerk = (state) => (1 + TOWN_PERKS.sales.per * townPerk(state, 'sales')) * (1 + PERM_PERKS.sales.per * permPerk(state, 'sales')) * (1 + cityTier(state).sales) * (1 + BUILDINGS.skyscraper.landmark.per * landmarkLevel(state, 'skyscraper'));
 /** Village, Town, City or Metropolis, by population (index in TIERS as `level`). */
 export function cityTier(state) {
   let level = 0;
@@ -1082,7 +1099,7 @@ export function perkPoints(state) {
 function addXp(state, n) {
   if (!state.mayor) state.mayor = { xp: 0, spent: {} };
   const before = mayorLevel(state).level;
-  state.mayor.xp += n;
+  state.mayor.xp += n * (1 + BUILDINGS.cityhall.landmark.per * landmarkLevel(state, 'cityhall'));
   const after = mayorLevel(state).level;
   if (after > before) events.emit('mayorUp', { level: after });
 }
@@ -1170,7 +1187,7 @@ export function maxApplicants(state) {
 }
 /** How much more often visitors come: the bus line, a station, an airport. */
 export function visitorsMult(state, now) {
-  return seasonOf(now).visitors * (1 + 0.15 * upLevel(state, 'bus'))
+  return seasonOf(now).visitors * (1 + 0.15 * upLevel(state, 'bus')) * (1 + BUILDINGS.stadium.landmark.per * landmarkLevel(state, 'stadium'))
     * (1 + UPGRADES.station.per * upLevel(state, 'station')) * (1 + UPGRADES.airport.per * upLevel(state, 'airport'));
 }
 

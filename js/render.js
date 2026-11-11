@@ -931,12 +931,13 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     if (f.built.get(b)) {
       blit(getSprite(buildingSpriteId(b)), b.x * TILE, top);
       const lv = b.level || 1, x0 = b.x * TILE;
-      if (lv >= 2) {                               // level 2: a striped awning and flower boxes
+      const plain = BUILDINGS[b.type]?.kind === 'landmark';     // landmarks have their own look: stars only
+      if (lv >= 2 && !plain) {                               // level 2: a striped awning and flower boxes
         for (let i = 0; i < 7; i++) rect(x0 + 1 + i * 2, top + 5, 2, 1, i % 2 ? '#fff6e0' : '#d9574a');
         rect(x0 + 1, top + 15, 3, 1, '#5bb450'); rect(x0 + 12, top + 15, 3, 1, '#5bb450');
         rect(x0 + 2, top + 14, 1, 1, '#e85d8a'); rect(x0 + 13, top + 14, 1, 1, '#f2c14e');
       }
-      if (lv >= 3) {                               // level 3: gold trim and a flag
+      if (lv >= 3 && !plain) {                     // level 3: gold trim and a flag
         rect(x0 + 1, top + 1, 14, 1, '#f2c14e');
         rect(x0 + 14, top - 4, 1, 5, '#3b2f4a'); rect(x0 + 11, top - 4, 3, 2, '#e85d8a');
       }

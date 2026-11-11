@@ -621,6 +621,46 @@ BUILD.highrise = () => {                                        // a tall glass 
   return g;
 };
 
+// ---- landmarks: one of each, so each gets its own picture --------------------------------
+BUILD.cityhall = () => {                                        // white columns and a dome
+  const g = new Grid(B_W, B_H);
+  g.rect(6, 1, 9, 3, 'y').set(7, 0, 'r').set(8, 0, 'r');        // a gold dome and a flag
+  g.rect(2, 4, 13, 5, 'E').hl(2, 13, 4, 'w');                   // the roof
+  g.rect(2, 6, 13, 13, 'w');
+  for (const x of [3, 6, 9, 12]) g.vl(x, 6, 13, 'E');           // columns
+  g.rect(7, 10, 8, 13, 'b');                                    // the door
+  g.hl(1, 14, 14, 'E').hl(1, 14, 15, 'e');                      // steps
+  g.outline();
+  return g;
+};
+BUILD.grandpark = () => {                                       // lawns, a pond, a big tree
+  const g = new Grid(B_W, B_H);
+  g.rect(1, 1, 14, 14, 'm').rect(2, 2, 13, 13, 'l');
+  g.rect(8, 8, 12, 12, 'c').rect(9, 9, 11, 11, 'C');            // pond
+  g.rect(3, 3, 7, 6, 'g').rect(4, 2, 6, 7, 'g').set(5, 4, 'G').vl(5, 7, 9, 'b');   // the big tree
+  g.set(3, 11, 'i').set(5, 12, 'y').set(12, 4, 'i').set(11, 6, 'y');               // flowers
+  g.outline();
+  return g;
+};
+BUILD.stadium = () => {                                         // stands round a pitch
+  const g = new Grid(B_W, B_H);
+  g.rect(1, 3, 14, 13, 'a').rect(1, 4, 14, 12, 'e');
+  g.rect(3, 6, 12, 10, 'g').hl(3, 12, 8, 'l').vl(7, 6, 10, 'l');  // the pitch
+  for (let x = 2; x <= 13; x += 2) { g.set(x, 4, 'r'); g.set(x + 1, 12, 'u'); }    // fans
+  g.vl(2, 0, 3, 'A').set(2, 0, 'Y').vl(13, 0, 3, 'A').set(13, 0, 'Y');            // floodlights
+  g.outline();
+  return g;
+};
+BUILD.skyscraper = () => {                                      // the tallest tower, with a spire
+  const g = new Grid(B_W, B_H);
+  g.vl(8, 0, 1, 'A').set(8, 0, 'r');
+  g.rect(4, 2, 11, 15, 'U').vl(11, 2, 15, 'k').hl(4, 11, 2, 'u');
+  for (let y = 3; y <= 13; y += 2) for (const x of [5, 7, 9]) g.set(x, y, (x * y) % 3 ? 'c' : 'Y');
+  g.rect(7, 14, 8, 15, 'C');
+  g.outline();
+  return g;
+};
+
 BUILD.house = () => {
   const g = new Grid(B_W, B_H);
   g.rect(11, 1, 12, 4, 'E');                                    // chimney

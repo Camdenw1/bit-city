@@ -394,7 +394,7 @@ export function createUI(root, api) {
   const coinAmt = (n, s = 1) => `<span class="amt">${icon('coin', s, s === 1 ? 'i12' : '')}${formatCoins(n)}</span>`;
   const skillBadge = (cat, value, big) =>
     `<span class="skill${big ? ' big' : ''}" style="--c:${catColor(cat)}">${icon('cat_' + cat, 1, 'i12')}<b>${value}</b></span>`;
-  const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : d.kind === 'yard' ? { icon: 'hammer', name: 'Faster building' } : d.kind === 'exchange' ? { icon: 'coin', name: 'Stocks' } : d.kind === 'source' ? { icon: 'hammer', name: (config.MATERIALS || {})[d.makes]?.name || 'Materials' } : d.kind === 'transit' ? { icon: 'taxi', name: 'Transit' } : d.kind === 'gateway' ? { icon: 'person', name: 'Tourists' } : { icon: 'star', name: 'Town' });
+  const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : d.kind === 'yard' ? { icon: 'hammer', name: 'Faster building' } : d.kind === 'exchange' ? { icon: 'coin', name: 'Stocks' } : d.kind === 'source' ? { icon: 'hammer', name: (config.MATERIALS || {})[d.makes]?.name || 'Materials' } : d.kind === 'landmark' ? { icon: 'star', name: 'Landmark' } : d.kind === 'transit' ? { icon: 'taxi', name: 'Transit' } : d.kind === 'gateway' ? { icon: 'person', name: 'Tourists' } : { icon: 'star', name: 'Town' });
   const cropName = (crop) => ((config.CROPS || {})[crop] || crop).toLowerCase();
 
   /** Everything the Trading Post does: sell, import, and neighbour orders. */
@@ -512,7 +512,7 @@ export function createUI(root, api) {
     return `<div class="nc-card${t.star ? ' is-star' : ''}" data-key="a${t.id}">
       <span class="avatar">${person(t.look, 4)}</span>
       <div class="nc-mid"><div class="nc-name"><b>${esc(t.name)}</b>${t.star ? ' ⭐' : ''}${top2}</div>
-        <div class="nc-sub">${bld(t.dream, 1, 'mini')} ${esc(def(t.dream).name)}${inTown ? ' ✓' : ''}${lj ? ` · works at ${esc(bName(lj.building))}` : ''}</div></div>
+        <div class="nc-sub" title="Dreams of the ${esc(def(t.dream).name)}">${bld(t.dream, 1, 'mini')}${inTown ? '✓' : ''} ${lj ? `→ ${esc(bName(lj.building))}${lj.dream ? ' ★' : ''}` : '→ no open job'}</div></div>
       <div class="nc-btns"><button class="icon-btn" data-act="send-away" data-i="${i}" aria-label="Not now">✕</button>${go}</div></div>`;
   }
 
@@ -669,8 +669,9 @@ export function createUI(root, api) {
       };
       const homes = order.filter((id) => BUILDINGS[id].kind === 'home' && !(id === 'tent' && pop >= (config.TUNING?.tentRetirePop ?? 20)));   // tents retire
       const town = order.filter((id) => !BUILDINGS[id].gov && ['park', 'trade', 'yard', 'exchange', 'source', 'transit', 'gateway'].includes(BUILDINGS[id].kind));
-      const unlocked = (id) => call('isUnlocked', s, id);
+      const unlocked = (id) => call('isUnlocked', s, id) && !(BUILDINGS[id].kind === 'landmark' && s.buildings.some((b) => b.type === id));
       const openCat = (cat) => call('categoryUnlocked', s, cat);
+      const landmarks = order.filter((id) => BUILDINGS[id].kind === 'landmark');
       if (d.wish) {
         const w = d.wish;
         const options = w.cat ? mystery(w.cat) : (w.id === 'beauty'
@@ -685,6 +686,7 @@ export function createUI(root, api) {
         html: `<h3 class="sec">Homes</h3><div class="grid">${homes.filter(unlocked).map(card).join('')}</div>` +
               `<h3 class="sec">Surprise shops</h3><div class="grid">${CATEGORIES.filter(openCat).map(mystery).join('')}</div>` +
               (openCat('gov') || town.some(unlocked) ? `<h3 class="sec">Town</h3><div class="grid">${openCat('gov') ? mystery('gov') : ''}${town.filter(unlocked).map(card).join('')}</div>` : '') +
+              (landmarks.some(unlocked) ? `<h3 class="sec">Landmarks</h3><div class="grid">${landmarks.filter(unlocked).map(card).join('')}</div>` : '') +
               (upcoming ? `<details class="sheet-details" data-key="upcoming"><summary>Upcoming unlocks</summary><div class="grid">${upcoming}</div></details>` : ''),
       };
     },
@@ -779,6 +781,11 @@ export function createUI(root, api) {
           const mk = (config.MATERIALS || {})[c.makes] || {};
           lines.push(`${esc(mk.emoji || '')} Makes ${Math.round((config.TUNING?.matPerHour ?? 8) * (config.levelMult ? config.levelMult(b.level) : 1))} ${esc((mk.name || '').toLowerCase())} an hour · you have ${Math.floor((s.mats || {})[c.makes] || 0)}/${config.TUNING?.matCap ?? 300}`);
           lines.push('Materials take 30% off the coins of any upgrade. Look for "Upgrade with materials".');
+        }
+        if (c.kind === 'landmark') {
+          lines.push(`${icon('star', 1, 'i12')}Stage ${b.level || 1} of 3: ${esc(c.landmark.says(b.level || 1))}`);
+          const need = call('landmarkNeeds', s, b);
+          if (need && need.wood) lines.push(`Stage ${(b.level || 1) + 1}: ${esc(c.landmark.says((b.level || 1) + 1))}, needs ${need.wood}🪵 ${need.stone}🪨 ${need.bricks}🧱`);
         }
         if (c.kind === 'yard') lines.push(`${icon('hammer', 1, 'i12')}Anything built within ${call('reachOf', b) || 0} lots goes up twice as fast`);
         if (c.lessons) lines.push(`${icon('star', 1, 'i12')}Teaches ${c.lessons} skill ${c.lessons === 1 ? 'point' : 'points'} an hour`);

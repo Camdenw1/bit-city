@@ -100,7 +100,7 @@ test('config: shape, roads, every type complete, balance targets', () => {
   assert.equal(config.isRoad(3, 0), true); assert.equal(config.isRoad(0, 2), true); assert.equal(config.isRoad(0, 0), false);
   assert.equal(lots().length, 90);
   const ids = Object.keys(BUILDINGS);
-  assert.equal(ids.length, 65);
+  assert.equal(ids.length, 69);
   assert.equal(ids.filter((id) => BUILDINGS[id].kind === 'biz').length, 43);
   assert.deepEqual([...config.BUILD_ORDER].sort(), [...ids].sort());
   for (const id of ids) {
@@ -108,7 +108,7 @@ test('config: shape, roads, every type complete, balance targets', () => {
     assert.equal(d.id, id);
     assert.ok(d.name && d.blurb && d.cost > 0 && d.buildSecs > 0 && d.unlockAt >= 0, id);
     if (d.kind === 'home') { assert.ok(d.capacity >= 1 && d.rentPerTenant > 0); assert.equal(d.category, null); }
-    else if (['trade', 'yard', 'exchange', 'source', 'transit', 'gateway'].includes(d.kind)) { assert.equal(d.category, null); }
+    else if (['trade', 'yard', 'exchange', 'source', 'transit', 'gateway', 'landmark'].includes(d.kind)) { assert.equal(d.category, null); }
     else if (d.kind === 'civic' || d.kind === 'park') {
       assert.equal(d.category, null); assert.ok(config.NEEDS.some((n) => n.id === d.provides.need) && d.provides.serves > 0, id);
     } else {
@@ -123,7 +123,7 @@ test('config: shape, roads, every type complete, balance targets', () => {
   }
   assert.deepEqual(Object.keys(config.SHOP_CATS).filter((c) => config.SHOP_CATS[c].unlockAt === 0), ['food', 'retail', 'service']);
   for (const c of CATEGORIES) assert.ok(ids.filter((id) => BUILDINGS[id].kind === 'biz' && BUILDINGS[id].categories.includes(c)).length >= 6, `${c} has variety`);
-  assert.ok(Math.max(...ids.map((id) => BUILDINGS[id].unlockAt)) <= 100, 'late-game buildings (high-rise, airport) open by 100 residents');
+  assert.ok(Math.max(...ids.map((id) => BUILDINGS[id].unlockAt)) <= 100, 'late-game buildings (high-rise, landmarks) open by 100 residents');
   assert.ok(BUILDINGS.tent.cost + BUILDINGS.diner.cost <= TUNING.startCoins);
   assert.equal(BUILDINGS.tent.capacity, 1); assert.equal(BUILDINGS.cabin.capacity, 2);
   assert.equal(BUILDINGS.apartment.capacity, 4); assert.equal(BUILDINGS.house.capacity, 3);
@@ -2288,4 +2288,25 @@ test('the parade loop goes round the town and returns to its start', () => {
   assert.deepEqual(r[0], r.at(-1), 'a loop');
   for (let i = 1; i < r.length; i++) assert.equal(Math.abs(r[i].x - r[i - 1].x) + Math.abs(r[i].y - r[i - 1].y), 1, 'one step at a time');
   assert.ok(r.every((t) => sim.isRoadAt(s, t.x, t.y)));
+});
+
+test('landmarks: one of each, stages need materials, and they lift the whole town', () => {
+  const { s, diner } = smallTown();
+  allGoalsDone(s);
+  const now = s.lastTick;
+  s.coins = 1e7;
+  const sky = put(s, 'skyscraper', now);
+  assert.match(sim.canBuild(s, 'skyscraper', ...freeLot(s)).reason || '', /already/);
+  const rate = sim.ratePerMin(s, diner);
+  // stage 2 needs materials
+  s.mats = { wood: 0, stone: 0, bricks: 0 };
+  assert.match(sim.upgrade(s, sky.id, now).reason, /wood/);
+  s.mats = { wood: 300, stone: 300, bricks: 300 };
+  assert.ok(sim.upgrade(s, sky.id, now).ok);
+  assert.equal(s.mats.wood, 300 - TUNING.landmarkMats[2]);
+  assert.ok(sim.ratePerMin(s, diner) > rate, 'the skyscraper lifts shop sales');
+  const park = put(s, 'grandpark', now);
+  const home = s.buildings.find((b) => config.BUILDINGS[b.type].kind === 'home');
+  assert.ok(sim.homeBoost(s, home, now) >= config.BUILDINGS.grandpark.landmark.per - 1e-9);
+  assert.ok(park);
 });

@@ -1,6 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
-export const VERSION = 45;           // shown in Menu; keep in step with CACHE in sw.js
+export const VERSION = 46;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;
@@ -162,6 +162,7 @@ export const TUNING = {
   matPerLevel: [0, 0, 12, 30],   // wood and stone an upgrade to level 2 / 3 uses (bricks: half)
   seasonDays: 2,                 // each season lasts this many real days
   promiseRewardMinutes: 20,      // keeping all three promises pays this many minutes of play income, + 3 gems
+  landmarkMats: [0, 0, 80, 200],  // wood and stone a landmark's stage 2 / 3 needs (bricks: half); not optional
   ribbonMs: 60000,               // a new building's ribbon waits this long to be cut
   ribbonMinutes: 0.5,            // cutting it pays this many minutes of the town's play income
   tentRetirePop: 20,             // from this many residents, Tents are no longer built (Camden)
@@ -535,6 +536,11 @@ BUILDINGS.exchange = town('exchange', 'Stock Exchange', 'exchange', 5000, 240, 2
 BUILDINGS.lumber = town('lumber', 'Lumber Yard', 'source', 900, 90, 12, { makes: 'wood' }, 'Saws and stacks of planks. Makes wood all day.');
 BUILDINGS.quarry = town('quarry', 'Quarry', 'source', 1200, 90, 12, { makes: 'stone' }, 'Hard hats and big rocks. Makes stone all day.');
 BUILDINGS.brickworks = town('brickworks', 'Brickworks', 'source', 1800, 120, 12, { makes: 'bricks' }, 'A warm kiln baking bricks all day.');
+// Landmarks: one of each, the end game. Stages 2 and 3 need building materials as well as coins.
+BUILDINGS.cityhall = town('cityhall', 'City Hall', 'landmark', 50000, 1800, 30, { landmark: { per: 0.25, says: (l) => `+${l * 25}% mayor XP and +${l * 10}% goal coins` } }, 'Where the mayor works. Big plans start here.');
+BUILDINGS.grandpark = town('grandpark', 'Grand Park', 'landmark', 80000, 1800, 40, { landmark: { per: 0.05, says: (l) => `+${l * 5}% rent for every home` } }, 'Lawns, a lake and a bandstand. Everyone wants to live near it.');
+BUILDINGS.stadium = town('stadium', 'Stadium', 'landmark', 150000, 2700, 60, { landmark: { per: 0.25, says: (l) => `${l * 25}% more visitors` } }, 'Game day brings the whole region to town.');
+BUILDINGS.skyscraper = town('skyscraper', 'Skyscraper HQ', 'landmark', 400000, 3600, 100, { landmark: { per: 0.05, says: (l) => `+${l * 5}% shop sales` } }, 'The tallest thing for miles. Business is booming.');
 BUILDINGS.yard = town('yard', 'Construction Yard', 'yard', 1500, 120, 8, { reach: 4 }, 'Cranes and hard hats. Anything built near it goes up twice as fast.');
 BUILDINGS.trade = town('trade', 'Trading Post', 'trade', 2000, 300, 10, {}, 'Sell your harvest, import what you lack, and fill orders from neighbour towns.');
 BUILDINGS.fountain.unlockGoal = 'happy90';  // a milestone opens this one
