@@ -345,6 +345,33 @@ Object.assign(EMBLEM, {
     ' rrrrr ',
     '  r r  ',
   ],
+  lumber: [       // a log
+    '       ',
+    ' bbbbb ',
+    'bBbtbBb',
+    'btBtBtb',
+    'bBbtbBb',
+    ' bbbbb ',
+    '       ',
+  ],
+  quarry: [       // a grey rock
+    '       ',
+    '  aaa  ',
+    ' aeeaa ',
+    'aeaaaaA',
+    'aaaaaAA',
+    ' AAAAA ',
+    '       ',
+  ],
+  brickworks: [   // a little brick wall
+    'rrrRrrr',
+    'RRRRRRR',
+    'rRrrrRr',
+    'RRRRRRR',
+    'rrrRrrr',
+    'RRRRRRR',
+    '       ',
+  ],
   exchange: [     // a chart going up
     '      g',
     '     gg',
@@ -426,6 +453,7 @@ const CAT_STYLE = {
   trade:    { roof: 'b', dark: 'B', tint: 's' },
   yard:     { roof: 'A', dark: 'k', tint: 'e' },   // grey roof: the hard hat on the sign does the talking
   exchange: { roof: 'G', dark: 'k', tint: 'l' },   // green roof: money
+  source:   { roof: 'B', dark: 'k', tint: 'p' },   // brown roof: workshops
 };
 
 function shop(id, cat) {
@@ -534,6 +562,7 @@ for (const d of Object.values(BUILDINGS)) {
 BUILD.trade = () => shop('trade', 'trade');
 BUILD.yard = () => shop('yard', 'yard');
 BUILD.exchange = () => shop('exchange', 'exchange');
+for (const id of ['lumber', 'quarry', 'brickworks']) BUILD[id] = () => shop(id, 'source');
 for (const cat of Object.keys(CAT_STYLE)) SHOP_SPRITES.push([`mystery_${cat}`, () => shop('mystery', cat)]);
 
 BUILD.tree = () => {

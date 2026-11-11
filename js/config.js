@@ -155,6 +155,10 @@ export const TUNING = {
   stockCapMinutes: 60,           // the most you can have invested: an hour of the town's shop income
   stockSwing: 0.16,              // an hour's price change is luck in +-8%...
   stockLean: 0.06,               // ...plus up to +-3% from how strong your town is in that part
+  matPerHour: 8,                 // a source building makes this many materials an hour (x level)
+  matCap: 300,                   // the most of each material you can store
+  matDiscount: 0.3,              // paying an upgrade with materials takes this much off the coins
+  matPerLevel: [0, 0, 12, 30],   // wood and stone an upgrade to level 2 / 3 uses (bricks: half)
   collectionGems: 5,             // a finished page of the collection book pays this many gems (once)
   contractTowns: 4,              // neighbour towns that offer standing contracts
   contractMinutes: 3,            // one hourly delivery pays this many minutes of the town's shop income...
@@ -248,6 +252,16 @@ export const VIPS = {
   celebrity: { name: 'Celebrity',   icon: 'heart',  target: 'shop', does: 'Fans flock in: that shop sells double for 30 minutes.', ask: 'Tap a shop' },
   inspector: { name: 'Inspector',   icon: 'key',    target: 'any',  does: 'Fixes every shop problem in town at once.', ask: 'Tap any building' },
   recruiter: { name: 'Recruiter',   icon: 'person', target: 'home', does: 'Brings a star resident who moves straight into that home.', ask: 'Tap a home with room' },
+};
+
+// ---- Building materials (the light version Camden approved) -----------------------
+// Three source buildings make them by themselves (no workers). They are never required: any
+// upgrade can instead be paid partly in materials, `matDiscount` off the coins. The Trading
+// Post imports any you're short of. `price` is the import price per unit.
+export const MATERIALS = {
+  wood:   { name: 'Wood',   emoji: '🪵', source: 'lumber',     price: 12 },
+  stone:  { name: 'Stone',  emoji: '🪨', source: 'quarry',     price: 16 },
+  bricks: { name: 'Bricks', emoji: '🧱', source: 'brickworks', price: 24 },
 };
 
 // ---- Stock market (the Stock Exchange building) ----------------------------------
@@ -410,6 +424,9 @@ BUILDINGS.university = town('university', 'University', 'civic', 1500, 600, 20, 
 BUILDINGS.track = town('track', 'Running Track', 'park', 2000, 300, 10, { fav: true, provides: { need: 'beauty', serves: 8 }, rentBoost: 0.1 }, 'Laps before breakfast. Nearby homes pay more rent.');
 BUILDINGS.trail = town('trail', 'Hiking Trail', 'park', 2500, 300, 12, { fav: true, near: ['forest', 'mountain'], provides: { need: 'beauty', serves: 12 }, rentBoost: 0.15 }, 'A path up into the hills. Nearby homes pay more rent.');
 BUILDINGS.exchange = town('exchange', 'Stock Exchange', 'exchange', 5000, 240, 20, {}, 'Buy and sell shares in the town\'s businesses. Prices change every hour.');
+BUILDINGS.lumber = town('lumber', 'Lumber Yard', 'source', 900, 90, 12, { makes: 'wood' }, 'Saws and stacks of planks. Makes wood all day.');
+BUILDINGS.quarry = town('quarry', 'Quarry', 'source', 1200, 90, 12, { makes: 'stone' }, 'Hard hats and big rocks. Makes stone all day.');
+BUILDINGS.brickworks = town('brickworks', 'Brickworks', 'source', 1800, 120, 12, { makes: 'bricks' }, 'A warm kiln baking bricks all day.');
 BUILDINGS.yard = town('yard', 'Construction Yard', 'yard', 1500, 120, 8, { reach: 4 }, 'Cranes and hard hats. Anything built near it goes up twice as fast.');
 BUILDINGS.trade = town('trade', 'Trading Post', 'trade', 2000, 300, 10, {}, 'Sell your harvest, import what you lack, and fill orders from neighbour towns.');
 BUILDINGS.fountain.unlockGoal = 'happy90';  // a milestone opens this one

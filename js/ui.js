@@ -394,7 +394,7 @@ export function createUI(root, api) {
   const coinAmt = (n, s = 1) => `<span class="amt">${icon('coin', s, s === 1 ? 'i12' : '')}${formatCoins(n)}</span>`;
   const skillBadge = (cat, value, big) =>
     `<span class="skill${big ? ' big' : ''}" style="--c:${catColor(cat)}">${icon('cat_' + cat, 1, 'i12')}<b>${value}</b></span>`;
-  const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : d.kind === 'yard' ? { icon: 'hammer', name: 'Faster building' } : d.kind === 'exchange' ? { icon: 'coin', name: 'Stocks' } : { icon: 'star', name: 'Town' });
+  const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : d.kind === 'yard' ? { icon: 'hammer', name: 'Faster building' } : d.kind === 'exchange' ? { icon: 'coin', name: 'Stocks' } : d.kind === 'source' ? { icon: 'hammer', name: (config.MATERIALS || {})[d.makes]?.name || 'Materials' } : { icon: 'star', name: 'Town' });
   const cropName = (crop) => ((config.CROPS || {})[crop] || crop).toLowerCase();
 
   /** Everything the Trading Post does: sell, import, and neighbour orders. */
@@ -439,9 +439,22 @@ export function createUI(root, api) {
     }).join('');
     const contracts = `<h3 class="sec">Contracts · ${signed} of ${slots}</h3>${contractRows}
       <p class="note">Neighbours collect at the top of every hour with their own trucks, even while you're away. Every delivery builds friendship (♥): bigger contracts that pay more. Upgrade the Trading Post for more contracts.</p>`;
-    return `${contracts}<h3 class="sec">Trucks</h3>${trucks}<p class="note">Trade drives in and out on the road from out of town. Sales pay when the truck leaves town; imports land when it arrives. A Trading Post near the entry road makes shorter trips; each level adds a truck.</p>
+    const mats = config.MATERIALS || {};
+    const matRows = Object.keys(mats).map((k) => `<button class="btn btn-small btn-quiet" data-act="buy-mat" data-k="${k}" data-qty="20">${mats[k].emoji} ${Math.floor((s.mats || {})[k] || 0)} · import 20 for ${formatCoins(20 * mats[k].price)}</button>`).join('');
+    const matBlock = `<h3 class="sec">Building materials</h3><div class="row wrap">${matRows}</div><p class="note">Materials take 30% off the coins of any upgrade. A Lumber Yard, Quarry or Brickworks makes them for free.</p>`;
+    return `${contracts}${matBlock}<h3 class="sec">Trucks</h3>${trucks}<p class="note">Trade drives in and out on the road from out of town. Sales pay when the truck leaves town; imports land when it arrives. A Trading Post near the entry road makes shorter trips; each level adds a truck.</p>
       <h3 class="sec">Your harvest</h3>${rows}<p class="note">Staffed farms fill the barn. Prices change every day.</p>
       <h3 class="sec">Orders from neighbours</h3>${orders || '<p class="note">Orders arrive soon.</p>'}<p class="note">Orders never run out of time.</p>`;
+  }
+  /** A second upgrade button that pays partly in materials, when you have them. */
+  function matUpgrade(s, b) {
+    const need = call('materialUpgrade', s, b);
+    if (!need || !need.wood) return '';
+    const mats = config.MATERIALS || {};
+    const have = call('hasMaterials', s, need);
+    const list = Object.keys(mats).map((k) => `${need[k]}${mats[k].emoji}`).join(' ');
+    if (!have && !Object.values(s.mats || {}).some((v) => v > 0)) return '';      // never shown before you have any materials
+    return `<button class="btn btn-small ${have && need.coins <= s.coins ? 'btn-go' : 'btn-quiet'} btn-wide" data-act="upgrade-mats" data-id="${b.id}">Upgrade with materials · ${formatCoins(need.coins)} ${icon('coin', 1, 'i12')} + ${list}</button>`;
   }
   /** The Stock Exchange: three stocks, a cap on investing, buy a quarter of it or sell all. */
   function marketPanel(s, now) {
@@ -646,7 +659,7 @@ export function createUI(root, api) {
             : `<span class="price">${icon('coin', 1, 'i12')}${formatCoins(cost)}</span>`}</button>`;
       };
       const homes = order.filter((id) => BUILDINGS[id].kind === 'home');
-      const town = order.filter((id) => !BUILDINGS[id].gov && ['park', 'trade', 'yard', 'exchange'].includes(BUILDINGS[id].kind));
+      const town = order.filter((id) => !BUILDINGS[id].gov && ['park', 'trade', 'yard', 'exchange', 'source'].includes(BUILDINGS[id].kind));
       const unlocked = (id) => call('isUnlocked', s, id);
       const openCat = (cat) => call('categoryUnlocked', s, cat);
       if (d.wish) {
@@ -702,6 +715,7 @@ export function createUI(root, api) {
       const upgradeBlock = `<div class="up-row"><span class="up-level">${icon('star', 1, 'i12').repeat(level)} Level ${level}</span>${level >= maxLevel
         ? '<span class="tag tag-ok">Fully upgraded</span>'
         : `<button class="btn btn-small ${upCost > s.coins ? 'btn-quiet' : 'btn-coin'}" data-act="upgrade" data-id="${b.id}">Upgrade · ${formatCoins(upCost)} ${icon('coin', 1, 'i12')}</button>`}</div>
+        ${level >= maxLevel ? '' : matUpgrade(s, b)}
         ${level >= maxLevel ? '' : `<p class="note up-note">Level ${level + 1}: ${c.kind === 'trade' ? 'one more truck and contract' : `+${upPct}% ${gives}${c.kind === 'biz' && level + 1 === (config.TUNING?.slotAtLevel ?? 3) ? ' and one more job' : ''}`}</p>`}`;
 
       if (!built(b)) {
@@ -752,6 +766,11 @@ export function createUI(root, api) {
           if (c.gov && fixes) lines.push(`${icon('star', 1, 'i12')}Fixes shop problems within ${reach} lots for free`);
         }
         if (c.fav) lines.push(`${icon('heart', 1, 'i12')}A mayor's favourite: ${c.provides ? 'serves' : 'does'} ${favPct}% more`);
+        if (c.kind === 'source') {
+          const mk = (config.MATERIALS || {})[c.makes] || {};
+          lines.push(`${esc(mk.emoji || '')} Makes ${Math.round((config.TUNING?.matPerHour ?? 8) * (config.levelMult ? config.levelMult(b.level) : 1))} ${esc((mk.name || '').toLowerCase())} an hour · you have ${Math.floor((s.mats || {})[c.makes] || 0)}/${config.TUNING?.matCap ?? 300}`);
+          lines.push('Materials take 30% off the coins of any upgrade. Look for "Upgrade with materials".');
+        }
         if (c.kind === 'yard') lines.push(`${icon('hammer', 1, 'i12')}Anything built within ${call('reachOf', b) || 0} lots goes up twice as fast`);
         if (c.lessons) lines.push(`${icon('star', 1, 'i12')}Teaches ${c.lessons} skill ${c.lessons === 1 ? 'point' : 'points'} an hour`);
         if (c.rentBoost) {
@@ -1415,6 +1434,8 @@ export function createUI(root, api) {
     },
     'nav-menu': () => openSheet({ kind: 'menu', reset: 0 }),
     'nav-upgrades': () => openSheet({ kind: 'upgrades' }),
+    'upgrade-mats': (el) => { const r = act('upgradeWithMaterials', Number(el.dataset.id)); if (r && r.ok === false && r.reason) toast(r.reason); },
+    'buy-mat': (el) => { const r = act('buyMaterial', el.dataset.k, Number(el.dataset.qty)); toast(r && r.ok ? `Imported ${r.qty} ${((config.MATERIALS || {})[el.dataset.k]?.name || '').toLowerCase()}` : (r && r.reason) || ''); },
     'stock-buy': (el) => { const r = act('buyStock', el.dataset.id, Number(el.dataset.amt)); toast(r && r.ok ? `Bought ${formatCoins(r.spent)} of ${(config.STOCKS || {})[el.dataset.id]?.name}` : (r && r.reason) || ''); },
     'stock-sell': (el) => { const r = act('sellStock', el.dataset.id); if (r && r.ok) toast(`Sold for ${formatCoins(r.coins)} · ${r.gainLoss >= 0 ? 'a gain of ' + formatCoins(r.gainLoss) : 'a loss of ' + formatCoins(-r.gainLoss)}`); },
     'contract-sign': (el) => { const r = act('signContract', el.dataset.town); toast(r && r.ok ? `Signed with ${el.dataset.town}! Their truck comes every hour.` : (r && r.reason) || ''); },

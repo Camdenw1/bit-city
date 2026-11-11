@@ -100,7 +100,7 @@ test('config: shape, roads, every type complete, balance targets', () => {
   assert.equal(config.isRoad(3, 0), true); assert.equal(config.isRoad(0, 2), true); assert.equal(config.isRoad(0, 0), false);
   assert.equal(lots().length, 90);
   const ids = Object.keys(BUILDINGS);
-  assert.equal(ids.length, 56);
+  assert.equal(ids.length, 59);
   assert.equal(ids.filter((id) => BUILDINGS[id].kind === 'biz').length, 38);
   assert.deepEqual([...config.BUILD_ORDER].sort(), [...ids].sort());
   for (const id of ids) {
@@ -108,7 +108,7 @@ test('config: shape, roads, every type complete, balance targets', () => {
     assert.equal(d.id, id);
     assert.ok(d.name && d.blurb && d.cost > 0 && d.buildSecs > 0 && d.unlockAt >= 0, id);
     if (d.kind === 'home') { assert.ok(d.capacity >= 1 && d.rentPerTenant > 0); assert.equal(d.category, null); }
-    else if (['trade', 'yard', 'exchange'].includes(d.kind)) { assert.equal(d.category, null); }
+    else if (['trade', 'yard', 'exchange', 'source'].includes(d.kind)) { assert.equal(d.category, null); }
     else if (d.kind === 'civic' || d.kind === 'park') {
       assert.equal(d.category, null); assert.ok(config.NEEDS.some((n) => n.id === d.provides.need) && d.provides.serves > 0, id);
     } else {
@@ -2058,4 +2058,30 @@ test('stock market: hourly prices, a cap on investing, and you can lose coins', 
   assert.match(sim.sellStock(s, 'farm', s.lastTick).reason, /don't own/);
   const old = JSON.parse(JSON.stringify(s)); old.market = { prices: { farm: -3 } };
   const m = S.migrate(old); assert.equal(m.market.prices.farm, 100); assert.equal(m.market.shares.shop, 0);
+});
+
+test('materials: sources make them, they cut upgrade coins, imports fill gaps, never required', () => {
+  const { s, diner } = smallTown();
+  allGoalsDone(s);
+  const now = s.lastTick;
+  put(s, 'lumber', now); put(s, 'quarry', now); put(s, 'brickworks', now);
+  sim.advance(s, now + 2 * HOUR, { live: false });
+  assert.ok(Math.abs(s.mats.wood - 2 * TUNING.matPerHour) < 1e-6);
+  sim.advance(s, s.lastTick + 100 * HOUR, { live: false });
+  assert.equal(s.mats.stone, TUNING.matCap, 'stores have a cap');
+  // level 2 needs no materials; level 3 uses some and costs fewer coins
+  assert.ok(sim.upgrade(s, diner.id, s.lastTick).ok);
+  const need = sim.materialUpgrade(s, diner);
+  assert.ok(need.wood > 0 && need.coins < sim.upgradeCost(s, diner));
+  const coins = s.coins, wood = s.mats.wood;
+  assert.ok(sim.upgradeWithMaterials(s, diner.id, s.lastTick).ok);
+  assert.equal(diner.level, 3); assert.equal(coins - s.coins, need.coins); assert.ok(Math.abs(wood - s.mats.wood - need.wood) < 1e-9);
+  // imports at the Trading Post
+  s.mats.bricks = 0;
+  assert.match(sim.buyMaterial(s, 'bricks', 10, s.lastTick).reason, /Trading Post/);
+  put(s, 'trade', s.lastTick);
+  const r = sim.buyMaterial(s, 'bricks', 10, s.lastTick);
+  assert.ok(r.ok); assert.equal(s.mats.bricks, 10); assert.equal(r.cost, 10 * config.MATERIALS.bricks.price);
+  const old = JSON.parse(JSON.stringify(s)); delete old.mats;
+  assert.deepEqual(S.migrate(old).mats, { wood: 0, stone: 0, bricks: 0 });
 });

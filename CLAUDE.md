@@ -115,6 +115,12 @@ covers running and publishing. This file holds the design decisions and the road
   each hour (`runContracts`, offline too) a neighbour truck takes the crops and pays on arrival;
   a short barn just skips that hour. Contract trucks don't count against your own trucks. Bot:
   contracts are ~10% of income (trade was 1-3%).
+- Building materials (2026-11-11, the light version; made optional so nothing new is required,
+  per Camden's "seamless additions"): Lumber Yard, Quarry, Brickworks (kind 'source', open at 12
+  residents, no workers) make `matPerHour` (8, x level) wood / stone / bricks up to `matCap` 300
+  (`state.mats`). Any upgrade to level 3 can be paid as "Upgrade with materials": 30% fewer coins
+  plus 30 wood, 30 stone, 15 bricks (`materialUpgrade`, `upgradeWithMaterials`). The button only
+  shows once you have some materials. The Trading Post imports 20 at a time at `MATERIALS[k].price`.
 - Stock market (2026-11-11, Camden approved the simple design): a Stock Exchange building
   (`exchange`, 5,000 coins, opens at 20 residents) whose sheet is the market. `STOCKS`: Farm Co
   (farming), Shop Ltd (retail, service), Fun Inc (creative, food). At the top of every hour
@@ -293,8 +299,7 @@ Construction Yard, goal progress, forgiving taps, the name Mini Mayor, the Build
 
 Still to build, in his order (he approved the designs on 2026-11-11):
 2. (done) A stock market that can lose coins, kept simple.
-3. About five raw materials, Catan-style (build sources, use them, trade them). The biggest
-   threat to "really simple": push back if it gets heavy. A crew upgrade and the Yard exist.
+3. (done, light version) Raw materials: three, optional, for cheaper upgrades.
 4. Prestige: points from the city's total value, a permanent upgrade tree and one that resets
    each prestige. Car/taxi speed must be upgradable in both (his ask). Put it in the Upgrades tab.
 Also open: more "other sports" places if he names them, away income (shops only earn the 10x
@@ -339,7 +344,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (62 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (63 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

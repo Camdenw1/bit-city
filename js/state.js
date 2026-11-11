@@ -1,7 +1,7 @@
 // Mini Mayor — state: new game, save/load (with backup copy), export/import, local day.
 // Pure: the only platform access is localStorage inside save()/load(), always guarded.
 
-import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats, TRAITS, HINTS, UPGRADES, VIPS, STOCKS } from './config.js';
+import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats, TRAITS, HINTS, UPGRADES, VIPS, STOCKS, MATERIALS } from './config.js';
 
 export const SAVE_KEY = 'bitcity.save.v1';
 const EXPORT_PREFIX = 'BITCITY1:';
@@ -134,6 +134,7 @@ export function newGame(now) {
     seen: { types: [], traits: [], vips: [], pages: [] },   // collection book: what you've had in town, pages paid
     festivalUntil: 0,                  // a festival runs until then
     festivalReadyAt: 0,                // the next festival can start from then
+    mats: { wood: 0, stone: 0, bricks: 0 },   // building materials in store
     market: null,                      // stock market: { prices, prev, shares, paid } (made when first needed)
     vip: null,                         // a VIP waiting on the entry road: { kind, name, look, arrivedAt, leaveAt }
     nextVipAt: now + TUNING.vipGapMaxMs,
@@ -302,6 +303,10 @@ export function migrate(state) {
     if (!isNum(state.festivalUntil)) state.festivalUntil = 0;
     if (!isNum(state.festivalReadyAt)) state.festivalReadyAt = 0;
     if (!isNum(state.stats.festivals)) state.stats.festivals = 0;
+    // building materials (2026-11-11)
+    const mats = state.mats && typeof state.mats === 'object' ? state.mats : {};
+    state.mats = {};
+    for (const k of Object.keys(MATERIALS)) state.mats[k] = isNum(mats[k]) ? Math.max(0, Math.min(TUNING.matCap, mats[k])) : 0;
     // stock market (2026-11-11)
     if (state.market && typeof state.market === 'object') {
       const m = state.market;

@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick } from './state.js';
 
@@ -242,6 +242,49 @@ export function upgrade(state, buildingId, now) {
   events.emit('spend', { amount: cost, reason: 'upgrade' });
   events.emit('upgraded', { building: b });
   return { ok: true, reason: '', cost, level: b.level };
+}
+
+/** What an upgrade paid partly in materials uses: { wood, stone, bricks, coins }. */
+export function materialUpgrade(state, b) {
+  const cost = upgradeCost(state, b);
+  if (!cost) return null;
+  const n = TUNING.matPerLevel[(b.level || 1) + 1] || 0;
+  return { wood: n, stone: n, bricks: Math.ceil(n / 2), coins: Math.round(cost * (1 - TUNING.matDiscount)) };
+}
+export function hasMaterials(state, need) {
+  return !!need && Object.keys(MATERIALS).every((k) => (state.mats[k] || 0) + 1e-9 >= need[k]);
+}
+/** Upgrade using materials: fewer coins. Never required; the plain upgrade always works too. */
+export function upgradeWithMaterials(state, buildingId, now) {
+  const b = buildingById(state, buildingId);
+  if (!b) return fail("That building isn't there any more.");
+  if (!isBuilt(b, now)) return fail('Let it finish building first.');
+  const need = materialUpgrade(state, b);
+  if (!need) return fail("It's already the best it can be!");
+  if (!hasMaterials(state, need)) return fail('Not enough materials yet. Lumber yards, quarries and brickworks make them, or import some.');
+  if (state.coins < need.coins) return fail(`You need ${need.coins - Math.floor(state.coins)} more coins to upgrade.`);
+  for (const k of Object.keys(MATERIALS)) state.mats[k] -= need[k];
+  state.coins -= need.coins;
+  b.level = (b.level || 1) + 1;
+  b.paid = (b.paid ?? defOf(b).cost) + need.coins;
+  if (isBiz(b)) b.stock = stockMaxOf(b);
+  events.emit('spend', { amount: need.coins, reason: 'upgrade' });
+  events.emit('upgraded', { building: b });
+  return { ok: true, reason: '', cost: need.coins, level: b.level };
+}
+/** Import building materials at the Trading Post (instant, at a fixed price). */
+export function buyMaterial(state, kind, qty, now) {
+  if (!hasTrade(state, now)) return fail('Build a Trading Post first.');
+  if (!MATERIALS[kind] || !(qty > 0)) return fail("We can't import that.");
+  const room = Math.floor(TUNING.matCap - (state.mats[kind] || 0));
+  qty = Math.min(qty, room);
+  if (qty <= 0) return fail('Your store is full.');
+  const cost = qty * MATERIALS[kind].price;
+  if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins for that.`);
+  state.coins -= cost;
+  state.mats[kind] += qty;
+  events.emit('spend', { amount: cost, reason: 'import' });
+  return { ok: true, reason: '', cost, qty };
 }
 
 export function isUnlocked(state, type) {
@@ -2518,6 +2561,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
     }
     const farms = shops.filter((shop) => shop.crop && shop.growth > 0);
     const teachers = state.buildings.filter((b) => defOf(b).lessons > 0);
+    const sources = state.buildings.filter((b) => defOf(b).makes && MATERIALS[defOf(b).makes]);
     const knownRecipes = state.recipes.length;
     let lessonsBefore = 0;
     const countLesson = events.on('lesson', () => { lessonsBefore++; });
@@ -2588,6 +2632,12 @@ export function advance(state, now, { live = true, active = false } = {}) {
         const grown = rate * (end - t);
         state.crops[crop] = (state.crops[crop] || 0) + grown;
         state.goods[crop] = (state.goods[crop] || 0) + grown;
+      }
+      // 2b'. lumber yards, quarries and brickworks make materials (up to a cap)
+      for (const b of sources) {
+        if (!isBuilt(b, t)) continue;
+        const k = defOf(b).makes;
+        state.mats[k] = Math.min(TUNING.matCap, (state.mats[k] || 0) + TUNING.matPerHour * levelMult(b.level) * (end - t) / 3600000);
       }
       const recipesBefore = state.recipes.length;
       discoverRecipes(state);
