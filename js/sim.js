@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES, SEASONS, RIVALS, TIERS } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES, SEASONS, RIVALS, TIERS, STREET_NAMES } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick, newGame } from './state.js';
 
@@ -1143,7 +1143,9 @@ export function foundNewTown(state, now) {
   const next = newGame(now);
   // the town you leave lives on as a sister town
   const old = (state.legacy.oldTowns || []).slice();
-  old.push({ name: SISTER_NAMES[old.length % SISTER_NAMES.length] + (old.length >= SISTER_NAMES.length ? ` ${Math.floor(old.length / SISTER_NAMES.length) + 1}` : ''),
+  const taken = new Set(old.map((t) => t.name).concat(NEIGHBOURS));
+  const fallback = SISTER_NAMES[old.length % SISTER_NAMES.length] + (old.length >= SISTER_NAMES.length ? ` ${Math.floor(old.length / SISTER_NAMES.length) + 1}` : '');
+  old.push({ name: state.townName && !taken.has(state.townName) ? state.townName : fallback,
     pop: state.tenants.length, income: Math.round(townRatePerMin(state, now) * 60), founded: now });
   next.legacy = { points: (state.legacy.points || 0) + earned, perks: { ...state.legacy.perks }, towns: (state.legacy.towns || 1) + 1, oldTowns: old };
   next.lastCareDay = localDay(now);                 // the first care packages come tomorrow
@@ -1209,7 +1211,7 @@ export function rivalPop(state, rival, now) {
 }
 /** The region, biggest first: your town, the rival towns and your sister towns. */
 export function regionRanks(state, now) {
-  const rows = [{ town: 'Your town', pop: state.tenants.length, you: true }]
+  const rows = [{ town: state.townName || 'Your town', pop: state.tenants.length, you: true }]
     .concat(RIVALS.map((r) => ({ town: r.town, pop: rivalPop(state, r, now) })))
     .concat(((state.legacy || {}).oldTowns || []).map((t) => ({ town: t.name, pop: t.pop, sister: true })));
   return rows.sort((a, b) => b.pop - a.pop || (a.you ? -1 : b.you ? 1 : 0));
@@ -1734,6 +1736,7 @@ export function moveIn(state, applicantIndex, homeId, now) {
   }
   const before = population(state);
   const tenant = person;
+  state.stats.moveIns = (state.stats.moveIns || 0) + 1;
   tenant.homeId = home.id;
   tenant.jobId = null;
   delete tenant.seen;               // now you know their real skills (and their trait)
@@ -1890,6 +1893,42 @@ function arrivalGap(state, at) {
 function openSpot(state, now) {
   const next = now + arrivalGap(state, now);
   if (state.nextApplicantAt <= now || state.nextApplicantAt > next) state.nextApplicantAt = next;
+}
+
+// ---- ribbon cutting, names ---------------------------------------------------------
+
+/** Cut the ribbon on a building that just opened: a small bonus, if you're quick (a minute). */
+export function cutRibbon(state, buildingId, now) {
+  const r = (state.ribbons || []).find((x) => x.id === buildingId);
+  if (!r || now > r.until) return fail('That ribbon has already been cut.');
+  state.ribbons = state.ribbons.filter((x) => x !== r);
+  const b = buildingById(state, buildingId);
+  const coins = Math.max(20, Math.round(townRatePerMin(state, now) * TUNING.activeBoost * TUNING.ribbonMinutes));
+  gain(state, coins, 'ribbon', buildingId);
+  const t = state.tenants.length ? state.tenants[randInt(state, state.tenants.length)] : null;
+  if (t && b) post(state, now, t, 'resident', `The mayor just opened the ${buildingName(b)}! ✂️🎀`, 'good');
+  events.emit('ribbon', { building: b, coins });
+  return { ok: true, reason: '', coins };
+}
+export function renameTown(state, name) {
+  const clean = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 24);
+  if (!clean) return fail('Give your town a name.');
+  state.townName = clean;
+  return { ok: true, reason: '', name: clean };
+}
+/** A building's street address, e.g. "12 Oak Street": named from the road beside it. */
+export function addressOf(state, b) {
+  const e = { x: 0, y: 0 };
+  for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+    if (!isRoadAt(state, b.x + dx, b.y + dy)) continue;
+    e.x = b.x + dx; e.y = b.y + dy;
+    const along = isRoadAt(state, e.x - 1, e.y) || isRoadAt(state, e.x + 1, e.y);   // an east-west street
+    const key = along ? e.y * 7 + 3 : e.x * 11 + 5;
+    const name = STREET_NAMES[((key % STREET_NAMES.length) + STREET_NAMES.length) % STREET_NAMES.length];
+    const num = (along ? b.x - WORLD.x0 : b.y - WORLD.y0) * 2 + 1 + (dx || dy > 0 ? 0 : 1);
+    return `${num} ${name} ${along ? 'Street' : 'Avenue'}`;
+  }
+  return '';
 }
 
 /** The best free home for a newcomer: the best rent per resident, then the nearest the town's middle. */
@@ -2457,6 +2496,7 @@ export function skipTownJob(state) {
 
 function finishTownJob(state, pay) {
   state.job = null;
+  state.stats.jobsDone = (state.stats.jobsDone || 0) + 1;
   gain(state, pay, 'job');
   return { ok: true, done: true, pay };
 }
@@ -2817,6 +2857,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
         const b = pending.pop();
         res.finished.push(b.id);
         events.emit('opened', { building: b });
+        state.ribbons.push({ id: b.id, until: b.readyAt + TUNING.ribbonMs });   // a ribbon to cut, for a minute
         if (defOf(b).kind === 'trade') ensureOrders(state);
       }
 
@@ -2941,6 +2982,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
   if (live) maybeProblem(state, now);
   if (live) { maybeVisitor(state, now); maybePost(state, now); maybeResidentBuy(state, now); maybeVip(state, now); }
   noteSeasonAndRivals(state, now, live);
+  if (state.ribbons.length) state.ribbons = state.ribbons.filter((r) => r.until > now && state.buildings.some((b) => b.id === r.id));
   if (state.vip && now >= state.vip.leaveAt) vipLeaves(state, now);
   else {                                   // visitors and posts only happen while you play
     if (state.nextVisitAt < now) state.nextVisitAt = now + TUNING.visitorGapMinMs;

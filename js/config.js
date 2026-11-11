@@ -161,6 +161,8 @@ export const TUNING = {
   matDiscount: 0.3,              // paying an upgrade with materials takes this much off the coins
   matPerLevel: [0, 0, 12, 30],   // wood and stone an upgrade to level 2 / 3 uses (bricks: half)
   seasonDays: 2,                 // each season lasts this many real days
+  ribbonMs: 60000,               // a new building's ribbon waits this long to be cut
+  ribbonMinutes: 0.5,            // cutting it pays this many minutes of the town's play income
   tentRetirePop: 20,             // from this many residents, Tents are no longer built (Camden)
   careHours: 1,                  // a sister town's daily care package: this many hours of its old shop income
   prestigePop: 100,              // founding a new town opens at this many residents
@@ -304,6 +306,13 @@ export const SEASONS = [
   { id: 'autumn', name: 'Autumn', emoji: '🍂', crops: { veggies: 1.1, fruit: 1.1 },   visitors: 1,    contracts: 1,    note: 'Harvest time: all crops grow 10% faster.' },
   { id: 'winter', name: 'Winter', emoji: '❄️', crops: { veggies: 0.8, fruit: 0.8 },   visitors: 1,    contracts: 1.25, note: 'Crops grow 20% slower, but contracts pay 25% more.' },
 ];
+
+// ---- Names ------------------------------------------------------------------------
+// The town's name starts as one of these pairs (picked from the map's seed); Camden can rename it.
+// Streets are named from their row or column.
+export const TOWN_NAME_PARTS = [['Maple', 'Sunny', 'Pine', 'Clover', 'Honey', 'Cedar', 'Willow', 'Amber', 'Robin', 'Briar', 'Juniper', 'Copper'],
+  [' Brook', 'ton', 'ville', 'field', ' Springs', ' Hollow', ' Bay', 'wood', ' Ridge', ' Falls']];
+export const STREET_NAMES = ['Oak', 'Elm', 'Birch', 'Cedar', 'Maple', 'Pine', 'Ash', 'Linden', 'Poplar', 'Hazel', 'Rowan', 'Aspen', 'Holly', 'Laurel', 'Spruce', 'Juniper', 'Magnolia', 'Chestnut', 'Sycamore', 'Willow'];
 
 // ---- City tiers ----------------------------------------------------------------------
 // As the town grows it becomes a Village, Town, City, then Metropolis: shops sell a little more

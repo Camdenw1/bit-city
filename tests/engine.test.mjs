@@ -140,7 +140,7 @@ test('newGame: shape and JSON round trip', () => {
   assert.equal(s.v, 1); assert.equal(s.createdAt, T0); assert.equal(s.lastTick, T0);
   assert.equal(s.lastRentHour, Math.floor(T0 / HOUR)); assert.equal(s.rentCarry, 0);
   assert.equal(s.coins, 250); assert.equal(s.gems, 2);
-  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0 });
+  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0 });
   assert.deepEqual(s.buildings, []); assert.deepEqual(s.tenants, []);
   assert.equal(s.applicants.length, 3);
   assert.equal(s.ride, null); assert.deepEqual(s.goalsDone, []); assert.deepEqual(s.settings, { sound: true });
@@ -2136,7 +2136,7 @@ test('sister towns: old towns trade as best friends and send a daily care packag
   const n = r.state;
   assert.equal(n.legacy.oldTowns.length, 1);
   const sister = n.legacy.oldTowns[0];
-  assert.equal(sister.name, config.SISTER_NAMES[0]); assert.equal(sister.income, income);
+  assert.equal(sister.name, s.townName, 'the old town keeps its name'); assert.equal(sister.income, income);
   // best friends from the start, listed with the neighbours
   assert.equal(sim.friendLevel(n, sister.name), TUNING.contractLevels.length);
   assert.ok(sim.contractOffers(n, n.lastTick).some((o) => o.town === sister.name && o.sister));
@@ -2233,4 +2233,28 @@ test('one-tap welcome: best home and best job; tents retire as the town grows', 
   for (let i = s.tenants.length; i < TUNING.tentRetirePop; i++) s.tenants.push({ ...s.tenants[0], id: 420000 + i, homeId: null, jobId: null });
   assert.equal(sim.isUnlocked(s, 'tent'), false);
   assert.match(sim.unlockHint(s, 'tent'), /grown past tents/);
+});
+
+test('ribbons, town name and street addresses', () => {
+  const { s } = smallTown();
+  allGoalsDone(s);
+  assert.ok(s.townName && s.townName.length > 3, 'a town starts with a name');
+  assert.ok(sim.renameTown(s, '  Camden City ').ok); assert.equal(s.townName, 'Camden City');
+  assert.match(sim.renameTown(s, '   ').reason, /name/);
+  assert.equal(sim.regionRanks(s, s.lastTick).find((r) => r.you).town, 'Camden City');
+  // a building that opens gets a ribbon for a minute
+  const t0 = s.lastTick;
+  const b = sim.build(s, 'tent', ...freeLot(s), t0).building;
+  sim.advance(s, b.readyAt + 1);
+  assert.ok(s.ribbons.some((r) => r.id === b.id));
+  const coins = s.coins;
+  assert.ok(sim.cutRibbon(s, b.id, s.lastTick).ok);
+  assert.ok(s.coins > coins);
+  assert.match(sim.cutRibbon(s, b.id, s.lastTick).reason, /already/);
+  // ribbons nobody cuts go away
+  const b2 = sim.build(s, 'tent', ...freeLot(s), s.lastTick).building;
+  sim.advance(s, b2.readyAt + 1);
+  sim.advance(s, s.lastTick + TUNING.ribbonMs + 1000);
+  assert.ok(!s.ribbons.some((r) => r.id === b2.id));
+  assert.match(sim.addressOf(s, b), /^\d+ \w+ (Street|Avenue)$/);
 });

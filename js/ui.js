@@ -383,7 +383,7 @@ export function createUI(root, api) {
     const view = VIEWS[sheet.kind] ? VIEWS[sheet.kind](sheet) : null;
     if (!view) { closeSheet(); return false; }
     const head = `${sheet.back ? `<button class="icon-btn" data-act="back" aria-label="Back">‹</button>` : '<span class="icon-gap"></span>'}` +
-      `<h2>${view.title}</h2><button class="icon-btn" data-act="close" aria-label="Close">✕</button>`;
+      `<h2>${view.title}${sheet.kind === 'building' && byId(sheet.id) ? `<small class="addr">${esc(call('addressOf', S(), byId(sheet.id)) || '')}</small>` : ''}</h2><button class="icon-btn" data-act="close" aria-label="Close">✕</button>`;
     setHTML(els.head, head, 'head');
     const top = els.body.scrollTop;
     if (setHTML(els.body, view.html, 'body') && els.body.scrollTop !== top) els.body.scrollTop = top;
@@ -568,7 +568,7 @@ export function createUI(root, api) {
           : `<div class="want-row" data-key="${w.id}">${body}</div>`;
       }).join('');
       return {
-        title: 'Town',
+        title: esc(s.townName || 'Town'),
         html: `<div class="happy-card">
             <div class="happy-head">${icon('heart', 3)}<b>${s.tenants.length ? `${happy}% happy` : 'No residents yet'}</b></div>
             <div class="meter"><i style="width:${happy}%"></i></div>
@@ -1178,6 +1178,7 @@ export function createUI(root, api) {
         title: 'Menu',
         html: `<button class="menu-row" data-act="toggle-sound" role="switch" aria-checked="${soundOn}">
             <span>Sound</span><i class="switch${soundOn ? ' on' : ''}"><i></i></i></button>
+          <button class="menu-row" data-act="rename-town"><span>Town name</span><b class="chev">${esc(s.townName || '')} ✎</b></button>
           <button class="menu-row" data-act="nav-goals"><span>Goals</span><b class="chev">${(s.goalsDone || []).length}/${(config.GOALS || []).length} ›</b></button>
           <button class="menu-row" data-act="nav-collection"><span>Collection book</span><b class="chev">${(call('collectionPages', s) || []).filter((p) => p.done).length}/${(call('collectionPages', s) || []).length} pages ›</b></button>
           <button class="menu-row" data-act="open-backup"><span>Back up my town</span><b class="chev">›</b></button>
@@ -1520,6 +1521,12 @@ export function createUI(root, api) {
       if (r.ok) { toast(`Job done! +${formatCoins(r.pay)} coins`); closeSheet(); }
     },
     'nav-town': () => { wishBuild = null; openSheet({ kind: 'town' }); refreshHUD(); },
+    'rename-town': () => {
+      const name = window.prompt('Name your town', S().townName || '');
+      if (name == null) return;
+      const r = act('renameTown', name);
+      if (r && r.ok) toast(`Welcome to ${r.name}!`); else if (r && r.reason) toast(r.reason);
+    },
     'nav-goals': () => { openSheet({ kind: 'goals' }); setTimeout(() => { try { els.body.querySelector('.is-next')?.scrollIntoView({ block: 'center' }); } catch (e) { /* cosmetic */ } }, 60); },
     'nav-collection': () => openSheet({ kind: 'collection' }),
     'follow-wish': (el) => {

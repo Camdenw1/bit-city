@@ -285,6 +285,11 @@ renderer.onTap(({ x, y, building, parcel, activity, kind }) => {
   if (parcel) { if (state.ride?.state !== 'choosing') { audio.play('tap'); ui.openLand(parcel); } return; }
   if (activity === 'newcomers') { audio.play('tap'); ui.openNewcomers(); return; }
   if (activity === 'vip') { audio.play('tap'); ui.openVip(); return; }
+  if (activity === 'ribbon' && building) {
+    const r = act('cutRibbon', building.id);
+    if (r?.ok) { audio.play('dream'); renderer.burst(building.x, building.y, 'stars'); renderer.floatText(building.x, building.y, `+${formatCoins(r.coins)}`, COIN); ui.toast(`✂️ Ribbon cut! The ${sim.buildingName(building)} is open. +${formatCoins(r.coins)} coins`); }
+    return;
+  }
   if (activity === 'festival') { const r = act('startFestival'); if (r?.ok) { audio.play('dream'); renderer.burst(x, y, 'stars'); } else if (r?.reason) ui.toast(r.reason); return; }
   if (activity === 'job' && building) { audio.play('tap'); ui.startJob(kind, building.id); return; }
   const now = getNow();

@@ -1202,6 +1202,18 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       }
       if (selection && inMap(selection.x, selection.y)) drawSelection(selection, rt);
 
+      // ribbons on buildings that just opened: a red ribbon across the front with a bow
+      for (const r of f.state.ribbons || []) {
+        if (r.until <= now) continue;
+        const b = f.state.buildings.find((x) => x.id === r.id);
+        if (!b) continue;
+        const y = b.y * TILE + 10, x0 = b.x * TILE;
+        rect(x0, y, TILE, 2, '#d9574a');
+        const hop = Math.sin(rt / 1000 * Math.PI * 2 * 1.5) > 0 ? -1 : 0;
+        rect(x0 + 5, y - 2 + hop, 2, 2, '#d9574a'); rect(x0 + 9, y - 2 + hop, 2, 2, '#d9574a'); rect(x0 + 7, y - 1 + hop, 2, 2, '#a63d44');
+        rect(x0 + 6, y + 2, 1, 3, '#d9574a'); rect(x0 + 9, y + 2, 1, 3, '#d9574a');
+      }
+
       // job bubbles: a gold-rimmed bubble with the job's picture, gently bobbing
       for (const [b, j] of f.jobs) {
         const by = bubbleTop(b) + bobOf(b, rt);
@@ -1328,6 +1340,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     }
     // 1b. a job bubble sits on its building: tapping that building starts the job
     const jb = at(tx, ty);
+    if (jb && (state.ribbons || []).some((r) => r.id === jb.id && r.until > now)) return { ...hit(jb), activity: 'ribbon' };   // cut the ribbon
     if (jb && f.jobs.has(jb)) return { ...hit(jb), activity: 'job', kind: f.jobs.get(jb).kind };
     // 2. the tall sprite of the building just below pokes 8 px into this tile
     const below = at(tx, ty + 1);

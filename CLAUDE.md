@@ -160,6 +160,13 @@ covers running and publishing. This file holds the design decisions and the road
 - Less writing (Camden, 2026-11-11: "too much writing"): the newcomer card is one compact row
   (face, name, two best skill ranges, dream, likely job, ✕ and Welcome!), and long notes on
   Upgrades, the Trading Post and the Stock Exchange were cut to a line. Keep new text short.
+- Ribbon cutting (Camden picked it): a building that finishes gets a ribbon for `ribbonMs` (60 s,
+  `state.ribbons`); tapping the building cuts it for `ribbonMinutes` (0.5) of play income,
+  confetti and a feed post (`cutRibbon`). Uncut ribbons just go.
+- Names: the town starts with a name from the map's seed (`townNameFromSeed`, e.g. "Maple
+  Brook"), renamed from Menu (`renameTown`); it heads the Town sheet, the Region list and becomes
+  the sister-town name on prestige. Streets are named from their row or column; a building's
+  sheet shows its address under the title (`addressOf`, e.g. "13 Oak Street").
 - City tiers (`TIERS`, `cityTier`): Village, Town (20 residents, +5% sales, sidewalks), City (60,
   +10%, street lamps that glow at night), Metropolis (120, +15%, zebra crossings), with a toast.
   Upgraded buildings show it: level 2 a striped awning and flower boxes, level 3 gold trim and a
@@ -407,7 +414,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` and `VERSION` in config.js together when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (68 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (69 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

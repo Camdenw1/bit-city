@@ -1,7 +1,7 @@
 // Mini Mayor — state: new game, save/load (with backup copy), export/import, local day.
 // Pure: the only platform access is localStorage inside save()/load(), always guarded.
 
-import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats, TRAITS, HINTS, UPGRADES, VIPS, STOCKS, MATERIALS, TOWN_PERKS, PERM_PERKS } from './config.js';
+import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats, TRAITS, HINTS, UPGRADES, VIPS, STOCKS, MATERIALS, TOWN_PERKS, PERM_PERKS, TOWN_NAME_PARTS } from './config.js';
 
 export const SAVE_KEY = 'bitcity.save.v1';
 const EXPORT_PREFIX = 'BITCITY1:';
@@ -106,6 +106,13 @@ export function makeApplicant(state, opts = {}) {
   };
 }
 
+/** A town name from the map's seed, e.g. "Maple Brook". */
+export function townNameFromSeed(seed) {
+  const n = (Number(seed) || 0) >>> 0;
+  const [a, b] = TOWN_NAME_PARTS;
+  return a[n % a.length] + b[Math.floor(n / a.length) % b.length];
+}
+
 // ---- new game -------------------------------------------------------------
 
 export function newGame(now) {
@@ -121,7 +128,7 @@ export function newGame(now) {
     coins: TUNING.startCoins,
     gems: TUNING.startGems,
     nextId: 1,
-    stats: { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0 },
+    stats: { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0 },
     buildings: [],
     tenants: [],
     applicants: [],
@@ -140,7 +147,9 @@ export function newGame(now) {
     legacy: { points: 0, perks: {}, towns: 1, oldTowns: [] },   // prestige: points, permanent perks, towns founded, sister towns (kept for good)
     lastCareDay: null,
     season: null,
-    tierSeen: 0,                       // the highest city tier announced                      // the last season seen (for the season-change toast)
+    tierSeen: 0,
+    townName: null,                    // set from the map's seed when missing; Camden can rename it
+    ribbons: [],                       // new buildings waiting for a ribbon cutting: { id, until }                       // the highest city tier announced                      // the last season seen (for the season-change toast)
     rivalSeen: {},                     // rival town -> the last population milestone posted                 // the local day the sister towns' care packages last came
     market: null,                      // stock market: { prices, prev, shares, paid } (made when first needed)
     vip: null,                         // a VIP waiting on the entry road: { kind, name, look, arrivedAt, leaveAt }
@@ -174,6 +183,7 @@ export function newGame(now) {
   for (let i = 0; i < TUNING.applicantCount; i++) {
     state.applicants.push(makeApplicant(state, { best: cats[i % cats.length], dreamPool: starters }));
   }
+  state.townName = townNameFromSeed(state.worldSeed);
   return state;
 }
 
@@ -253,7 +263,7 @@ export function migrate(state) {
     state.gems = isNum(state.gems) ? Math.max(0, Math.floor(state.gems)) : 0;
     const st = state.stats && typeof state.stats === 'object' ? state.stats : {};
     state.stats = {};
-    for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks', 'visitors', 'vips', 'festivals']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
+    for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks', 'visitors', 'vips', 'festivals', 'moveIns', 'jobsDone']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
 
     // City infrastructure no longer takes lots (2026-11-11): placed bus stops, stations, ports and
     // airports become City levels (none lost) and their lots are freed
@@ -332,6 +342,8 @@ export function migrate(state) {
     if (typeof state.lastCareDay !== 'string') state.lastCareDay = null;
     if (typeof state.season !== 'string') state.season = null;
     if (!isNum(state.tierSeen)) state.tierSeen = 0;
+    if (typeof state.townName !== 'string' || !state.townName.trim()) state.townName = townNameFromSeed(state.worldSeed);
+    state.ribbons = (Array.isArray(state.ribbons) ? state.ribbons : []).filter((r) => r && isNum(r.id) && isNum(r.until));
     if (!state.rivalSeen || typeof state.rivalSeen !== 'object') state.rivalSeen = {};
     for (const k of Object.keys(PERM_PERKS)) { const r = (legacy.perks || {})[k]; if (isNum(r) && r > 0) state.legacy.perks[k] = Math.min(PERM_PERKS[k].max, Math.round(r)); }
     // building materials (2026-11-11)
