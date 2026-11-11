@@ -412,13 +412,28 @@ export function createUI(root, api) {
           <span>Pays ${formatCoins(o.coins)} ${icon('coin', 1, 'i12')} + ${o.gems} ${icon('gem', 1, 'i12')} · you have ${formatCoins(Math.min(have, o.qty))}/${formatCoins(o.qty)}</span></div>
         <button class="btn btn-small ${ready ? 'btn-go' : 'btn-quiet'}" data-act="fill-order" data-id="${o.id}">${ready ? 'Deliver' : 'Not enough yet'}</button></div>`;
     }).join('');
-    const out = (s.trucks || []).filter((t) => t.arriveAt > now).sort((a, b) => a.arriveAt - b.arriveAt);
+    const out = (s.trucks || []).filter((t) => t.arriveAt > now && t.kind !== 'contract').sort((a, b) => a.arriveAt - b.arriveAt);
     const fleet = call('truckCount', s, now) || 1;
-    const what = (t) => t.kind === 'import' ? `${formatCoins(t.qty)} ${esc(cropName(t.crop))} coming in` :
+    const what = (t) => t.kind === 'contract' ? `${formatCoins(t.qty)} ${esc(cropName(t.crop))} to ${esc(t.town)}` : t.kind === 'import' ? `${formatCoins(t.qty)} ${esc(cropName(t.crop))} coming in` :
       t.kind === 'order' ? `${formatCoins(t.qty)} ${esc(cropName(t.crop))} to ${esc(t.town || 'a neighbour')}` : `${formatCoins(t.qty)} ${esc(cropName(t.crop))} going to market`;
     const trucks = `<div class="trade-row" data-key="trucks"><div class="trade-head"><b>Trucks: ${fleet - out.length} of ${fleet} free</b>
       <span>${out.length ? out.map((t) => `${what(t)} · ${Math.max(1, Math.ceil((t.arriveAt - now) / 1000))}s`).join('<br>') : 'Ready to go.'}</span></div></div>`;
-    return `<h3 class="sec">Trucks</h3>${trucks}<p class="note">Trade drives in and out on the road from out of town. Sales pay when the truck leaves town; imports land when it arrives. A Trading Post near the entry road makes shorter trips; each level adds a truck.</p>
+    // standing contracts with neighbour towns
+    const offers = call('contractOffers', s, now) || [];
+    const slots = call('contractSlots', s, now) || 0; const signed = offers.filter((o) => o.signed).length;
+    const hearts = (lvl) => '♥'.repeat(lvl) + '♡'.repeat(3 - lvl);
+    const contractRows = offers.map((o) => {
+      const c = (s.contracts || []).find((x) => x.town === o.town);
+      const have = Math.floor((s.goods && s.goods[o.crop]) || 0);
+      return `<div class="trade-row" data-key="ct-${o.town}"><div class="trade-head"><b>${esc(o.town)} <span class="hearts">${hearts(o.level)}</span></b>
+          <span>${formatCoins(o.qty)} ${esc(cropName(o.crop))} every hour · pays ${formatCoins(o.pay)} ${icon('coin', 1, 'i12')}${o.next ? ` · ${o.deliveries}/${o.next} to the next ♥` : ''}</span>
+          ${c ? `<span>${have >= o.qty ? `${icon('box', 1, 'i12')}Ready for the next pickup` : `Barn has ${formatCoins(have)}/${formatCoins(o.qty)}: short hours are skipped`} · ${c.done} delivered</span>` : ''}</div>
+        ${c ? `<button class="btn btn-small btn-quiet" data-act="contract-cancel" data-town="${esc(o.town)}">End contract</button>`
+          : `<button class="btn btn-small ${signed < slots ? 'btn-go' : 'btn-quiet'}" data-act="contract-sign" data-town="${esc(o.town)}">Sign contract</button>`}</div>`;
+    }).join('');
+    const contracts = `<h3 class="sec">Contracts · ${signed} of ${slots}</h3>${contractRows}
+      <p class="note">Neighbours collect at the top of every hour with their own trucks, even while you're away. Every delivery builds friendship (♥): bigger contracts that pay more. Upgrade the Trading Post for more contracts.</p>`;
+    return `${contracts}<h3 class="sec">Trucks</h3>${trucks}<p class="note">Trade drives in and out on the road from out of town. Sales pay when the truck leaves town; imports land when it arrives. A Trading Post near the entry road makes shorter trips; each level adds a truck.</p>
       <h3 class="sec">Your harvest</h3>${rows}<p class="note">Staffed farms fill the barn. Prices change every day.</p>
       <h3 class="sec">Orders from neighbours</h3>${orders || '<p class="note">Orders arrive soon.</p>'}<p class="note">Orders never run out of time.</p>`;
   }
@@ -664,7 +679,7 @@ export function createUI(root, api) {
       const upgradeBlock = `<div class="up-row"><span class="up-level">${icon('star', 1, 'i12').repeat(level)} Level ${level}</span>${level >= maxLevel
         ? '<span class="tag tag-ok">Fully upgraded</span>'
         : `<button class="btn btn-small ${upCost > s.coins ? 'btn-quiet' : 'btn-coin'}" data-act="upgrade" data-id="${b.id}">Upgrade · ${formatCoins(upCost)} ${icon('coin', 1, 'i12')}</button>`}</div>
-        ${level >= maxLevel ? '' : `<p class="note up-note">Level ${level + 1}: ${c.kind === 'trade' ? 'one more truck' : `+${upPct}% ${gives}${c.kind === 'biz' && level + 1 === (config.TUNING?.slotAtLevel ?? 3) ? ' and one more job' : ''}`}</p>`}`;
+        ${level >= maxLevel ? '' : `<p class="note up-note">Level ${level + 1}: ${c.kind === 'trade' ? 'one more truck and contract' : `+${upPct}% ${gives}${c.kind === 'biz' && level + 1 === (config.TUNING?.slotAtLevel ?? 3) ? ' and one more job' : ''}`}</p>`}`;
 
       if (!built(b)) {
         const total = Math.max(1, (c.buildSecs || 1) * 1000);
@@ -1345,6 +1360,8 @@ export function createUI(root, api) {
     },
     'nav-menu': () => openSheet({ kind: 'menu', reset: 0 }),
     'nav-upgrades': () => openSheet({ kind: 'upgrades' }),
+    'contract-sign': (el) => { const r = act('signContract', el.dataset.town); toast(r && r.ok ? `Signed with ${el.dataset.town}! Their truck comes every hour.` : (r && r.reason) || ''); },
+    'contract-cancel': (el) => { const r = act('cancelContract', el.dataset.town); if (r && r.ok) toast(`Contract with ${el.dataset.town} ended.`); },
     'vip-send': () => { vipSending = true; movingId = null; closeSheet(); refreshHUD(); },
     'vip-cancel': () => { vipSending = false; refreshHUD(); },
     'nav-feed': () => { openSheet({ kind: 'feed' }); act('readFeed'); },

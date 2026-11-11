@@ -1041,3 +1041,4 @@ body { position: fixed; inset: 0; }
 .post-head span { opacity: 0.65; font-size: 12px; }
 .post p { margin: 2px 0 0; font-size: 14px; line-height: 1.35; }
 .post-bad p { color: #a63d44; }
+.hearts { color: #e85d8a; font-size: 12px; letter-spacing: 1px; }

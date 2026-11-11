@@ -789,6 +789,66 @@ export function fillOrder(state, orderId, now) {
   return { ok: true, reason: '', coins: o.coins, gems: o.gems, truck };
 }
 
+// ---- trade contracts ------------------------------------------------------------
+// Neighbour towns sign standing contracts: a set amount of crops every hour, collected by their
+// own truck and paid well. Sign once and it runs by itself; a short hour is simply skipped.
+// Every delivery builds friendship, and friendship makes contracts bigger and better paid.
+
+export function friendLevel(state, town) {
+  const n = (state.friends || {})[town] || 0;
+  return TUNING.contractLevels.filter((x) => n >= x).length;
+}
+/** Contracts you can hold at once: one, plus one per Trading Post level. */
+export function contractSlots(state, now) {
+  return hasTrade(state, now) ? 1 + truckCount(state, now) : 0;
+}
+/** What a town's contract asks for and pays right now. */
+export function contractTerms(state, town, now) {
+  const i = NEIGHBOURS.indexOf(town);
+  const level = friendLevel(state, town);
+  const crop = Object.keys(CROP_PRICE)[(i < 0 ? 0 : i) % Object.keys(CROP_PRICE).length];
+  const qty = TUNING.contractQty[level];
+  const pay = Math.max(qty * CROP_PRICE[crop] * 2, Math.round(townRatePerMin(state, now) * TUNING.contractMinutes * (1 + TUNING.contractLevelPay * level)));
+  return { town, crop, qty, pay, level, deliveries: (state.friends || {})[town] || 0, next: TUNING.contractLevels[level] ?? null };
+}
+/** The towns that offer contracts and whether you have signed each. */
+export function contractOffers(state, now) {
+  return NEIGHBOURS.slice(0, TUNING.contractTowns).map((town) => ({ ...contractTerms(state, town, now), signed: state.contracts.some((c) => c.town === town) }));
+}
+export function signContract(state, town, now) {
+  if (!hasTrade(state, now)) return fail('Build a Trading Post first.');
+  if (!NEIGHBOURS.slice(0, TUNING.contractTowns).includes(town)) return fail("That town isn't trading yet.");
+  if (state.contracts.some((c) => c.town === town)) return fail(`You already have a contract with ${town}.`);
+  if (state.contracts.length >= contractSlots(state, now)) return fail('No room for another contract. Upgrade the Trading Post for more.');
+  const t = contractTerms(state, town, now);
+  state.contracts.push({ id: state.nextId++, town, crop: t.crop, signedAt: now, done: 0, missed: 0 });
+  events.emit('contractSigned', { town });
+  return { ok: true, reason: '' };
+}
+export function cancelContract(state, town) {
+  const n = state.contracts.length;
+  state.contracts = state.contracts.filter((c) => c.town !== town);
+  return n === state.contracts.length ? fail('There is no contract with that town.') : { ok: true, reason: '' };
+}
+/** The top of the hour: every contract's truck comes for its crops. */
+function runContracts(state, now) {
+  if (!state.contracts.length || !hasTrade(state, now)) return;
+  for (const c of state.contracts) {
+    const t = contractTerms(state, c.town, now);
+    if ((state.goods[t.crop] || 0) + 1e-9 < t.qty) {
+      c.missed++;
+      events.emit('contractMissed', { town: c.town, crop: t.crop, qty: t.qty });
+      continue;
+    }
+    state.goods[t.crop] -= t.qty;
+    c.done++;
+    state.friends[c.town] = (state.friends[c.town] || 0) + 1;
+    const ms = truckTripMs(state, now);
+    state.trucks.push({ id: state.nextId++, kind: 'contract', town: c.town, crop: t.crop, qty: t.qty, coins: t.pay, leaveAt: now, arriveAt: now + ms });
+    if (friendLevel(state, c.town) > t.level) events.emit('friendUp', { town: c.town, level: t.level + 1 });
+  }
+}
+
 // ---- the entry road and trucks ------------------------------------------------
 // One road leads in from the edge of the world to the first town. It follows the
 // town's own street plan (so it never takes a lot), crossing land not bought yet.
@@ -896,7 +956,7 @@ export function truckCount(state, now) {
 
 /** A friendly reason when every truck is out, else ''. */
 function truckBusy(state, now) {
-  const out = (state.trucks || []).filter((t) => t.arriveAt > now);
+  const out = (state.trucks || []).filter((t) => t.arriveAt > now && t.kind !== 'contract');   // neighbours bring their own trucks for contracts
   if (out.length < truckCount(state, now)) return '';
   const back = Math.max(1, Math.ceil((Math.min(...out.map((t) => t.arriveAt)) - now) / 1000));
   return `Your ${out.length > 1 ? 'trucks are' : 'truck is'} on the road. One is free in ${back}s (upgrade the Trading Post for more trucks).`;
@@ -921,6 +981,8 @@ function finishTrucks(state, now) {
       state.goods[t.crop] = (state.goods[t.crop] || 0) + t.qty;
       state.crops[t.crop] = (state.crops[t.crop] || 0) + t.qty;
       discoverRecipes(state);
+    } else if (t.kind === 'contract') {
+      gain(state, t.coins, 'contract');
     } else if (t.kind === 'order') {
       gain(state, t.coins, 'order');
       gainGems(state, t.gems);
@@ -2364,9 +2426,10 @@ export function advance(state, now, { live = true, active = false } = {}) {
       }
       if (state.applicants.length >= TUNING.applicantCount && state.nextApplicantAt < end) state.nextApplicantAt = end;
 
-      // 4. rent at the top of every hour
+      // 4. rent and contract pickups at the top of every hour
       if (end >= nextHour) {
         payRent(end);
+        runContracts(state, end);
         nextHour = (hourNumber(end) + 1) * HOUR_MS;
       }
 

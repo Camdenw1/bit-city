@@ -129,6 +129,8 @@ export function newGame(now) {
     upgrades: {},                      // Upgrades tab: id -> level bought (0 if missing)
     nextVisitAt: now + TUNING.visitorGapMaxMs,   // visitors only come while you play
     nextShopAt: now + TUNING.residentShopGapMs,  // residents' own shopping, also only while you play
+    contracts: [],                     // standing hourly deliveries: { id, town, crop, signedAt, done, missed }
+    friends: {},                       // town -> deliveries made (friendship)
     vip: null,                         // a VIP waiting on the entry road: { kind, name, look, arrivedAt, leaveAt }
     nextVipAt: now + TUNING.vipGapMaxMs,
     nextPostAt: now + TUNING.postGapMs,
@@ -284,6 +286,10 @@ export function migrate(state) {
     // visitors and the feed (2026-11-10)
     if (!isNum(state.nextVisitAt)) state.nextVisitAt = state.lastTick + TUNING.visitorGapMaxMs;
     if (!isNum(state.nextShopAt)) state.nextShopAt = state.lastTick + TUNING.residentShopGapMs;
+    // trade contracts (2026-11-10)
+    state.contracts = (Array.isArray(state.contracts) ? state.contracts : []).filter((c) => c && isNum(c.id) && typeof c.town === 'string' && typeof c.crop === 'string');
+    for (const c of state.contracts) { c.done = isNum(c.done) ? c.done : 0; c.missed = isNum(c.missed) ? c.missed : 0; }
+    if (!state.friends || typeof state.friends !== 'object') state.friends = {};
     // VIPs (2026-11-10)
     if (!isNum(state.nextVipAt)) state.nextVipAt = state.lastTick + TUNING.vipGapMaxMs;
     if (!state.vip || typeof state.vip !== 'object' || !VIPS[state.vip.kind] || !isNum(state.vip.leaveAt)) state.vip = null;

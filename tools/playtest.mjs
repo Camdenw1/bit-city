@@ -11,7 +11,7 @@ const MIN = 60000, HOUR = 60 * MIN;
 function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedTime, detail = true }) {
   let now = seedTime;
   const s = store.newGame(now);
-  const income = { sales: 0, ride: 0, delivery: 0, job: 0, rent: 0, goal: 0, trade: 0, order: 0, visitor: 0, resident: 0 };
+  const income = { sales: 0, ride: 0, delivery: 0, job: 0, rent: 0, goal: 0, trade: 0, order: 0, visitor: 0, resident: 0, contract: 0, vip: 0 };
   const onCoins = sim.events.on('coins', ({ amount, reason }) => { if (income[reason] != null) income[reason] += amount; });
   let manualRestocks = 0; let fixes = 0; let problems = 0;
   const onProblem = sim.events.on('problem', () => { problems++; });
@@ -58,6 +58,8 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
     if (!s.buildings.some((b) => b.type === 'trade') && sim.isUnlocked(s, 'trade') && s.coins >= sim.costOf(s, 'trade')) tryBuild('trade');
     // trade: sell on good days (or when the barn is very full), fill any order that is ready
     if (sim.hasTrade(s, now)) {
+      // sign every contract there is room for (they run by themselves)
+      for (const o of sim.contractOffers(s, now)) if (!o.signed && s.contracts.length < sim.contractSlots(s, now)) sim.signContract(s, o.town, now);
       const prices = sim.tradePrices(s, now);
       for (const o of [...s.orders]) if ((s.goods[o.crop] || 0) >= o.qty) sim.fillOrder(s, o.id, now);
       for (const crop of Object.keys(prices)) {

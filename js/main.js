@@ -168,6 +168,11 @@ sim.events.on('vipUsed', ({ building }) => {
   renderer.burst(building.x, building.y, 'stars');
   audio.play('dream');
 });
+sim.events.on('friendUp', ({ town, level }) => {
+  if (quiet) return;
+  audio.play('goal');
+  ui.toast(`${town} is now a closer friend (${'♥'.repeat(level)})! Their contract grows and pays more.`);
+});
 sim.events.on('visit', ({ building, amount }) => {
   if (quiet) return;
   renderer.floatText(building.x, building.y, `+${formatCoins(amount)}`, COIN);

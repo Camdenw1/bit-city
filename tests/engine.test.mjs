@@ -1947,3 +1947,38 @@ test('VIPs: wait on the entry road, you send them to a building, they leave quie
   const old = JSON.parse(JSON.stringify(s)); delete old.vip; delete old.nextVipAt;
   assert.equal(S.migrate(old).vip, null);
 });
+
+test('contracts: sign once, hourly pickups pay well and build friendship, short hours are skipped', () => {
+  const { s } = smallTown();
+  allGoalsDone(s);
+  const now = s.lastTick;
+  const town = config.NEIGHBOURS[0];
+  assert.match(sim.signContract(s, town, now).reason, /Trading Post/);
+  put(s, 'trade', now);
+  assert.equal(sim.contractSlots(s, now), 2);
+  assert.ok(sim.signContract(s, town, now).ok);
+  assert.match(sim.signContract(s, town, now).reason, /already/);
+  const t = sim.contractTerms(s, town, now);
+  assert.ok(t.pay > t.qty * config.CROP_PRICE[t.crop], 'a contract pays better than the market');
+  // an hour with a full barn: the truck takes the crops and pays on arrival
+  s.goods[t.crop] = t.qty * 3;
+  const coins = s.coins;
+  sim.advance(s, (Math.floor(now / HOUR) + 1) * HOUR + 1);
+  assert.equal(s.contracts[0].done, 1); assert.equal(s.friends[town], 1);
+  sim.advance(s, s.lastTick + 60000);
+  assert.ok(s.coins > coins);
+  // an empty barn: that hour is skipped, no penalty
+  s.goods[t.crop] = 0;
+  const c2 = s.coins;
+  sim.advance(s, (Math.floor(s.lastTick / HOUR) + 1) * HOUR + 1);
+  assert.equal(s.contracts[0].missed, 1); assert.ok(s.coins >= c2);
+  // contract trucks don't block your own trades
+  assert.equal(sim.truckCount(s, s.lastTick), 1);
+  // friendship levels make contracts bigger
+  s.friends[town] = config.TUNING.contractLevels[0];
+  assert.equal(sim.friendLevel(s, town), 1);
+  assert.ok(sim.contractTerms(s, town, s.lastTick).qty > t.qty);
+  assert.ok(sim.cancelContract(s, town).ok);
+  const old = JSON.parse(JSON.stringify(s)); delete old.contracts; delete old.friends;
+  const m = S.migrate(old); assert.deepEqual(m.contracts, []); assert.deepEqual(m.friends, {});
+});

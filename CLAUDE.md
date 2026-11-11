@@ -107,6 +107,14 @@ covers running and publishing. This file holds the design decisions and the road
   clamped 8-25 s, so a Trading Post near the entry road trades faster. One truck per
   Trading Post level (`trucksPerLevel`, Camden chose this over unlimited); with all out, the next trade waits a few seconds.
   Trucks finish in `advance()` by time, so closing the app never loses one.
+- Trade contracts (2026-11-10, Camden: make trade "a far bigger thing"; he picked contracts):
+  the first `contractTowns` (4) neighbours each offer one standing contract (`contractTerms`):
+  `contractQty` crops of one kind every hour for `contractMinutes` (3) of the town's shop income,
+  +25% per friendship level (deliveries 5/15/40 -> levels 1-3, bigger quantities). Sign or end
+  for free on the Trading Post sheet; slots = 1 + trucks (Trading Post levels). At the top of
+  each hour (`runContracts`, offline too) a neighbour truck takes the crops and pays on arrival;
+  a short barn just skips that hour. Contract trucks don't count against your own trucks. Bot:
+  contracts are ~10% of income (trade was 1-3%).
 - Trade: farms fill a barn (`state.goods`) as well as the lifetime `state.crops`. The
   Trading Post sells the barn at a price that changes each local day, imports at a fixed
   2.5x the usual price (always dearer than selling, so no buy-low-sell-high loop), and
@@ -303,7 +311,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (57 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (58 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

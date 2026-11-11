@@ -144,6 +144,11 @@ export const TUNING = {
   levelBonus: 0.5,               // each level above 1 adds this much rent / sales / stock / reach
   upgradeCost: [0, 2, 5],        // x the building's base price to go from level 1 -> 2, and 2 -> 3
   importMarkup: 2.5,             // importing a crop costs this x its usual price (always more than selling pays)
+  contractTowns: 4,              // neighbour towns that offer standing contracts
+  contractMinutes: 3,            // one hourly delivery pays this many minutes of the town's shop income...
+  contractLevelPay: 0.25,        // ...plus this much per friendship level
+  contractQty: [10, 15, 25, 40], // crops per hourly delivery at friendship level 0..3
+  contractLevels: [5, 15, 40],   // deliveries to reach friendship level 1, 2, 3
   orderPay: 2.5,                 // a neighbour's order pays this x the usual price of the goods
   orderFirstQty: 40,             // orders grow x1.4 each time one is filled
   orderGrowth: 1.4,
