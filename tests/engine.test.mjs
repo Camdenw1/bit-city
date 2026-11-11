@@ -919,7 +919,7 @@ test('ride lifecycle: accept, wrong picks, tip timing, fare paid on completion',
   assert.equal(ride.state, 'choosing'); assert.equal(ride.acceptedAt, t1);
   const far = 1 + TUNING.rideDistanceBonus * sim.rideDistance(s, ride);
   assert.ok(far > 1, 'longer trips pay more');
-  const base = Math.max(15, sim.townRatePerMin(s, t1) * 8) * far;
+  const base = Math.max(15, sim.townRatePerMin(s, t1) * TUNING.rideFareMinutes) * far;
 
   // tip table (fresh copies of the state so each case is independent)
   const fareAt = (delayMs, wrong) => {
@@ -952,7 +952,7 @@ test('ride lifecycle: accept, wrong picks, tip timing, fare paid on completion',
   const coins = s.coins;
   let log = record(() => {
     const r = sim.chooseDestination(s, ride.toId, t2);
-    assert.ok(r.ok && r.correct); assert.equal(r.fare, Math.round(Math.max(15, sim.townRatePerMin(s, t2) * 8) * far));
+    assert.ok(r.ok && r.correct); assert.equal(r.fare, Math.round(Math.max(15, sim.townRatePerMin(s, t2) * TUNING.rideFareMinutes) * far));
   });
   assert.deepEqual(log.filter((e) => e.type === 'rideStart').map((e) => e.fare), [ride.fare]);
   assert.equal(s.coins, coins, 'not paid until the car arrives');

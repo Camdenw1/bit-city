@@ -173,6 +173,16 @@ covers running and publishing. This file holds the design decisions and the road
   a tap up to `TAP_SNAP` (5 art px) off a lot, on a road or on land not yet bought, counts as
   that lot; a finger may drift 12 CSS px and a tap may last 650 ms. Land for sale opens only
   from a tap clearly on it. Zoomed out, lots are only about 21-32 pt, under Apple's 44 pt.
+- Taps, second report ("the clicking isn't accurate again", after ChatGPT's move feature):
+  move mode stayed on after closing its sheet, so every tap tried to place the building. Now a
+  tap on any built tile leaves move mode and acts normally. The canvas also re-syncs when its
+  size changes (ResizeObserver, visualViewport, and a check on every tap), and taps scale x and
+  y separately, so an iOS height change after launch can't skew taps. A faint ring shows where
+  each tap landed, so Camden can say which way it is off if it still is.
+- Mission pay (Camden: "not close at all"): tuned to about the same coins per second of play.
+  Minutes of town shop income: taxi fare 4 (was 8, then x distance x tip x gas, so 4-6x the
+  rest), delivery 7, Lunch Rush 12, Odd Jobs 5 (+10%/skill), Lost & Found 10, Courier 6 a stop.
+  Bot: rides fell from 30% to 15% of income, missions rose to 21%, pacing unchanged.
 - Roads are not tappable, except the one tile Pip is sitting on (`hitTest` in render).
 - Driving: the car moves by itself at `TUNING.carBaseSpeed` lots a second and always arrives.
   Camden found it fast on the phone and wants it to start really slow and speed up through

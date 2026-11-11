@@ -81,7 +81,7 @@ export const TUNING = {
   rideFirstDelayMs: 20000,       // first ride can appear this long after a new game
   deliveryUnlockPop: 6,
   deliveryChance: 0.25,
-  deliveryFareMinutes: 5,
+  deliveryFareMinutes: 7,       // missions are tuned to pay about the same per second of play (2026-11-10)
   rushOrders: 5,
   courierStops: 3,
   oddSkillBonus: 0.1,            // Odd Jobs pay this much more per skill point of the helper you send
@@ -91,7 +91,7 @@ export const TUNING = {
   rideGapMaxMs: 80000,
   rideExpireMs: 90000,           // an ignored request quietly disappears
   rideMinFare: 15,
-  rideFareMinutes: 8,            // fare = this many minutes of town income (before tip)
+  rideFareMinutes: 4,            // fare = this many minutes of town income (before tip); was 8, 4-6x every other mission
   gasBonus: 0.5,                 // extra fare for holding the gas the whole trip (in proportion if less)
   gasSpeed: 2.5,                 // how much faster the car goes while the gas is held
   carBaseSpeed: 0.75,            // lots per second with no gas, in the first car
@@ -161,12 +161,12 @@ export const CARS = [
 // The jobs board: things to do for coins whenever you like. `minutes` = pay in minutes of the
 // town's shop income (never less than `pay`); each job rests for `cooldownMs` after you take it.
 export const TOWN_JOBS = {
-  taxi:     { name: 'Taxi Ride',        icon: 'taxi',     hint: 'Drive a resident across town',  pay: 12, minutes: 8, cooldownMs: 60000 },
-  delivery: { name: 'Package Delivery', icon: 'box',      hint: 'Take a parcel to a home',       pay: 14, minutes: 5, cooldownMs: 90000 },
-  rush:     { name: 'Lunch Rush',       icon: 'cat_food', hint: 'Serve five orders',             pay: 22, minutes: 6, cooldownMs: 120000 },
-  odd:      { name: 'Odd Jobs',         icon: 'person',   hint: 'Send the best resident to help', pay: 6,  minutes: 3, cooldownMs: 90000 },
-  lost:     { name: 'Lost & Found',     icon: 'dog',      hint: 'Find Pip the dog on the map',   pay: 14, minutes: 5, cooldownMs: 150000 },
-  courier:  { name: 'Courier Route',    icon: 'box',      hint: 'Three homes: shortest route pays a bonus', pay: 7, minutes: 2.5, cooldownMs: 180000 },
+  taxi:     { name: 'Taxi Ride',        icon: 'taxi',     hint: 'Drive a resident across town',  pay: 12, minutes: 4, cooldownMs: 60000 },
+  delivery: { name: 'Package Delivery', icon: 'box',      hint: 'Take a parcel to a home',       pay: 14, minutes: 7, cooldownMs: 90000 },
+  rush:     { name: 'Lunch Rush',       icon: 'cat_food', hint: 'Serve five orders',             pay: 22, minutes: 12, cooldownMs: 120000 },
+  odd:      { name: 'Odd Jobs',         icon: 'person',   hint: 'Send the best resident to help', pay: 6,  minutes: 5, cooldownMs: 90000 },
+  lost:     { name: 'Lost & Found',     icon: 'dog',      hint: 'Find Pip the dog on the map',   pay: 14, minutes: 10, cooldownMs: 150000 },
+  courier:  { name: 'Courier Route',    icon: 'box',      hint: 'Three homes: shortest route pays a bonus', pay: 7, minutes: 6, cooldownMs: 180000 },
 };
 
 // Orders use pictures and labels so they work with or without colour.

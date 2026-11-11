@@ -1253,6 +1253,8 @@ export function createUI(root, api) {
   function openNewcomers() { openSheet({ kind: 'newcomers' }); }
   function pickMoveLot(x, y) {
     if (movingId == null) return false;
+    // tapping a building (or any taken spot) means you've moved on: leave move mode and act normally
+    if (call('tileAt', S(), x, y)) { movingId = null; api.renderer.setMovePreview(null); refreshHUD(); return false; }
     const check = call('canMoveBuilding', S(), movingId, x, y, N());
     if (check.ok) openSheet({ kind: 'move', id: movingId, tile: { x, y } });
     else toast(check.reason);

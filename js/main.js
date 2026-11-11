@@ -309,6 +309,10 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('pagehide', persist);
 window.addEventListener('resize', () => renderer.resize());
+// iOS can change the app's height after launch (status bar, home-screen mode) without a window
+// resize; keep the canvas in step so drawing and taps always line up
+try { new ResizeObserver(() => renderer.resize()).observe(document.getElementById('map')); } catch { /* older browsers: resize events only */ }
+window.visualViewport?.addEventListener('resize', () => renderer.resize());
 window.addEventListener('orientationchange', () => renderer.resize());
 document.addEventListener('pointerdown', () => audio.unlock(), { passive: true });
 document.addEventListener('gesturestart', (e) => e.preventDefault());   // stop iOS page zoom

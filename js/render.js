@@ -126,6 +126,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   let taxi = null;
   let selection = null;
   let movePreview = null;
+  let tapRing = null;                  // { x, y, at }: device px of the last tap, drawn briefly
   let reach = null;        // { x, y, r }: the area a town building serves, shown while its sheet is open
   const tapFns = [];
   let lastRt = clock();
@@ -1061,6 +1062,17 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     }
 
     drawEffects(rt);
+    if (tapRing) {
+      const age = (rt - tapRing.at) / 350;
+      if (age >= 1) tapRing = null;
+      else {
+        ctx.globalAlpha = 0.55 * (1 - age);
+        ctx.strokeStyle = '#fff6e0';
+        ctx.lineWidth = Math.max(2, ratio * 1.5);
+        ctx.beginPath(); ctx.arc(tapRing.x, tapRing.y, (8 + 10 * age) * ratio, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
   }
 
   // ---------- hit testing ----------
@@ -1128,8 +1140,10 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
 
   function devPoint(e) {
     const r = canvas.getBoundingClientRect();
-    const k = r.width ? canvas.width / r.width : ratio;
-    return { x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k };
+    // if the screen changed size and the canvas hasn't caught up yet, catch up first so drawing and taps agree
+    if (r.width && r.height && (Math.abs(r.width * ratio - canvas.width) > 2 || Math.abs(r.height * ratio - canvas.height) > 2)) resize();
+    const kx = r.width ? canvas.width / r.width : ratio, ky = r.height ? canvas.height / r.height : ratio;
+    return { x: (e.clientX - r.left) * kx, y: (e.clientY - r.top) * ky };
   }
 
   function startPinch() {
@@ -1221,6 +1235,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     tapCandidate = null;
     const moved = tc.moved || Math.hypot(q.x - tc.x, q.y - tc.y) > TAP_MOVE_PX * ratio;
     if (moved || clock() - tc.time > TAP_MS) return;
+    tapRing = { x: tc.x, y: tc.y, at: clock() };              // a small ring shows where the tap landed
     const res = hitTest((tc.x - ox) / scale, (tc.y - oy) / scale);
     if (res) for (const fn of tapFns.slice()) fn(res);
   }
