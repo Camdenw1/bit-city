@@ -158,6 +158,7 @@ export function createUI(root, api) {
     <button class="gas" data-h="gas" hidden aria-label="Hold for gas"><b>GAS</b><span>hold</span></button>
     <div class="toasts" data-h="toasts" aria-live="polite"></div>
     <nav class="bottom-bar">
+      <button class="bar-btn" data-act="nav-feed">${icon('bubble', 2)}<span>Feed</span><i class="bar-dot bar-count" data-h="feedCount" hidden></i></button>
       <button class="bar-btn" data-act="nav-upgrades">${icon('star', 2)}<span>Upgrades</span><i class="bar-dot bar-count" data-h="jobsCount" hidden></i></button>
       <button class="bar-btn" data-act="nav-people">${icon('person', 2)}<span>People</span><i class="bar-dot" data-h="peopleDot" hidden></i></button>
       <button class="bar-btn" data-act="nav-menu">${icon('heart', 2)}<span>Menu</span></button>
@@ -292,6 +293,10 @@ export function createUI(root, api) {
     for (const t of s.tenants) { if (betterJob(t)) { nudge = true; break; } }
     if (h.peopleDot.hidden === nudge) h.peopleDot.hidden = !nudge;
 
+    // Feed: how many posts you haven't read
+    const unread = call('unreadPosts', s) || 0;
+    setText(h.feedCount, unread > 9 ? '9+' : String(unread));
+    if (h.feedCount.hidden === (unread > 0)) h.feedCount.hidden = unread === 0;
     // Upgrades: a count of upgrades you can afford right now.
     const ups = Object.keys(config.UPGRADES || {}).filter((id) => { const c = call('upgradeNextCost', s, id); return c > 0 && c <= s.coins; }).length
       + (call('nextCar', s) && call('nextCar', s).cost <= s.coins ? 1 : 0);
@@ -884,6 +889,22 @@ export function createUI(root, api) {
       return { title: 'Jobs', html: `<p class="note">Jobs pay more as your town grows. Each one rests a little after you do it.</p>${rows}${carRow}` };
     },
 
+    /* --- Feed: what residents and visitors are saying --- */
+    feed() {
+      const s = S(); const now = N();
+      const posts = (s.feed || []).slice().reverse().map((p) => {
+        const ago = Math.max(0, now - p.at);
+        const when = ago < 60000 ? 'now' : formatDuration(ago).split(' ')[0];
+        return `<div class="post post-${p.tone || 'hint'}" data-key="p${p.id}">
+          <span class="avatar">${person(p.look || {}, 3)}</span>
+          <div class="post-body"><div class="post-head"><b>${esc(p.name)}</b><span>@${esc(String(p.name).toLowerCase().replace(/[^a-z]/g, ''))}${p.who === 'visitor' ? ' · visitor' : ''} · ${esc(when)}</span></div>
+            <p>${esc(p.text)}</p></div></div>`;
+      }).join('');
+      return { title: 'Town feed', html: posts
+        ? `<p class="note">What residents and visitors are saying. Complaints are a hint at what to build next.</p>${posts}`
+        : empty('heart', 'Nothing yet. Once the town has a few residents, visitors start dropping by and everyone chats here.') };
+    },
+
     /* --- Upgrades: the car and short ladders that make the town run better --- */
     upgrades() {
       const s = S();
@@ -1263,6 +1284,7 @@ export function createUI(root, api) {
     },
     'nav-menu': () => openSheet({ kind: 'menu', reset: 0 }),
     'nav-upgrades': () => openSheet({ kind: 'upgrades' }),
+    'nav-feed': () => { openSheet({ kind: 'feed' }); act('readFeed'); },
     'buy-upgrade': (el) => {
       const r = act('buyUpgrade', el.dataset.id);
       const u = (config.UPGRADES || {})[el.dataset.id];

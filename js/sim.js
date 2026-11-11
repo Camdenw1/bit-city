@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick } from './state.js';
 
@@ -1091,6 +1091,8 @@ function maybeProblem(state, now) {
   const problem = { buildingId: b.id, kind, at: now, fixAt: fixer ? now + fixMs(state) : null, fixerId: fixer ? fixer.id : null };
   state.problems.push(problem);
   events.emit('problem', { building: b, problem });
+  const worker = workersOf(state, b.id)[0];
+  if (worker) post(state, now, worker, 'resident', POSTS.problem.replace('{shop}', buildingName(b)), 'bad');
 }
 
 /** Clears problems whose helpers have finished, and sends help to any that a new station can now reach. */
@@ -1181,7 +1183,7 @@ export function tenantWish(state, tenant, now, mood = townMood(state, now)) {
   const job = buildingById(state, tenant.jobId);
   if (job && job.type === tenant.dream) return 'I have my dream job. Thank you!';
   const dream = BUILDINGS[tenant.dream];
-  if (dream && !state.buildings.some((b) => b.type === tenant.dream)) return `I wish we had a ${dream.name}. I'd love to work there.`;
+  if (dream && !state.buildings.some((b) => b.type === tenant.dream)) return `I wish we had ${/^[AEIOU]/i.test(dream.name) ? 'an' : 'a'} ${dream.name}. I'd love to work there.`;
   if (!job) return NEEDS[0].wish;
   // otherwise they voice one of the town's unmet needs, a different one per person
   const unmet = residentMood(state, tenant, now, mood).missing.filter((n) => n.id !== 'jobs');
@@ -1320,7 +1322,7 @@ export function assignJob(state, tenantId, bizId, now) {
     state.stats.dreamJobs++;
   }
   events.emit('job', { tenant, building: b, dream });
-  if (first) gainGems(state, 1);
+  if (first) { gainGems(state, 1); post(state, now, tenant, 'resident', POSTS.dream.replace('{shop}', buildingName(b)), 'good'); }
   checkGoals(state, now);
   return { ok: true, reason: '', dream, firstDream: first };
 }
@@ -1441,6 +1443,74 @@ export function moveOut(state, tenantId, now) {
 export function welcomeSpot(state) {
   const e = entryRoute(state);
   return e ? e.tiles.at(e.tiles.length >= 2 ? -2 : -1) : null;
+}
+
+// ---- visitors and the feed ----------------------------------------------------------
+// While you play, visitors drive in on the entry road wanting one kind of place. They spend
+// at your best shop of that kind (a little extra income) and post about it; if there is none,
+// their post says what the town is missing. A happy visitor may join the newcomers.
+
+/** Add a post to the feed (oldest posts drop off). `who` is a person-like { name, look }. */
+function post(state, now, who, kind, text, tone = 'hint') {
+  state.feed.push({ id: state.nextId++, at: now, name: who.name, look: who.look, text, who: kind, tone });
+  if (state.feed.length > TUNING.feedMax) state.feed.splice(0, state.feed.length - TUNING.feedMax);
+  events.emit('post', { post: state.feed[state.feed.length - 1] });
+}
+
+export function unreadPosts(state) {
+  return state.feed.filter((p) => p.id > (state.feedRead || 0)).length;
+}
+export function readFeed(state) {
+  state.feedRead = state.feed.length ? state.feed[state.feed.length - 1].id : state.feedRead;
+  return { ok: true, reason: '' };
+}
+
+function maybeVisitor(state, now) {
+  if (now < state.nextVisitAt) return;
+  state.nextVisitAt = now + TUNING.visitorGapMinMs + randInt(state, TUNING.visitorGapMaxMs - TUNING.visitorGapMinMs + 1);
+  if (population(state) < TUNING.visitorUnlockPop) return;
+  visit(state, now);
+}
+
+/** One visitor arrives, wanting a kind of place. Returns what happened (for tests). */
+export function visit(state, now, cat = null) {
+  const v = makeApplicant(state);           // a whole person, so they can move in later
+  cat = cat || pick(state, CATEGORIES.filter((c) => categoryUnlocked(state, c)).concat(CATEGORIES.filter((c) => categoryUnlocked(state, c) && shopsIn(state, c))));
+  const open = builtBiz(state, now).filter((b) => catOf(b) === cat && workersOf(state, b.id).length && (b.stock > 0 || b.dreamStars));
+  const shop = open.sort((a, b) => ratePerMin(state, b) - ratePerMin(state, a) || a.id - b.id)[0];
+  state.stats.visitors++;
+  if (!shop) {
+    post(state, now, v, 'visitor', VISITS[cat].miss, 'bad');
+    events.emit('visitMiss', { cat });
+    return { ok: true, reason: '', visitor: v, cat, shop: null, spent: 0 };
+  }
+  const spent = Math.max(5, Math.round(townRatePerMin(state, now) * TUNING.activeBoost * TUNING.visitorSpendMinutes));
+  gain(state, spent, 'visitor', shop.id);
+  const lines = VISITS[cat].good;
+  post(state, now, v, 'visitor', lines[randInt(state, lines.length)].replace('{shop}', buildingName(shop)), 'good');
+  events.emit('visit', { building: shop, amount: spent, visitor: v });
+  // a great time in a happy town: they may ask to move in
+  let movedIn = false;
+  if (state.applicants.length < TUNING.applicantCount && vacancies(state) > 0 && happiness(state, now) >= 70 && rand(state) < TUNING.visitorMoveInChance) {
+    v.dream = shop.type;
+    v.arrivedAt = now;
+    state.applicants.push(v);
+    post(state, now, v, 'visitor', POSTS.movein.replace('{shop}', buildingName(shop)), 'good');
+    events.emit('arrival', { applicant: v, visitor: true });
+    movedIn = true;
+  }
+  return { ok: true, reason: '', visitor: v, cat, shop, spent, movedIn };
+}
+
+/** Now and then a resident posts what they wish the town had (the most useful hint first). */
+function maybePost(state, now) {
+  if (now < state.nextPostAt) return;
+  state.nextPostAt = now + TUNING.postGapMs;
+  if (!state.tenants.length) return;
+  const mood = townMood(state, now);
+  const unhappy = state.tenants.filter((t) => residentMood(state, t, now, mood).missing.length);
+  const t = (unhappy.length ? unhappy : state.tenants)[randInt(state, (unhappy.length ? unhappy : state.tenants).length)];
+  post(state, now, t, 'resident', tenantWish(state, t, now, mood), unhappy.length ? 'hint' : 'good');
 }
 
 // ---- teams ---------------------------------------------------------------------
@@ -1802,15 +1872,19 @@ export function startBoardRide(state, kind, now) {
 
 /**
  * Pick up a rider and set off. The game already knows where they're going (a red pin
- * marks it), so a taxi ride goes straight to driving; Camden didn't want to choose.
- * Picking someone up quickly earns the best tip. A delivery still waits for you to tap
- * the marked home.
+ * marks it), so a ride goes straight to driving; Camden didn't want to choose. Deliveries
+ * work the same way (the parcel's home gets the pin). A quick taxi pickup earns the best tip.
  */
 export function pickupRide(state, now) {
   const r = acceptRide(state, now);       // also fine for a rider already picked up (older saves)
-  if (!r.ok || state.ride.kind === 'delivery') return r;
+  if (!r.ok) return r;
   const ride = state.ride;
   if (ride.state === 'driving') return { ...r, fare: ride.fare, driving: true };
+  if (ride.kind === 'delivery') {          // a parcel: the fare is set on pickup; the pin marks the home
+    ride.state = 'driving';
+    events.emit('rideStart', { ride, fare: ride.fare });
+    return { ...r, fare: ride.fare, driving: true };
+  }
   const { pickupTipFastMs: fast, pickupTipSlowMs: slow, rideTipMax: max } = TUNING;
   const t = Math.max(0, now - ride.requestedAt);
   const tip = t <= fast ? max : t >= slow ? 1 : max - ((max - 1) * (t - fast)) / (slow - fast);
@@ -2171,6 +2245,11 @@ export function advance(state, now, { live = true, active = false } = {}) {
   }
   if (live) maybeRequestRide(state, now);
   if (live) maybeProblem(state, now);
+  if (live) { maybeVisitor(state, now); maybePost(state, now); }
+  else {                                   // visitors and posts only happen while you play
+    if (state.nextVisitAt < now) state.nextVisitAt = now + TUNING.visitorGapMinMs;
+    if (state.nextPostAt < now) state.nextPostAt = now + TUNING.postGapMs;
+  }
   checkGoals(state, now);
   return res;
 }

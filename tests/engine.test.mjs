@@ -140,7 +140,7 @@ test('newGame: shape and JSON round trip', () => {
   assert.equal(s.v, 1); assert.equal(s.createdAt, T0); assert.equal(s.lastTick, T0);
   assert.equal(s.lastRentHour, Math.floor(T0 / HOUR)); assert.equal(s.rentCarry, 0);
   assert.equal(s.coins, 250); assert.equal(s.gems, 2);
-  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0 });
+  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0 });
   assert.deepEqual(s.buildings, []); assert.deepEqual(s.tenants, []);
   assert.equal(s.applicants.length, 3);
   assert.equal(s.ride, null); assert.deepEqual(s.goalsDone, []); assert.deepEqual(s.settings, { sound: true });
@@ -1818,4 +1818,42 @@ test('a taxi rider saved mid-choice (older version) sets off to the pinned spot'
   assert.equal(s.ride.state, 'choosing');
   const r = sim.pickupRide(s, T0 + 4000);
   assert.ok(r.ok && r.driving); assert.equal(s.ride.state, 'driving'); assert.ok(s.ride.fare >= TUNING.rideMinFare);
+});
+
+test('deliveries drive off by themselves to the pinned home', () => {
+  const { s } = rideTown();
+  for (let i = s.tenants.length; i < TUNING.deliveryUnlockPop; i++) person(s, put(s, 'tent', T0), T0);
+  s.stats.rides = 1;
+  allGoalsDone(s);
+  const r = sim.startBoardRide(s, 'delivery', s.lastTick);
+  assert.ok(r.ok && r.driving); assert.equal(s.ride.kind, 'delivery'); assert.equal(s.ride.state, 'driving');
+  assert.ok(s.ride.fare > 0);
+  assert.equal(sim.completeRide(s, s.lastTick + 5000).ok, true);
+});
+
+test('visitors spend at your best shop, or post what is missing; the feed keeps 40 posts', () => {
+  const { s, diner } = smallTown();
+  allGoalsDone(s);
+  const coins = s.coins;
+  const good = sim.visit(s, s.lastTick, 'food');
+  assert.equal(good.shop.id, diner.id); assert.ok(good.spent >= 5);
+  assert.equal(s.coins, coins + good.spent);
+  assert.equal(s.feed.at(-1).who, 'visitor'); assert.equal(s.feed.at(-1).tone, 'good');
+  const miss = sim.visit(s, s.lastTick, 'creative');
+  assert.equal(miss.shop, null); assert.equal(miss.spent, 0);
+  assert.equal(s.feed.at(-1).text, config.VISITS.creative.miss, 'the post says what the town is missing');
+  assert.equal(sim.unreadPosts(s), s.feed.length);
+  sim.readFeed(s);
+  assert.equal(sim.unreadPosts(s), 0);
+  for (let i = 0; i < 60; i++) sim.visit(s, s.lastTick, 'food');
+  assert.equal(s.feed.length, TUNING.feedMax);
+  // visitors only come while you play
+  const n = s.stats.visitors;
+  sim.advance(s, s.lastTick + 3 * HOUR, { live: false });
+  assert.equal(s.stats.visitors, n);
+  assert.ok(s.nextVisitAt > s.lastTick);
+  // older saves get an empty feed
+  const old = JSON.parse(JSON.stringify(s)); delete old.feed; delete old.feedRead; delete old.nextVisitAt;
+  const m = S.migrate(old);
+  assert.deepEqual(m.feed, []); assert.equal(m.feedRead, 0); assert.ok(m.nextVisitAt > 0);
 });

@@ -135,7 +135,17 @@ covers running and publishing. This file holds the design decisions and the road
   Odd Jobs on a home, Courier at a Post Office...), at most `TUNING.jobSpots` (2), none while
   busy, map-only jobs before taxi and parcels. Tapping that building starts the job
   (`ui.startJob`). A toast says when one pops up. There is no Jobs list any more.
-- Bottom bar (2026-11-10): Upgrades, People, Menu. Camden removed the Build button (it only
+- Visitors (2026-11-10): only while you play, from `visitorUnlockPop` (6) residents, one every
+  1-2.5 min (`maybeVisitor`/`visit`). Each wants a shop category; they spend
+  `visitorSpendMinutes` (0.2) of the whole town's while-you-play shop income at your best shop of
+  that kind (a coin pop), or post what was missing. About 10% extra shop income while playing,
+  about 1% of a whole day. In a 70%+ happy town with a free home, 15% ask to move in (they join
+  the Welcome sign, dreaming of the shop they loved).
+- Feed (bottom-bar button with unread count): Twitter-style posts in `state.feed` (40 kept):
+  visitors' reviews and complaints, a resident's wish every `postGapMs` (4 min) while playing,
+  first dream jobs, shop problems. Complaints are the hint at what to build.
+- Deliveries drive off by themselves too (Camden, 2026-11-10); the pin marks the parcel's home.
+- Bottom bar (2026-11-10): Feed, Upgrades, People, Menu. Camden removed the Build button (it only
   said "tap an empty lot"); building is tapping a lot, and the first goal says so.
 - Upgrades tab (bottom-bar button, replaces Jobs; badge = upgrades you can afford): the
   car (`CARS`) plus `UPGRADES` ladders: Construction crew (-12% build time a level, 4 levels),
@@ -214,8 +224,7 @@ range for town buildings, per-resident happiness with reasons, happiness moving 
 shop problems the government solves, the Mayor's desk, his own places, land-bound buildings,
 a jobs board with six ways to earn, the gas pedal, car upgrades and the welcome drive.
 Batch 1 (worker skill and count) and newcomers (arrivals on the entry road, traits, stars,
-moving out) are done. The game is now called Mini Mayor. Still open from the visitors idea:
-visitors who spend money and a social feed.
+moving out) are done. The game is now called Mini Mayor. Visitors and the feed are done.
 Suggested order for the rest (he has not confirmed it): visitors and a social feed; moving
 buildings and terrain-only buildings; raw materials and a construction crew; prestige trees.
 His calls on the contested ideas (2026-11-10), still to build:
@@ -233,7 +242,7 @@ change when these are built.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (52 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (54 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

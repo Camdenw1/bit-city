@@ -11,7 +11,7 @@ const MIN = 60000, HOUR = 60 * MIN;
 function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedTime, detail = true }) {
   let now = seedTime;
   const s = store.newGame(now);
-  const income = { sales: 0, ride: 0, delivery: 0, job: 0, rent: 0, goal: 0, trade: 0, order: 0 };
+  const income = { sales: 0, ride: 0, delivery: 0, job: 0, rent: 0, goal: 0, trade: 0, order: 0, visitor: 0 };
   const onCoins = sim.events.on('coins', ({ amount, reason }) => { if (income[reason] != null) income[reason] += amount; });
   let manualRestocks = 0; let fixes = 0; let problems = 0;
   const onProblem = sim.events.on('problem', () => { problems++; });

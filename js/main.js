@@ -142,9 +142,15 @@ sim.events.on('order', ({ order }) => {
   audio.play('goal');
   ui.toast(`${order.town} says thanks! +${order.coins} coins, +${order.gems} gem`);
 });
-sim.events.on('arrival', ({ applicant }) => {
+sim.events.on('arrival', ({ applicant, visitor }) => {
   if (quiet) return;
-  ui.toast(`${applicant.name} drove into town${applicant.star ? ' (a star!)' : ''}. Tap the key by the entry road to meet them.`);
+  ui.toast(visitor ? `${applicant.name} loved their visit and wants to move in! Tap the key by the entry road.`
+    : `${applicant.name} drove into town${applicant.star ? ' (a star!)' : ''}. Tap the key by the entry road to meet them.`);
+});
+sim.events.on('visit', ({ building, amount }) => {
+  if (quiet) return;
+  renderer.floatText(building.x, building.y, `+${formatCoins(amount)}`, COIN);
+  renderer.burst(building.x, building.y, 'hearts');
 });
 sim.events.on('truckIn', ({ truck }) => {
   if (quiet || truck.kind === 'order') return;     // orders have their own thank-you
@@ -197,7 +203,7 @@ function resumeRide() {
   if (ride.state === 'driving') act('completeRide');        // app was closed mid-drive: just pay out
   else if (ride.state === 'choosing') {
     // a taxi rider saved from before the game picked destinations: off they go to the pinned spot
-    if (ride.kind !== 'delivery' && act('pickupRide')?.driving) { startDrive(); return; }
+    if (act('pickupRide')?.driving) { startDrive(); return; }
     if (ride.kind === 'delivery') renderer.focusTile(tileOf(ride.toId));
     ui.showRide(ride);
   }

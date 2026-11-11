@@ -120,13 +120,17 @@ export function newGame(now) {
     coins: TUNING.startCoins,
     gems: TUNING.startGems,
     nextId: 1,
-    stats: { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0 },
+    stats: { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0 },
     buildings: [],
     tenants: [],
     applicants: [],
     nextApplicantAt: now + TUNING.applicantEveryMs,
     slowArrivalsUntil: 0,
-    upgrades: {},                      // Upgrades tab: id -> level bought (0 if missing)              // after asking someone to move out, newcomers come slower until then
+    upgrades: {},                      // Upgrades tab: id -> level bought (0 if missing)
+    nextVisitAt: now + TUNING.visitorGapMaxMs,   // visitors only come while you play
+    nextPostAt: now + TUNING.postGapMs,
+    feed: [],                          // posts, newest last: { id, at, name, look, text, who: 'visitor'|'resident', tone }
+    feedRead: 0,                       // the id of the newest post you have seen              // after asking someone to move out, newcomers come slower until then
     ride: null,
     job: null,
     nextRideAt: now + TUNING.rideFirstDelayMs,
@@ -232,7 +236,7 @@ export function migrate(state) {
     state.gems = isNum(state.gems) ? Math.max(0, Math.floor(state.gems)) : 0;
     const st = state.stats && typeof state.stats === 'object' ? state.stats : {};
     state.stats = {};
-    for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
+    for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks', 'visitors']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
 
     state.buildings = state.buildings.filter(
       (b) => b && typeof b === 'object' && isNum(b.id) && BUILDINGS[b.type] && isNum(b.x) && isNum(b.y)
@@ -274,6 +278,12 @@ export function migrate(state) {
     for (const o of [...state.buildings, ...state.tenants, ...state.applicants, ...(Array.isArray(state.orders) ? state.orders : []).filter((x) => x && isNum(x.id)), ...(Array.isArray(state.trucks) ? state.trucks : []).filter((x) => x && isNum(x.id))]) maxId = Math.max(maxId, o.id);
     state.nextId = Math.max(isNum(state.nextId) ? state.nextId : 1, maxId + 1);
     if (!isNum(state.slowArrivalsUntil)) state.slowArrivalsUntil = 0;
+    // visitors and the feed (2026-11-10)
+    if (!isNum(state.nextVisitAt)) state.nextVisitAt = state.lastTick + TUNING.visitorGapMaxMs;
+    if (!isNum(state.nextPostAt)) state.nextPostAt = state.lastTick + TUNING.postGapMs;
+    state.feed = (Array.isArray(state.feed) ? state.feed : []).filter((p) => p && isNum(p.id) && isNum(p.at) && typeof p.text === 'string').slice(-TUNING.feedMax);
+    if (!isNum(state.feedRead)) state.feedRead = 0;
+    if (!isNum(state.stats.visitors)) state.stats.visitors = 0;
     // the Upgrades tab (2026-11-10): older saves have bought none
     const ups = state.upgrades && typeof state.upgrades === 'object' ? state.upgrades : {};
     state.upgrades = {};

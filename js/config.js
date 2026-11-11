@@ -53,6 +53,13 @@ export const TUNING = {
   stepMs: 60000,                 // largest simulation step
   maxOfflineMs: 14 * 86400000,   // offline catch-up cap
   yardFactor: 0.5,               // build time near a Construction Yard
+  visitorUnlockPop: 6,           // visitors start coming once the town has this many residents
+  visitorGapMinMs: 60000,        // while you play, a visitor arrives every 1 to 2.5 minutes
+  visitorGapMaxMs: 150000,
+  visitorSpendMinutes: 0.2,      // a visitor spends this many minutes of the whole town's while-you-play sales (~10% extra)
+  visitorMoveInChance: 0.15,     // a visitor who had a good time may join the newcomers (town 70%+ happy)
+  postGapMs: 4 * 60000,          // a resident posts a wish to the feed this often while you play
+  feedMax: 40,                   // posts kept
   jobSpots: 2,                   // jobs that can sit on the map as bubbles at once
   applicantCount: 3,             // newcomers waiting at the Welcome sign at most
   applicantEveryMs: 4 * 60000,   // (older saves) kept for the first arrival time of a new game
@@ -182,6 +189,26 @@ export const ODD_JOBS = {
   service: 'Fix a squeaky gate',
   farming: 'Plant a garden',
   creative: 'Paint a shop sign',
+};
+
+// ---- Visitors and the feed --------------------------------------------------
+// What a visitor came for (a shop category) and what they post when they find it or don't.
+export const VISITS = {
+  food:     { want: 'something to eat',   good: ['Best lunch ever at the {shop}! 😋', 'The {shop} is worth the drive.', 'Still dreaming about the {shop}…'],
+              miss: 'Drove in hungry and found nowhere to eat 😕' },
+  retail:   { want: 'some shopping',      good: ['Found a treasure at the {shop}! 🛍️', 'The {shop} has everything.', 'Spent way too much at the {shop} 😅'],
+              miss: 'Came to go shopping. There were no shops 😕' },
+  service:  { want: 'a fix-up',           good: ['The {shop} sorted me out in minutes!', 'Super friendly folks at the {shop}.'],
+              miss: 'Needed a service on my trip and nobody could help.' },
+  farming:  { want: 'fresh produce',      good: ['Fresh from the {shop}! 🥕', 'Picked the best basket at the {shop}.'],
+              miss: 'Hoped for a farm stand. No luck.' },
+  creative: { want: 'some fun',           good: ['What a night at the {shop}! 🎉', 'The {shop} is the place to be.', 'Already planning my next trip to the {shop}.'],
+              miss: 'Nothing to do for fun here yet… 🥱' },
+};
+export const POSTS = {
+  movein: 'Loved the {shop} so much I might move here! 🏡',
+  dream: 'Just started my dream job at the {shop}! ⭐',
+  problem: 'Uh oh, trouble at the {shop}. Someone help!',
 };
 
 // ---- Upgrades (the Upgrades tab) ---------------------------------------------
