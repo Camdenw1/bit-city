@@ -75,6 +75,14 @@ covers running and publishing. This file holds the design decisions and the road
   tapped (a farther twin pays more).
 - Shops are bought as a surprise: one card per category plus Government (`buildRandom`);
   homes, parks and the Trading Post are direct picks. The reveal is a toast.
+- Updates (2026-11-11, Camden: "the changes don't seem to go live on my app"): two causes.
+  GitHub Pages sends max-age=600, so a new service worker's addAll could store 10-minute-old
+  copies (a mix of old and new files); and iOS resumes the app rather than relaunching, so a
+  new version waited. Now install fetches with `cache: 'reload'`, background refreshes use
+  `no-cache`, main.js reloads once on `controllerchange` (saving first) and calls
+  `reg.update()` whenever the app comes to the front. Menu shows "version N": bump `VERSION`
+  in config.js together with `CACHE` in sw.js. Phones on an older version need one more launch
+  to pick up this fix; after that, updates apply the same time the app is opened.
 - Saving: localStorage with a backup copy, plus an export/import backup code in Menu.
   Saves must never be lost: any change to the state shape needs a step in `migrate()`
   in `js/state.js`.
@@ -353,7 +361,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - All balance numbers live in `js/config.js` (`BUILDINGS`, `TUNING`, `GOALS`).
 - `js/ui.js` never imports sim directly; it goes through the `api` object from `main.js`.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
-- Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
+- Bump `CACHE` in `sw.js` and `VERSION` in config.js together when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
 - Tests: `node --test` from the project root (64 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.

@@ -1,5 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
+export const VERSION = 40;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;

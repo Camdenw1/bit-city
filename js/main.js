@@ -380,7 +380,20 @@ requestAnimationFrame(frame);
 navigator.storage?.persist?.().catch(() => {});
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // An update takes over as soon as it has downloaded: save, then reload once, so a new version
+  // shows up the same time you open the app instead of on some later launch.
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    persist();
+    location.reload();
+  });
+  navigator.serviceWorker.register('sw.js').then((reg) => {
+    // check again whenever the app comes back to the front (iPhone resumes apps rather than restarting them)
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+  }).catch(() => {});
 }
 
 // Handy for testing from the console: bitcity.skip(60) jumps ahead one hour.

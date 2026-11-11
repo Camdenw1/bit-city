@@ -1,7 +1,9 @@
 // Mini Mayor service worker: makes the game work offline once it has been opened.
-// Strategy: answer from the cache right away, and refresh the cache in the
-// background so the next launch picks up any update.
-const CACHE = 'bitcity-v39';
+// Strategy: answer from the cache right away, and refresh the cache in the background.
+// A new version installs with fresh copies of every file (never the browser's 10-minute HTTP
+// cache, which once mixed old and new files), and the page reloads itself once it takes over.
+// Keep CACHE in step with VERSION in js/config.js.
+const CACHE = 'bitcity-v40';
 const FILES = [
   './', './index.html', './styles.css', './manifest.webmanifest',
   './js/main.js', './js/config.js', './js/state.js', './js/sim.js',
@@ -10,7 +12,7 @@ const FILES = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
@@ -27,7 +29,7 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     caches.open(CACHE).then(async (cache) => {
       const cached = await cache.match(req, { ignoreSearch: true });
-      const fresh = fetch(req)
+      const fresh = fetch(req.url, { cache: 'no-cache' })
         .then((res) => { if (res && res.ok) cache.put(req, res.clone()); return res; })
         .catch(() => cached);
       return cached || fresh;

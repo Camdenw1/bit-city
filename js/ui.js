@@ -1182,7 +1182,8 @@ export function createUI(root, api) {
               ? `<div class="confirm"><span>Start over with an empty town?</span>
                 <div class="row"><button class="btn btn-quiet" data-act="reset-cancel">Keep my town</button>
                 <button class="btn btn-warn" data-act="reset-ask2">Start over</button></div></div>`
-              : `<button class="link" data-act="reset-ask">Start over</button>`}`,
+              : `<button class="link" data-act="reset-ask">Start over</button>`}
+          <p class="note version">Mini Mayor · version ${config.VERSION || '?'}</p>`,
       };
     },
 
