@@ -140,7 +140,7 @@ test('newGame: shape and JSON round trip', () => {
   assert.equal(s.v, 1); assert.equal(s.createdAt, T0); assert.equal(s.lastTick, T0);
   assert.equal(s.lastRentHour, Math.floor(T0 / HOUR)); assert.equal(s.rentCarry, 0);
   assert.equal(s.coins, 250); assert.equal(s.gems, 2);
-  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0 });
+  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0 });
   assert.deepEqual(s.buildings, []); assert.deepEqual(s.tenants, []);
   assert.equal(s.applicants.length, 3);
   assert.equal(s.ride, null); assert.deepEqual(s.goalsDone, []); assert.deepEqual(s.settings, { sound: true });
@@ -1908,4 +1908,42 @@ test('residents shop nearby while you play: lunch at a food shop', () => {
   sim.advance(s, s.lastTick + HOUR, { live: false });
   assert.ok(s.nextShopAt > s.lastTick);
   assert.ok(n <= s.coins);
+});
+
+test('VIPs: wait on the entry road, you send them to a building, they leave quietly', () => {
+  const { s, diner, market } = smallTown();
+  allGoalsDone(s);
+  const now = s.lastTick;
+  // the critic only reviews food shops; a rave review lifts that shop's sales by half
+  sim.arriveVip(s, now, 'critic');
+  assert.match(sim.sendVip(s, market.id, now).reason, /food/);
+  const before = sim.ratePerMin(s, diner);
+  assert.ok(sim.sendVip(s, diner.id, now).ok);
+  assert.equal(s.vip, null);
+  assert.ok(Math.abs(sim.ratePerMin(s, diner) - before * (1 + TUNING.criticBoost)) < 1e-9);
+  // the builder finishes a construction
+  sim.arriveVip(s, now, 'builder');
+  const site = sim.build(s, 'tent', ...freeLot(s), now).building;
+  assert.equal(sim.isBuilt(site, now), false);
+  assert.ok(sim.sendVip(s, site.id, now).ok);
+  assert.equal(sim.isBuilt(site, now), true);
+  // the big spender pays out at a shop
+  sim.arriveVip(s, now, 'spender');
+  const coins = s.coins;
+  assert.ok(sim.sendVip(s, market.id, now).ok);
+  assert.ok(s.coins > coins);
+  // the recruiter moves a star into a home with room
+  sim.arriveVip(s, now, 'recruiter');
+  const pop = s.tenants.length;
+  assert.ok(sim.sendVip(s, site.id, now).ok);
+  assert.equal(s.tenants.length, pop + 1); assert.ok(s.tenants.at(-1).star);
+  // ignored VIPs leave without any penalty
+  sim.arriveVip(s, now, 'celebrity');
+  const c2 = s.coins;
+  sim.advance(s, now + TUNING.vipWaitMs + 1000);
+  assert.equal(s.vip, null); assert.ok(s.coins >= c2);
+  assert.equal(s.stats.vips, 4);
+  // older saves: no VIP waiting
+  const old = JSON.parse(JSON.stringify(s)); delete old.vip; delete old.nextVipAt;
+  assert.equal(S.migrate(old).vip, null);
 });

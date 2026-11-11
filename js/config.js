@@ -53,6 +53,14 @@ export const TUNING = {
   stepMs: 60000,                 // largest simulation step
   maxOfflineMs: 14 * 86400000,   // offline catch-up cap
   yardFactor: 0.5,               // build time near a Construction Yard
+  vipUnlockPop: 8,               // VIPs start visiting at this many residents (only while you play)
+  vipGapMinMs: 8 * 60000,        // a VIP arrives every 8-15 minutes of play
+  vipGapMaxMs: 15 * 60000,
+  vipWaitMs: 15 * 60000,         // they wait this long to be sent somewhere, then leave (no penalty)
+  vipSpendMinutes: 10,           // the Big Spender spends this many minutes of the town's play income
+  criticMs: 24 * 3600000,        // a rave review lasts a day...
+  criticBoost: 0.5,              // ...and the shop sells 50% more
+  buzzMs: 30 * 60000,            // a celebrity's visit: the shop sells double for 30 minutes
   residentShopGapMs: 20000,      // while you play, a resident buys something nearby this often
   residentSpendMinutes: 0.03,    // ...spending this many minutes of the town's while-you-play shop income (~9% extra)
   visitorUnlockPop: 6,           // visitors start coming once the town has this many residents
@@ -211,6 +219,18 @@ export const POSTS = {
   movein: 'Loved the {shop} so much I might move here! 🏡',
   dream: 'Just started my dream job at the {shop}! ⭐',
   problem: 'Uh oh, trouble at the {shop}. Someone help!',
+};
+
+// ---- VIPs (like Tiny Tower): you send each one to a building -------------------
+// `target`: what you tap to send them. 'site' = something still being built, 'shop' = an open
+// shop, 'food' = a food shop, 'home' = a home with room, 'any' = any building.
+export const VIPS = {
+  builder:   { name: 'Builder',     icon: 'hammer', target: 'site', does: 'Finishes one building that is still going up, right now.', ask: 'Tap a building that is still being built' },
+  spender:   { name: 'Big Spender', icon: 'coin',   target: 'shop', does: 'Spends big at one shop: 10 minutes of the town\'s play income.', ask: 'Tap an open shop' },
+  critic:    { name: 'Food Critic', icon: 'star',   target: 'food', does: 'Writes a rave review: that food shop sells 50% more for a day.', ask: 'Tap a food shop' },
+  celebrity: { name: 'Celebrity',   icon: 'heart',  target: 'shop', does: 'Fans flock in: that shop sells double for 30 minutes.', ask: 'Tap a shop' },
+  inspector: { name: 'Inspector',   icon: 'key',    target: 'any',  does: 'Fixes every shop problem in town at once.', ask: 'Tap any building' },
+  recruiter: { name: 'Recruiter',   icon: 'person', target: 'home', does: 'Brings a star resident who moves straight into that home.', ask: 'Tap a home with room' },
 };
 
 // ---- Upgrades (the Upgrades tab) ---------------------------------------------

@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick } from './state.js';
 
@@ -607,7 +607,7 @@ function potentialRate(state, b, mode = b.price) {
   const menu = catOf(b) === 'food' ? 1 + TUNING.recipeBonus * state.recipes.length : 1;
   const price = PRICE_MODES[mode] || PRICE_MODES.normal;
   const trouble = problemOf(state, b.id) ? 1 - TUNING.problemSalesCut : 1;
-  return statsOf(b).baseRate * staff * skill * dream * menu * qualityOf(b) * levelMult(b.level) * price.speed * price.pay * trouble * favOf(b);
+  return statsOf(b).baseRate * staff * skill * dream * menu * qualityOf(b) * levelMult(b.level) * price.speed * price.pay * trouble * favOf(b) * vipBoost(state, b);
 }
 
 export function ratePerMin(state, b) {
@@ -1590,6 +1590,91 @@ function maybePost(state, now) {
   post(state, now, t, 'resident', tenantWish(state, t, now, mood), unhappy.length ? 'hint' : 'good');
 }
 
+// ---- VIPs ---------------------------------------------------------------------------
+// Like Tiny Tower: now and then (only while you play) a VIP waits on the entry road. You tap
+// them, then tap the building to send them to. They never cost anything and leave quietly.
+
+/** A shop's sales boost from a VIP: a critic's rave review, a celebrity's buzz. */
+function vipBoost(state, b) {
+  const t = state.lastTick;
+  return (b.criticUntil > t ? 1 + TUNING.criticBoost : 1) * (b.buzzUntil > t ? 2 : 1);
+}
+
+/** Where the VIP waits: on the entry road, one step further out than the newcomers. */
+export function vipSpot(state) {
+  const e = entryRoute(state);
+  return e ? e.tiles.at(e.tiles.length >= 3 ? -3 : 0) : null;
+}
+
+function maybeVip(state, now) {
+  if (state.vip || now < state.nextVipAt) return;
+  state.nextVipAt = now + TUNING.vipGapMinMs + randInt(state, TUNING.vipGapMaxMs - TUNING.vipGapMinMs + 1);
+  if (population(state) < TUNING.vipUnlockPop) return;
+  arriveVip(state, now);
+}
+export function arriveVip(state, now, kind = null) {
+  const p = makeApplicant(state);
+  kind = kind && VIPS[kind] ? kind : pick(state, Object.keys(VIPS));
+  state.vip = { kind, name: p.name, look: p.look, arrivedAt: now, leaveAt: now + TUNING.vipWaitMs };
+  events.emit('vipArrive', { vip: state.vip });
+  return state.vip;
+}
+function vipLeaves(state, now) {
+  const v = state.vip;
+  state.vip = null;
+  post(state, now, v, 'visitor', 'Had to head off. Maybe next time!', 'hint');
+  events.emit('vipLeave', { vip: v });
+}
+
+/** Can the waiting VIP be sent to this building? '' if yes, else a friendly reason. */
+export function vipTargetIssue(state, buildingId, now) {
+  const v = state.vip;
+  if (!v) return 'No VIP is waiting right now.';
+  const b = buildingById(state, buildingId);
+  if (!b) return VIPS[v.kind].ask + '.';
+  switch (VIPS[v.kind].target) {
+    case 'site': return isBuilt(b, now) ? 'That one is already built. Tap something still going up.' : '';
+    case 'shop': return isBiz(b) && isBuilt(b, now) ? '' : `The ${VIPS[v.kind].name} only visits shops.`;
+    case 'food': return isBiz(b) && isBuilt(b, now) && catOf(b) === 'food' ? '' : 'The Food Critic only reviews food shops.';
+    case 'home': return isHome(b) && isBuilt(b, now) && residentsOf(state, b.id).length < defOf(b).capacity ? '' : 'Tap a home with a free room.';
+    default: return '';
+  }
+}
+
+/** Send the waiting VIP to a building. */
+export function sendVip(state, buildingId, now) {
+  const issue = vipTargetIssue(state, buildingId, now);
+  if (issue) return fail(issue);
+  const v = state.vip, b = buildingById(state, buildingId), name = buildingName(b);
+  let text = '';
+  if (v.kind === 'builder') { b.readyAt = now; text = `Finished the ${name} in record time! 🔨`; }
+  else if (v.kind === 'spender') {
+    const amount = Math.max(50, Math.round(townRatePerMin(state, now) * TUNING.activeBoost * TUNING.vipSpendMinutes));
+    gain(state, amount, 'vip', b.id); text = `Bought half the ${name}. Worth it! 💸`;
+  } else if (v.kind === 'critic') { b.criticUntil = now + TUNING.criticMs; text = `Five stars for the ${name}! ⭐⭐⭐⭐⭐`; }
+  else if (v.kind === 'celebrity') { b.buzzUntil = now + TUNING.buzzMs; text = `Hanging out at the ${name} today 😎`; }
+  else if (v.kind === 'inspector') {
+    const n = state.problems.length;
+    for (const p of state.problems) { const shop = buildingById(state, p.buildingId); if (shop) events.emit('problemFixed', { building: shop, problem: p, auto: true }); }
+    state.problems = [];
+    text = n ? `Sorted out ${n} ${n === 1 ? 'problem' : 'problems'}. All in order! ✅` : 'Everything is in order here. Nice town! ✅';
+  } else if (v.kind === 'recruiter') {
+    const star = makeApplicant(state);
+    star.star = true;
+    const best = CATEGORIES.reduce((a, c) => (star.skills[c] > star.skills[a] ? c : a), CATEGORIES[0]);
+    star.skills[best] = Math.max(star.skills[best], 8);
+    state.applicants.unshift(star);
+    const r = moveIn(state, 0, b.id, now);
+    text = r.ok ? `Found you a star: ${star.name} just moved into the ${name}! 🌟` : 'Could not find a room after all.';
+  }
+  state.vip = null;
+  state.stats.vips++;
+  post(state, now, v, 'visitor', text, 'good');
+  events.emit('vipUsed', { vip: v, building: b });
+  checkGoals(state, now);
+  return { ok: true, reason: '', text };
+}
+
 // ---- teams ---------------------------------------------------------------------
 // A shop's team is how many of its jobs are filled and how skilled those workers are.
 // The team meter compares it with the best team the shop could ever have (every job
@@ -2322,11 +2407,13 @@ export function advance(state, now, { live = true, active = false } = {}) {
   }
   if (live) maybeRequestRide(state, now);
   if (live) maybeProblem(state, now);
-  if (live) { maybeVisitor(state, now); maybePost(state, now); maybeResidentBuy(state, now); }
+  if (live) { maybeVisitor(state, now); maybePost(state, now); maybeResidentBuy(state, now); maybeVip(state, now); }
+  if (state.vip && now >= state.vip.leaveAt) vipLeaves(state, now);
   else {                                   // visitors and posts only happen while you play
     if (state.nextVisitAt < now) state.nextVisitAt = now + TUNING.visitorGapMinMs;
     if (state.nextPostAt < now) state.nextPostAt = now + TUNING.postGapMs;
     if (state.nextShopAt < now) state.nextShopAt = now + TUNING.residentShopGapMs;
+    if (state.nextVipAt < now) state.nextVipAt = now + TUNING.vipGapMinMs;
   }
   checkGoals(state, now);
   return res;

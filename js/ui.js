@@ -121,6 +121,7 @@ export function createUI(root, api) {
   const restockCostOf = (b) => call('restockCostOf', b) || 0;
   let wishBuild = null;
   let movingId = null;
+  let vipSending = false;   // after "Send", the next building tapped is where the VIP goes
   let moveOutAsk = null;   // tenant id waiting for a yes on "Ask to move out"
   /** On move-in you learn the real skills and any trait. */
   function revealToast(t) {
@@ -272,8 +273,13 @@ export function createUI(root, api) {
     const goal = rideView ? null : call('nextGoal', s);
     // once the starter goals are done, the chip shows what the town wants most
     const want = goal || rideView ? null : (call('mostWanted', s, now) || [])[0];
-    h.goal.dataset.act = movingId == null ? 'nav-town' : 'move-cancel';
-    if (movingId != null) {
+    if (vipSending && !s.vip) vipSending = false;          // they left
+    h.goal.dataset.act = vipSending ? 'vip-cancel' : movingId == null ? 'nav-town' : 'move-cancel';
+    if (vipSending) {
+      const vd = (config.VIPS || {})[s.vip.kind] || {};
+      setHTML(h.goal, `${icon(vd.icon || 'star', 1, 'i12')}<span class="goal-text">${esc(vd.name || 'VIP')}: ${esc(vd.ask || 'tap a building')} · Cancel</span>`, 'goal');
+      h.goal.hidden = false;
+    } else if (movingId != null) {
       setHTML(h.goal, `${icon('hammer', 1, 'i12')}<span class="goal-text">Choose an empty lot · Cancel</span>`, 'goal');
       h.goal.hidden = false;
     } else if (wishBuild && !rideView) {
@@ -791,6 +797,8 @@ export function createUI(root, api) {
               <div class="meter meter-stock${pct === 0 ? ' is-empty' : ''}"><i style="width:${pct}%"></i></div></div>
             ${selfStock ? `<p class="note">${icon('star', 1, 'i12')}Restocks itself — dream worker!</p>` : ''}${menu}${grown}
             ${c.fav ? `<p class="note">${icon('heart', 1, 'i12')}A mayor's favourite: sells ${favPct}% more</p>` : ''}
+            ${b.criticUntil > now ? `<p class="note">${icon('star', 1, 'i12')}Rave review: sells ${Math.round((config.TUNING?.criticBoost ?? 0.5) * 100)}% more for ${formatDuration(b.criticUntil - now)}</p>` : ''}
+            ${b.buzzUntil > now ? `<p class="note">${icon('heart', 1, 'i12')}Celebrity buzz: sells double for ${formatDuration(b.buzzUntil - now)}</p>` : ''}
           </div></div>
           ${trouble}${full ? '' : `<button class="btn btn-coin btn-wide" data-act="restock" data-id="${b.id}">${icon('box', 2)} Restock ${coinAmt(Math.min(cost, Math.max(0, Math.floor(s.coins))), 2)}</button>`}
           <div class="seg" role="group" aria-label="Prices">${prices}</div>
@@ -908,6 +916,18 @@ export function createUI(root, api) {
           ${next ? `<button class="btn btn-small ${next.cost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="upgrade-car">${esc(next.name)} · ${formatCoins(next.cost)} ${icon('coin', 1, 'i12')}</button>` : `<span class="tag tag-ok">Best car</span>`}</div>
         <p class="note up-note">${next ? `${esc(next.name)}: ${Math.round((next.speed / car.speed - 1) * 100)}% faster, fares +${Math.round((next.pay / car.pay - 1) * 100)}%. ` : ''}Hold GAS while driving to go faster and earn up to +${Math.round((config.TUNING?.gasBonus ?? 0.5) * 100)}%.</p>`;
       return { title: 'Jobs', html: `<p class="note">Jobs pay more as your town grows. Each one rests a little after you do it.</p>${rows}${carRow}` };
+    },
+
+    /* --- A VIP waiting on the entry road --- */
+    vip() {
+      const s = S(); const v = s.vip;
+      if (!v) return { title: 'VIP', html: empty('star', 'They already left. Another VIP will come by.') };
+      const vd = (config.VIPS || {})[v.kind] || {};
+      return { title: `VIP: ${esc(vd.name || '')}`, html: `<div class="hero"><span class="avatar big">${person(v.look, 6)}</span><div class="hero-info">
+          <p class="lead"><b>${esc(v.name)}</b>, the ${esc(vd.name || 'VIP')}</p>
+          <p class="note">${icon(vd.icon || 'star', 1, 'i12')}${esc(vd.does || '')}</p>
+          <p class="note">Waiting for another ${formatDuration(Math.max(1000, v.leaveAt - N()))}. No rush: if they leave, another VIP comes later.</p></div></div>
+        <button class="btn btn-go btn-wide" data-act="vip-send">${icon('star', 2)} Send them · ${esc(vd.ask || 'tap a building')}</button>` };
     },
 
     /* --- Feed: what residents and visitors are saying --- */
@@ -1251,6 +1271,17 @@ export function createUI(root, api) {
     try { const at = byId(r.job.shopId) || r.job; if (at) api.renderer.focusTile({ x: at.x, y: at.y }); } catch (e) { /* cosmetic */ }
   }
   function openNewcomers() { openSheet({ kind: 'newcomers' }); }
+  /** While sending a VIP: the tapped building is where they go. Returns true if the tap was used. */
+  function pickVipTarget(x, y, building) {
+    if (!vipSending) return false;
+    const vd = (config.VIPS || {})[S().vip?.kind] || {};
+    if (!building) { toast(`${vd.name || 'The VIP'}: ${vd.ask || 'tap a building'}.`); return true; }
+    const r = act('sendVip', building.id);
+    if (r && r.ok) { vipSending = false; toast(r.text); refreshHUD(); }
+    else if (r && r.reason) toast(r.reason);
+    return true;
+  }
+  function openVip() { if (S().vip) openSheet({ kind: 'vip' }); }
   function pickMoveLot(x, y) {
     if (movingId == null) return false;
     // tapping a building (or any taken spot) means you've moved on: leave move mode and act normally
@@ -1314,6 +1345,8 @@ export function createUI(root, api) {
     },
     'nav-menu': () => openSheet({ kind: 'menu', reset: 0 }),
     'nav-upgrades': () => openSheet({ kind: 'upgrades' }),
+    'vip-send': () => { vipSending = true; movingId = null; closeSheet(); refreshHUD(); },
+    'vip-cancel': () => { vipSending = false; refreshHUD(); },
     'nav-feed': () => { openSheet({ kind: 'feed' }); act('readFeed'); },
     'buy-upgrade': (el) => {
       const r = act('buyUpgrade', el.dataset.id);
@@ -1602,7 +1635,7 @@ export function createUI(root, api) {
   refresh();
 
   return {
-    refresh, openLot, openLand, openNewcomers, startJob, openBuilding, pickMoveLot, showAway, showRide, hideRide, celebrateDream, toast,
+    refresh, openLot, openLand, openNewcomers, startJob, openVip, pickVipTarget, openBuilding, pickMoveLot, showAway, showRide, hideRide, celebrateDream, toast,
     isModalOpen: () => !!sheet || !!celeb || queue.length > 0,
   };
 }

@@ -186,6 +186,13 @@ covers running and publishing. This file holds the design decisions and the road
   while playing, `residentSpendMinutes` 0.03 of the town's play income, ~9% extra while open):
   the event sends that resident's walker to the shop (`renderer.sendWalker`) with a coin pop.
   `renderer.walkerStats()` reports what they're doing, for testing.
+- VIPs (2026-11-10, Tiny Tower style, Camden chose "you send them"): while you play, from 8
+  residents, every 8-15 min one waits 15 min on the entry road (`vipSpot`, gold car, star
+  bubble). Tap -> sheet -> "Send them" -> the goal chip says what to tap -> tap a building
+  (`sendVip`, checked by `vipTargetIssue`). `VIPS` in config: Builder (finish a site), Big Spender
+  (10 min of play income at a shop), Food Critic (+50% for a day, `b.criticUntil`), Celebrity
+  (x2 for 30 min, `b.buzzUntil`), Inspector (fixes every problem), Recruiter (a star moves into
+  a home with room). Ignored VIPs leave quietly. Each posts to the feed.
 - Mission pay (Camden: "not close at all"): tuned to about the same coins per second of play.
   Minutes of town shop income: taxi fare 4 (was 8, then x distance x tip x gas, so 4-6x the
   rest), delivery 7, Lunch Rush 12, Odd Jobs 5 (+10%/skill), Lost & Found 10, Courier 6 a stop.
@@ -296,7 +303,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (56 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (57 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

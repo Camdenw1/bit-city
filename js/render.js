@@ -5,7 +5,7 @@
 import { MAP_W, MAP_H, TILE, isRoad, DAY_LENGTH_MS, BUILDINGS, WORLD, PARCELS, TUNING, parcelAt } from './config.js';
 import { initSprites, getSprite, getPerson, buildingSpriteId } from './sprites.js';
 import { makeWorld, terrainAt } from './terrain.js';
-import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots } from './sim.js';
+import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots, vipSpot } from './sim.js';
 
 const SPRITE_H = 16;                 // building sprites are 16 x 16: each one fits its own lot
 const OVERLAP = SPRITE_H - TILE;     // 0: nothing pokes into the tile above
@@ -1091,6 +1091,20 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         blit(ic, b.x * TILE + Math.floor((TILE - ic.width) / 2), by + Math.max(0, Math.floor((12 - ic.height) / 2)) + 1);
       }
 
+      // a VIP waiting on the entry road: their gold car, them, and a gold star bubble
+      const vs = f.state.vip ? safe(() => vipSpot(f.state), null) : null;
+      if (vs) {
+        const car = getSprite('taxi_w');
+        blit(car, vs.x * TILE + 1, vs.y * TILE + 4);
+        drawStanding(f.state.vip, vs.x * TILE + 13, vs.y * TILE + 14, rt);
+        const bubble = getSprite('bubble'), star = getSprite('star');
+        const by = vs.y * TILE - 11 + (Math.sin(rt / 1000 * Math.PI * 2 * 1.3) > 0 ? -1 : 0);
+        const bx = vs.x * TILE + (TILE - bubble.width) / 2;
+        drawOutline(bx - 1, by - 1, bubble.width + 2, bubble.height + 2, '#f2c14e', 0.95);
+        blit(bubble, bx, by);
+        blit(star, vs.x * TILE + Math.floor((TILE - star.width) / 2), by + Math.max(0, Math.floor((12 - star.height) / 2)) + 1);
+      }
+
       // a key bubble over the Welcome spot while newcomers are waiting there
       const spot2 = (f.state.applicants || []).some((a) => now - (a.arrivedAt || 0) >= ARRIVE_DRIVE_MS) ? safe(() => welcomeSpot(f.state), null) : null;
       if (spot2) {
@@ -1182,6 +1196,9 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       if (py >= 0 && py < OVERLAP && spriteOpaque(id, ax - below.x * TILE, py)) return hit(below);
     }
     // 3. the tapped tile itself
+    // a waiting VIP (and their bubble just above)
+    const vs = state.vip ? safe(() => vipSpot(state), null) : null;
+    if (vs && tx === vs.x && (ty === vs.y || ty === vs.y - 1)) return { x: vs.x, y: vs.y, building: null, activity: 'vip' };
     // the Welcome spot (newcomers wait there) and its bubble just above
     const spot = safe(() => welcomeSpot(state), null);
     if (spot && (state.applicants || []).length && tx === spot.x && (ty === spot.y || ty === spot.y - 1)) return { x: spot.x, y: spot.y, building: null, activity: 'newcomers' };

@@ -158,6 +158,16 @@ sim.events.on('residentBuy', ({ tenant, building, amount }) => {
   renderer.sendWalker(tenant.id, building);          // you see them walk over and pop in
   renderer.floatText(building.x, building.y, `+${formatCoins(amount)}`, COIN);
 });
+sim.events.on('vipArrive', ({ vip }) => {
+  if (quiet) return;
+  audio.play('goal');
+  ui.toast(`A VIP is here: the ${config.VIPS[vip.kind].name}! Tap the gold star on the entry road.`);
+});
+sim.events.on('vipUsed', ({ building }) => {
+  if (quiet) return;
+  renderer.burst(building.x, building.y, 'stars');
+  audio.play('dream');
+});
 sim.events.on('visit', ({ building, amount }) => {
   if (quiet) return;
   renderer.floatText(building.x, building.y, `+${formatCoins(amount)}`, COIN);
@@ -224,9 +234,11 @@ function resumeRide() {
 renderer.onTap(({ x, y, building, parcel, activity, kind }) => {
   audio.unlock();
   if (ui.isModalOpen()) return;
+  if (ui.pickVipTarget(x, y, building)) return;
   if (ui.pickMoveLot(x, y)) return;
   if (parcel) { if (state.ride?.state !== 'choosing') { audio.play('tap'); ui.openLand(parcel); } return; }
   if (activity === 'newcomers') { audio.play('tap'); ui.openNewcomers(); return; }
+  if (activity === 'vip') { audio.play('tap'); ui.openVip(); return; }
   if (activity === 'job' && building) { audio.play('tap'); ui.startJob(kind, building.id); return; }
   const now = getNow();
   const ride = state.ride;
