@@ -134,6 +134,16 @@ covers running and publishing. This file holds the design decisions and the road
   taxi (Camden wanted taxi speed in both trees), Head start coins, Master builders, Famous town
   sales, Guest list VIPs, Night shift (away sales +10%/rank: the "away income" open item).
   Taxi speed is `carSpeed(state)`; fares go through `farePay`.
+- Seasons (2026-11-11): `SEASONS` loop every `seasonDays` (2) local days (`seasonOf`). Spring:
+  veggies +25%; summer: fruit +25%, visitors +25%; autumn: crops +10%; winter: crops -20%,
+  contracts pay +25%. The map shows it (blossom, orange woods, snow on land and empty lots; the
+  ground cache key includes the season). A toast at each change (`state.season`), and a line
+  on the Town sheet.
+- Rival towns (2026-11-11): the four `RIVALS` grow from `createdAt` (start + (cap - start) x
+  (1 - e^(-days/d))). The Town sheet ranks the Region (you, rivals, sister towns); rivals post
+  when they pass 25/50/100/150/200. Goals "Overtake a neighbour town" (one of 25+) and "Be the
+  biggest town in the region" (from 100 residents). First version paid both within the hour
+  (rivals started at 3): the bot jumped 136 -> 172 residents; fixed with starts of 8-20 and those limits.
 - City infrastructure (2026-11-11, Camden: "more city infrastructure stuff"; this is also the bus
   line): Bus Stop (kind 'transit', 400, from 10 residents, reach 4): homes in reach +8% rent;
   2+ stops make a bus line (a red bus loops through them, `busPos` in render) and each stop past
@@ -339,7 +349,7 @@ Still to build, in his order (he approved the designs on 2026-11-11):
 2. (done) A stock market that can lose coins, kept simple.
 3. (done, light version) Raw materials: three, optional, for cheaper upgrades.
 4. (done) Prestige with mayor level.
-Next from Claude's ideas, all approved: seasons, rival towns ("seamless additions"). The bus line is done.
+Claude's ideas are all built: bus line, seasons, rival towns, mayor level (in prestige), night market.
 Also open: more "other sports" places if he names them, away income (shops only earn the 10x
 boost while open), more goals (he likes goals as the guide; a keen bot clears all 23 in a week)
 and maybe a Goals list in Menu (offered, not asked for).
@@ -382,7 +392,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` and `VERSION` in config.js together when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (66 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (67 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

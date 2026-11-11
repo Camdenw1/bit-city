@@ -1,6 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
-export const VERSION = 42;           // shown in Menu; keep in step with CACHE in sw.js
+export const VERSION = 43;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;
@@ -167,6 +167,7 @@ export const TUNING = {
   portSpend: 0.5,                // a port: visitors spend 50% more, and one more contract
   airportVisitors: 1,            // an airport: visitors twice as often...
   airportVips: 0.25,             // ...VIPs 25% more often, and stars twice as likely
+  seasonDays: 2,                 // each season lasts this many real days
   careHours: 1,                  // a sister town's daily care package: this many hours of its old shop income
   prestigePop: 100,              // founding a new town opens at this many residents
   prestigeValuePerPoint: 5000,   // prestige points = floor(sqrt(city value / this))
@@ -300,6 +301,26 @@ export const MATERIALS = {
   stone:  { name: 'Stone',  emoji: '🪨', source: 'quarry',     price: 16 },
   bricks: { name: 'Bricks', emoji: '🧱', source: 'brickworks', price: 24 },
 };
+
+// ---- Seasons --------------------------------------------------------------------------
+// Each lasts `seasonDays` real (local) days. Small effects only: crop growth, visitors, contract pay.
+export const SEASONS = [
+  { id: 'spring', name: 'Spring', emoji: '🌸', crops: { veggies: 1.25, fruit: 1 },    visitors: 1,    contracts: 1,    note: 'Veggies grow 25% faster.' },
+  { id: 'summer', name: 'Summer', emoji: '☀️', crops: { veggies: 1, fruit: 1.25 },    visitors: 1.25, contracts: 1,    note: 'Fruit grows 25% faster and 25% more visitors come.' },
+  { id: 'autumn', name: 'Autumn', emoji: '🍂', crops: { veggies: 1.1, fruit: 1.1 },   visitors: 1,    contracts: 1,    note: 'Harvest time: all crops grow 10% faster.' },
+  { id: 'winter', name: 'Winter', emoji: '❄️', crops: { veggies: 0.8, fruit: 0.8 },   visitors: 1,    contracts: 1.25, note: 'Crops grow 20% slower, but contracts pay 25% more.' },
+];
+
+// ---- Rival towns -------------------------------------------------------------------
+// The neighbour towns grow too, so you can race them. Population over time (days since your
+// town was founded): start + (cap - start) x (1 - e^(-days / days0)), plus a small wobble.
+// The goals only count once it matters: overtaking a town of 25+, and the top spot from 100 residents.
+export const RIVALS = [
+  { town: 'Maple Hollow', start: 8,  cap: 70,  days: 2.5 },
+  { town: 'Pebble Bay',   start: 12, cap: 110, days: 3 },
+  { town: 'Sunny Ridge',  start: 16, cap: 160, days: 4 },
+  { town: 'Willow Creek', start: 20, cap: 230, days: 5 },
+];
 
 // ---- Stock market (the Stock Exchange building) ----------------------------------
 // Prices move at the top of every hour: some luck, plus a lean towards the parts of your town
@@ -571,7 +592,9 @@ export const GOALS = [
   { id: 'recipes', text: 'Discover every recipe',                 reward: { coins: 5000, gems: 5 } },
   { id: 'pop60',   text: 'Reach 60 residents',                    reward: { coins: 10000, gems: 5 } },
   { id: 'friend3', text: 'Become best friends with a town (♥♥♥)',  reward: { coins: 15000, gems: 6 } },
+  { id: 'rival1',  text: 'Overtake a neighbour town',             reward: { coins: 15000, gems: 5 } },
   { id: 'pop100',  text: 'Reach 100 residents',                   reward: { coins: 25000, gems: 8 } },
+  { id: 'rivalTop', text: 'Be the biggest town in the region',    reward: { coins: 50000, gems: 10 } },
   { id: 'collect1', text: 'Complete a page of the collection book', reward: { coins: 25000, gems: 8 } },
   { id: 'land4',   text: 'Own five pieces of land',               reward: { coins: 20000, gems: 10 } },
   { id: 'land8',   text: 'Own all the land',                      reward: { coins: 100000, gems: 15 } },

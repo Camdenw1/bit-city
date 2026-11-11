@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES, SEASONS, RIVALS } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick, newGame } from './state.js';
 
@@ -332,6 +332,8 @@ const GOAL_TESTS = {
   recipes: (s) => s.recipes.length >= RECIPES.length,
   pop60: (s) => s.tenants.length >= 60,
   land4: (s) => s.land.length >= 5,
+  rival1: (s, now) => regionRanks(s, now).some((r) => !r.you && !r.sister && r.pop >= 25 && r.pop < s.tenants.length),
+  rivalTop: (s, now) => s.tenants.length >= 100 && regionRanks(s, now)[0]?.you === true,
   team3: (s, now) => builtBiz(s, now).some((b) => teamPct(s, b) >= TUNING.teamStars[2] - 1e-9),
   star: (s) => s.tenants.some((t) => t.star),
   vip1: (s) => (s.stats.vips || 0) >= 1,
@@ -929,7 +931,7 @@ export function contractTerms(state, town, now) {
   const level = friendLevel(state, town);
   const crop = Object.keys(CROP_PRICE)[(i < 0 ? 0 : i) % Object.keys(CROP_PRICE).length];
   const qty = TUNING.contractQty[level];
-  const pay = Math.max(qty * CROP_PRICE[crop] * 2, Math.round(townRatePerMin(state, now) * TUNING.contractMinutes * (1 + TUNING.contractLevelPay * level)));
+  const pay = Math.round(Math.max(qty * CROP_PRICE[crop] * 2, townRatePerMin(state, now) * TUNING.contractMinutes * (1 + TUNING.contractLevelPay * level)) * seasonOf(now).contracts);
   return { town, crop, qty, pay, level, deliveries: (state.friends || {})[town] || 0, next: TUNING.contractLevels[level] ?? null };
 }
 /** The towns that offer contracts and whether you have signed each. */
@@ -1160,8 +1162,49 @@ export function maxApplicants(state) {
 /** How much more often visitors come: the bus line, a station, an airport. */
 export function visitorsMult(state, now) {
   const stops = state.buildings.filter((b) => b.type === 'busstop' && isBuilt(b, now)).length;
-  return (1 + TUNING.busLineVisitors * Math.max(0, Math.min(3, stops - 1)))
+  return seasonOf(now).visitors * (1 + TUNING.busLineVisitors * Math.max(0, Math.min(3, stops - 1)))
     * (has(state, 'station', now) ? 1 + TUNING.stationVisitors : 1) * (has(state, 'airport', now) ? 1 + TUNING.airportVisitors : 1);
+}
+
+// ---- seasons and rival towns ----------------------------------------------------------
+
+/** Toast-worthy changes: a new season, and rivals passing 25/50/100/150/200 residents (a feed post). */
+function noteSeasonAndRivals(state, now, live) {
+  const season = seasonOf(now).id;
+  if (state.season !== season) {
+    const first = state.season == null;
+    state.season = season;
+    if (!first) events.emit('season', { season: seasonOf(now) });
+  }
+  if (!state.rivalSeen) state.rivalSeen = {};
+  for (const r of RIVALS) {
+    const pop = rivalPop(state, r, now);
+    const mark = [25, 50, 100, 150, 200].filter((m) => pop >= m).pop() || 0;
+    if (mark > (state.rivalSeen[r.town] || 0)) {
+      state.rivalSeen[r.town] = mark;
+      if (live) post(state, now, { name: r.town.split(' ')[0], look: { skin: 1, hair: 2, hairStyle: 1, shirt: RIVALS.indexOf(r) } }, 'visitor', `${r.town} just reached ${mark} residents! Can you keep up? 🏙️`, 'hint');
+    }
+  }
+}
+
+/** The season at a time: each lasts TUNING.seasonDays local days, in a fixed loop. */
+export function seasonOf(now) {
+  const day = dayNumber(localDay(now));
+  return SEASONS[Math.floor(day / TUNING.seasonDays) % SEASONS.length];
+}
+
+/** A rival town's population at a time: it grows from when your town was founded. */
+export function rivalPop(state, rival, now) {
+  const days = Math.max(0, (now - (state.createdAt || now)) / 86400000);
+  const wobble = 1 + 0.05 * Math.sin(days * 2 + rival.cap);
+  return Math.max(3, Math.round((rival.start + (rival.cap - rival.start) * (1 - Math.exp(-days / rival.days))) * wobble));
+}
+/** The region, biggest first: your town, the rival towns and your sister towns. */
+export function regionRanks(state, now) {
+  const rows = [{ town: 'Your town', pop: state.tenants.length, you: true }]
+    .concat(RIVALS.map((r) => ({ town: r.town, pop: rivalPop(state, r, now) })))
+    .concat(((state.legacy || {}).oldTowns || []).map((t) => ({ town: t.name, pop: t.pop, sister: true })));
+  return rows.sort((a, b) => b.pop - a.pop || (a.you ? -1 : b.you ? 1 : 0));
 }
 
 // ---- the entry road and trucks ------------------------------------------------
@@ -2715,7 +2758,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
     while (t < now) {
       const growth = {};
       for (const farm of farms) {
-        if (isBuilt(farm.b, t)) growth[farm.crop] = (growth[farm.crop] || 0) + farm.growth;
+        if (isBuilt(farm.b, t)) growth[farm.crop] = (growth[farm.crop] || 0) + farm.growth * (seasonOf(t).crops[farm.crop] ?? 1);
       }
       let perHour = 0;
       for (const b of teachers) if (isBuilt(b, t)) perHour += defOf(b).lessons * levelMult(b.level);
@@ -2857,6 +2900,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
   if (live) maybeRequestRide(state, now);
   if (live) maybeProblem(state, now);
   if (live) { maybeVisitor(state, now); maybePost(state, now); maybeResidentBuy(state, now); maybeVip(state, now); }
+  noteSeasonAndRivals(state, now, live);
   if (state.vip && now >= state.vip.leaveAt) vipLeaves(state, now);
   else {                                   // visitors and posts only happen while you play
     if (state.nextVisitAt < now) state.nextVisitAt = now + TUNING.visitorGapMinMs;

@@ -182,6 +182,11 @@ sim.events.on('festival', () => {
   if (quiet) return;
   ui.toast('🎉 Festival! For 30 minutes every shop sells 50% more and visitors come twice as often.');
 });
+sim.events.on('season', ({ season }) => {
+  if (quiet) return;
+  audio.play('goal');
+  ui.toast(`${season.emoji} ${season.name} is here! ${season.note}`);
+});
 sim.events.on('care', ({ town, coins }) => {
   if (quiet) return;
   audio.play('coin');

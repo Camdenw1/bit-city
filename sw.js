@@ -3,7 +3,7 @@
 // A new version installs with fresh copies of every file (never the browser's 10-minute HTTP
 // cache, which once mixed old and new files), and the page reloads itself once it takes over.
 // Keep CACHE in step with VERSION in js/config.js.
-const CACHE = 'bitcity-v42';
+const CACHE = 'bitcity-v43';
 const FILES = [
   './', './index.html', './styles.css', './manifest.webmanifest',
   './js/main.js', './js/config.js', './js/state.js', './js/sim.js',

@@ -573,8 +573,15 @@ export function createUI(root, api) {
             <p class="happy-rent">Rent every hour: <b>${formatCoins(Math.round((rent + bonus) / 24))}</b> ${icon('coin', 1, 'i12')}
               ${bonus > 0 ? `<span class="tag tag-ok">+${formatCoins(Math.round(bonus / 24))} happy bonus</span>` : bonus < 0 ? `<span class="tag tag-low">−${formatCoins(Math.round(-bonus / 24))} unhappy residents</span>` : ''}</p>
             <p class="note">Next rent in ${formatDuration(Math.max(60000, 3600000 - (now % 3600000)))}.</p>
+            ${(() => { const sn = call('seasonOf', now); return sn ? `<p class="note">${sn.emoji} ${esc(sn.name)}: ${esc(sn.note)}</p>` : ''; })()}
           </div>
           <button class="btn btn-quiet btn-wide" data-act="open-mayor">${icon('key', 2)} Mayor's desk${(s.problems || []).length ? ` · ${(s.problems || []).length} to sort out` : ''}</button>
+          ${(() => {
+            const ranks = call('regionRanks', s, now) || [];
+            if (!ranks.length) return '';
+            const me = ranks.findIndex((r) => r.you) + 1;
+            return `<h3 class="sec">Region · you're #${me} of ${ranks.length}</h3>${ranks.map((r, i) => `<div class="goal-row${r.you ? ' is-next' : ''}" data-key="rg-${esc(r.town)}"><span class="goal-mark">${i + 1}</span><span class="goal-copy">${esc(r.town)}${r.sister ? ' <small>(your old town)</small>' : ''}</span><span class="goal-reward">${formatCoins(r.pop)} ${icon('person', 1, 'i12')}</span></div>`).join('')}`;
+          })()}
           <h3 class="sec">Most wanted</h3>
           ${wishes || `<p class="note">${s.tenants.length ? 'Everyone has what they need.' : 'Move someone in to see their wishes.'}</p>`}
           <details class="sheet-details" data-key="town-details"><summary>Town details</summary>

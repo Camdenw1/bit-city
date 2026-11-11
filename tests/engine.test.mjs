@@ -2163,14 +2163,15 @@ test('transit and gateways: bus stops lift rent and start a bus line; station, p
   stop.readyAt = now;
   assert.ok(Math.max(Math.abs(stop.x - home.x), Math.abs(stop.y - home.y)) <= sim.reachOf(stop));
   assert.ok(Math.abs(sim.homeBoost(s, home, now) - before - TUNING.transitRent) < 1e-9);
-  assert.equal(sim.visitorsMult(s, now), 1, 'one stop is not a line yet');
+  const sv = sim.seasonOf(now).visitors;
+  assert.equal(sim.visitorsMult(s, now), sv, 'one stop is not a line yet');
   put(s, 'busstop', now);
-  assert.ok(Math.abs(sim.visitorsMult(s, now) - (1 + TUNING.busLineVisitors)) < 1e-9);
+  assert.ok(Math.abs(sim.visitorsMult(s, now) - sv * (1 + TUNING.busLineVisitors)) < 1e-9);
   // the station: more visitors and one more newcomer spot
   const spots = sim.maxApplicants(s);
   put(s, 'station', now);
   assert.equal(sim.maxApplicants(s), spots + 1);
-  assert.ok(sim.visitorsMult(s, now) > 1 + TUNING.busLineVisitors);
+  assert.ok(sim.visitorsMult(s, now) > sv * (1 + TUNING.busLineVisitors));
   // the port: one more contract
   put(s, 'trade', now);
   const slots = sim.contractSlots(s, now);
@@ -2180,4 +2181,34 @@ test('transit and gateways: bus stops lift rent and start a bus line; station, p
   const b2 = sim.homeBoost(s, home, now);
   s.coins = 1e6; assert.ok(sim.buyUpgrade(s, 'bikes', now).ok);
   assert.ok(Math.abs(sim.homeBoost(s, home, now) - b2 - config.UPGRADES.bikes.per) < 1e-9);
+});
+
+test('seasons turn every two days with small effects; rival towns grow and rank with you', () => {
+  const { s } = smallTown();
+  allGoalsDone(s);
+  const seen = new Set();
+  for (let d = 0; d < 8; d++) seen.add(sim.seasonOf(s.lastTick + d * DAY).id);
+  assert.deepEqual([...seen].sort(), ['autumn', 'spring', 'summer', 'winter']);
+  assert.equal(sim.seasonOf(s.lastTick).id, sim.seasonOf(s.lastTick + HOUR).id, 'steady within a day');
+  // winter: contracts pay more
+  const winter = [0, 1, 2, 3, 4, 5, 6, 7].map((d) => s.lastTick + d * DAY).find((t) => sim.seasonOf(t).id === 'winter');
+  const summer = [0, 1, 2, 3, 4, 5, 6, 7].map((d) => s.lastTick + d * DAY).find((t) => sim.seasonOf(t).id === 'summer');
+  put(s, 'trade', s.lastTick);
+  const town = config.NEIGHBOURS[0];
+  assert.ok(sim.contractTerms(s, town, winter).pay > sim.contractTerms(s, town, summer).pay);
+  // rivals grow over the days
+  const r = config.RIVALS[0];
+  assert.ok(sim.rivalPop(s, r, s.createdAt + 5 * DAY) > sim.rivalPop(s, r, s.createdAt + DAY));
+  const ranks = sim.regionRanks(s, s.lastTick);
+  assert.equal(ranks.length, 1 + config.RIVALS.length);
+  assert.equal(ranks.filter((x) => x.you).length, 1);
+  // the season change shows once
+  const log = [];
+  const fn = (e) => log.push(e);
+  sim.events.on('season', fn);
+  s.season = 'not-a-season';
+  sim.advance(s, s.lastTick + 1000);
+  sim.advance(s, s.lastTick + 1000);
+  sim.events.off('season', fn);
+  assert.equal(log.length, 1);
 });

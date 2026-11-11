@@ -138,7 +138,9 @@ export function newGame(now) {
     mats: { wood: 0, stone: 0, bricks: 0 },   // building materials in store
     mayor: { xp: 0, spent: {} },       // mayor XP and the town perks bought with mayor levels (reset on prestige)
     legacy: { points: 0, perks: {}, towns: 1, oldTowns: [] },   // prestige: points, permanent perks, towns founded, sister towns (kept for good)
-    lastCareDay: null,                 // the local day the sister towns' care packages last came
+    lastCareDay: null,
+    season: null,                      // the last season seen (for the season-change toast)
+    rivalSeen: {},                     // rival town -> the last population milestone posted                 // the local day the sister towns' care packages last came
     market: null,                      // stock market: { prices, prev, shares, paid } (made when first needed)
     vip: null,                         // a VIP waiting on the entry road: { kind, name, look, arrivedAt, leaveAt }
     nextVipAt: now + TUNING.vipGapMaxMs,
@@ -315,6 +317,8 @@ export function migrate(state) {
     state.legacy = { points: isNum(legacy.points) ? Math.max(0, Math.floor(legacy.points)) : 0, perks: {}, towns: isNum(legacy.towns) ? Math.max(1, Math.floor(legacy.towns)) : 1,
       oldTowns: (Array.isArray(legacy.oldTowns) ? legacy.oldTowns : []).filter((t) => t && typeof t.name === 'string' && isNum(t.income)) };
     if (typeof state.lastCareDay !== 'string') state.lastCareDay = null;
+    if (typeof state.season !== 'string') state.season = null;
+    if (!state.rivalSeen || typeof state.rivalSeen !== 'object') state.rivalSeen = {};
     for (const k of Object.keys(PERM_PERKS)) { const r = (legacy.perks || {})[k]; if (isNum(r) && r > 0) state.legacy.perks[k] = Math.min(PERM_PERKS[k].max, Math.round(r)); }
     // building materials (2026-11-11)
     const mats = state.mats && typeof state.mats === 'object' ? state.mats : {};

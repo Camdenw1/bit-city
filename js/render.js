@@ -5,7 +5,7 @@
 import { MAP_W, MAP_H, TILE, isRoad, DAY_LENGTH_MS, BUILDINGS, WORLD, PARCELS, TUNING, parcelAt } from './config.js';
 import { initSprites, getSprite, getPerson, buildingSpriteId } from './sprites.js';
 import { makeWorld, terrainAt } from './terrain.js';
-import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots, vipSpot, festivalSpot, festivalIssue } from './sim.js';
+import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots, vipSpot, festivalSpot, festivalIssue, seasonOf } from './sim.js';
 
 const SPRITE_H = 16;                 // building sprites are 16 x 16: each one fits its own lot
 const OVERLAP = SPRITE_H - TILE;     // 0: nothing pokes into the tile above
@@ -237,7 +237,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   /** What the cached ground depends on: the town, its land, bike lanes and car-free streets. */
   function groundKeyOf(st) {
     const u = (st && st.upgrades) || {};
-    return `${st?.worldSeed ?? 0}|${(st?.land || ['home']).join(',')}|${u.bikes || 0}|${u.pedestrian || 0}`;
+    return `${st?.worldSeed ?? 0}|${(st?.land || ['home']).join(',')}|${u.bikes || 0}|${u.pedestrian || 0}|${seasonOf(getNow ? getNow() : Date.now()).id}`;
   }
 
   function buildGround() {
@@ -274,6 +274,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       return kind === 'forest' ? 'tree' : grassId(x, y, true);
     };
     lotList = [];
+    const seasonNow = seasonOf(getNow ? getNow() : Date.now()).id;
     for (let ty = WORLD.y0 - groundPad; ty <= WORLD.y1 + groundPad; ty++) {
       for (let tx = WORLD.x0 - groundPad; tx <= WORLD.x1 + groundPad; tx++) {
         const mine = inMap(tx, ty);
@@ -281,6 +282,21 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         const id = roadAt(tx, ty) ? `road${roadMask(tx, ty)}` : mine && state && isPlazaAt(state, tx, ty) ? 'plaza' : sceneryId(tx, ty);
         const px = (tx - WORLD.x0 + groundPad) * TILE, py = (ty - WORLD.y0 + groundPad) * TILE;
         c.drawImage(getSprite(id), px, py);
+        // the season: blossom in spring, orange woods in autumn, snow in winter (roads stay clear)
+        if (!roadAt(tx, ty) && !id.startsWith('water') && id !== 'plaza') {
+          const sz = seasonNow;
+          const h = hash2(tx * 3 + 1, ty * 7 + 2);
+          if (sz === 'winter') {
+            c.fillStyle = 'rgba(255, 255, 255, 0.55)'; c.fillRect(px, py, TILE, TILE);
+            c.fillStyle = '#ffffff';
+            for (let k = 0; k < 5; k++) c.fillRect(px + Math.floor(hash2(tx + k, ty - k) * 15), py + Math.floor(hash2(ty + k, tx + k * 3) * 15), 1, 1);
+          } else if (sz === 'autumn' && id === 'tree') {
+            c.fillStyle = h > 0.5 ? 'rgba(232, 128, 74, 0.6)' : 'rgba(242, 193, 78, 0.55)'; c.fillRect(px + 2, py + 1, 12, 10);
+          } else if (sz === 'spring' && id === 'tree') {
+            c.fillStyle = '#f7adc0';
+            for (let k = 0; k < 4; k++) c.fillRect(px + 3 + Math.floor(hash2(tx + k, ty) * 10), py + 2 + Math.floor(hash2(ty, tx + k) * 8), 1, 1);
+          }
+        }
         if (mine && state && roadAt(tx, ty)) {
           // bike lanes: a green strip along each curb
           if ((state.upgrades || {}).bikes) {
@@ -1012,7 +1028,12 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       const lot = getSprite('lot'), lotSand = getSprite('lot_sand');
       const taken = new Set();
       for (const row of f.rows) for (const b of row) taken.add(tileKey(b.x, b.y));
-      for (const l of lotList) if (!taken.has(tileKey(l.x, l.y))) blit(l.sand ? lotSand : lot, l.x * TILE, l.y * TILE);
+      const snowy = seasonOf(now).id === 'winter';
+      for (const l of lotList) {
+        if (taken.has(tileKey(l.x, l.y))) continue;
+        blit(l.sand ? lotSand : lot, l.x * TILE, l.y * TILE);
+        if (snowy) { ctx.globalAlpha = 0.5; rect(l.x * TILE, l.y * TILE, TILE, TILE, '#ffffff'); ctx.globalAlpha = 1; }   // snow on empty lots too
+      }
       // land you can buy next
       const sign = getSprite('sign');
       for (const sg of saleSigns) blit(sign, sg.x * TILE, sg.y * TILE + (Math.sin(rt / 400 + sg.x) > 0 ? -1 : 0));
