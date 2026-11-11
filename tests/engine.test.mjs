@@ -100,7 +100,7 @@ test('config: shape, roads, every type complete, balance targets', () => {
   assert.equal(config.isRoad(3, 0), true); assert.equal(config.isRoad(0, 2), true); assert.equal(config.isRoad(0, 0), false);
   assert.equal(lots().length, 90);
   const ids = Object.keys(BUILDINGS);
-  assert.equal(ids.length, 55);
+  assert.equal(ids.length, 56);
   assert.equal(ids.filter((id) => BUILDINGS[id].kind === 'biz').length, 38);
   assert.deepEqual([...config.BUILD_ORDER].sort(), [...ids].sort());
   for (const id of ids) {
@@ -108,7 +108,7 @@ test('config: shape, roads, every type complete, balance targets', () => {
     assert.equal(d.id, id);
     assert.ok(d.name && d.blurb && d.cost > 0 && d.buildSecs > 0 && d.unlockAt >= 0, id);
     if (d.kind === 'home') { assert.ok(d.capacity >= 1 && d.rentPerTenant > 0); assert.equal(d.category, null); }
-    else if (d.kind === 'trade' || d.kind === 'yard') { assert.equal(d.category, null); }
+    else if (['trade', 'yard', 'exchange'].includes(d.kind)) { assert.equal(d.category, null); }
     else if (d.kind === 'civic' || d.kind === 'park') {
       assert.equal(d.category, null); assert.ok(config.NEEDS.some((n) => n.id === d.provides.need) && d.provides.serves > 0, id);
     } else {
@@ -2035,4 +2035,27 @@ test('a taxi job bubble starts the ride at the building you tapped', () => {
   const home = homes.at(-1);
   const r = sim.startBoardRide(s, 'taxi', home.id, s.lastTick);
   assert.ok(r.ok); assert.equal(s.ride.fromId, home.id);
+});
+
+test('stock market: hourly prices, a cap on investing, and you can lose coins', () => {
+  const { s } = smallTown();
+  allGoalsDone(s);
+  const now = s.lastTick;
+  assert.match(sim.buyStock(s, 'farm', 100, now).reason, /Stock Exchange/);
+  put(s, 'exchange', now);
+  const cap = sim.stockCap(s, now);
+  const r = sim.buyStock(s, 'farm', 1e9, now);
+  assert.ok(r.ok); assert.equal(r.spent, Math.min(cap, Math.floor(s.coins + r.spent)));
+  assert.match(sim.buyStock(s, 'shop', 100, now).reason, /as much as/);
+  // prices move each hour; selling pays today's value, which can be under what you paid
+  let low = Infinity, high = 0;
+  for (let h = 1; h <= 48; h++) { sim.advance(s, (Math.floor(now / HOUR) + h) * HOUR + 1, { live: false }); low = Math.min(low, s.market.prices.farm); high = Math.max(high, s.market.prices.farm); }
+  assert.ok(high > low, 'prices change');
+  assert.ok(low >= 20 && high <= 500);
+  const p = sim.portfolio(s, s.lastTick);
+  const sold = sim.sellStock(s, 'farm', s.lastTick);
+  assert.ok(sold.ok); assert.equal(sold.coins, p.rows[0].value); assert.equal(sold.gainLoss, sold.coins - p.rows[0].paid);
+  assert.match(sim.sellStock(s, 'farm', s.lastTick).reason, /don't own/);
+  const old = JSON.parse(JSON.stringify(s)); old.market = { prices: { farm: -3 } };
+  const m = S.migrate(old); assert.equal(m.market.prices.farm, 100); assert.equal(m.market.shares.shop, 0);
 });

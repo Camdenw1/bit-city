@@ -152,6 +152,9 @@ export const TUNING = {
   nightMarketFrom: 19,           // the night market: game hours 19-23, food and fun shops sell 25% more
   nightMarketTo: 23,
   nightMarketBoost: 0.25,
+  stockCapMinutes: 60,           // the most you can have invested: an hour of the town's shop income
+  stockSwing: 0.16,              // an hour's price change is luck in +-8%...
+  stockLean: 0.06,               // ...plus up to +-3% from how strong your town is in that part
   collectionGems: 5,             // a finished page of the collection book pays this many gems (once)
   contractTowns: 4,              // neighbour towns that offer standing contracts
   contractMinutes: 3,            // one hourly delivery pays this many minutes of the town's shop income...
@@ -245,6 +248,16 @@ export const VIPS = {
   celebrity: { name: 'Celebrity',   icon: 'heart',  target: 'shop', does: 'Fans flock in: that shop sells double for 30 minutes.', ask: 'Tap a shop' },
   inspector: { name: 'Inspector',   icon: 'key',    target: 'any',  does: 'Fixes every shop problem in town at once.', ask: 'Tap any building' },
   recruiter: { name: 'Recruiter',   icon: 'person', target: 'home', does: 'Brings a star resident who moves straight into that home.', ask: 'Tap a home with room' },
+};
+
+// ---- Stock market (the Stock Exchange building) ----------------------------------
+// Prices move at the top of every hour: some luck, plus a lean towards the parts of your town
+// that are strong (a town full of farms lifts Farm Co). You can lose coins; how much you can
+// have invested is capped at `stockCapMinutes` of the town's shop income, so it stays mild.
+export const STOCKS = {
+  farm: { name: 'Farm Co',  icon: 'cat_farming',  cats: ['farming'] },
+  shop: { name: 'Shop Ltd', icon: 'cat_retail',   cats: ['retail', 'service'] },
+  fun:  { name: 'Fun Inc',  icon: 'cat_creative', cats: ['creative', 'food'] },
 };
 
 // ---- Upgrades (the Upgrades tab) ---------------------------------------------
@@ -396,6 +409,7 @@ export const BUILDINGS = {
 BUILDINGS.university = town('university', 'University', 'civic', 1500, 600, 20, { gov: true, fav: true, provides: { need: 'education', serves: 30 }, lessons: 3 }, 'Big ideas, late nights and a very good library.');
 BUILDINGS.track = town('track', 'Running Track', 'park', 2000, 300, 10, { fav: true, provides: { need: 'beauty', serves: 8 }, rentBoost: 0.1 }, 'Laps before breakfast. Nearby homes pay more rent.');
 BUILDINGS.trail = town('trail', 'Hiking Trail', 'park', 2500, 300, 12, { fav: true, near: ['forest', 'mountain'], provides: { need: 'beauty', serves: 12 }, rentBoost: 0.15 }, 'A path up into the hills. Nearby homes pay more rent.');
+BUILDINGS.exchange = town('exchange', 'Stock Exchange', 'exchange', 5000, 240, 20, {}, 'Buy and sell shares in the town\'s businesses. Prices change every hour.');
 BUILDINGS.yard = town('yard', 'Construction Yard', 'yard', 1500, 120, 8, { reach: 4 }, 'Cranes and hard hats. Anything built near it goes up twice as fast.');
 BUILDINGS.trade = town('trade', 'Trading Post', 'trade', 2000, 300, 10, {}, 'Sell your harvest, import what you lack, and fill orders from neighbour towns.');
 BUILDINGS.fountain.unlockGoal = 'happy90';  // a milestone opens this one

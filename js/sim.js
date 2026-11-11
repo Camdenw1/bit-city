@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick } from './state.js';
 
@@ -915,6 +915,77 @@ function runContracts(state, now) {
     state.trucks.push({ id: state.nextId++, kind: 'contract', town: c.town, crop: t.crop, qty: t.qty, coins: t.pay, leaveAt: now, arriveAt: now + ms });
     if (friendLevel(state, c.town) > t.level) events.emit('friendUp', { town: c.town, level: t.level + 1 });
   }
+}
+
+// ---- stock market ------------------------------------------------------------------
+
+function marketOf(state) {
+  if (!state.market) {
+    const prices = {}, zero = {};
+    for (const id of Object.keys(STOCKS)) { prices[id] = 100; zero[id] = 0; }
+    state.market = { prices, prev: { ...prices }, shares: { ...zero }, paid: { ...zero } };
+  }
+  return state.market;
+}
+export function hasExchange(state, now) {
+  return state.buildings.some((b) => b.type === 'exchange' && isBuilt(b, now));
+}
+/** How strong the town is in a stock's part of the economy: its share of shop income (0..1). */
+function sectorShare(state, id) {
+  const shops = builtBiz(state, state.lastTick);
+  const total = shops.reduce((n, b) => n + potentialRate(state, b), 0);
+  if (!total) return 1 / Object.keys(STOCKS).length;
+  return shops.filter((b) => STOCKS[id].cats.includes(catOf(b))).reduce((n, b) => n + potentialRate(state, b), 0) / total;
+}
+/** The top of the hour: every price takes a step (luck plus a lean towards your town's strengths). */
+function runMarket(state, now) {
+  if (!state.market && !hasExchange(state, now)) return;
+  const m = marketOf(state);
+  const n = Object.keys(STOCKS).length;
+  for (const id of Object.keys(STOCKS)) {
+    const lean = Math.max(-TUNING.stockLean / 2, Math.min(TUNING.stockLean / 2, TUNING.stockLean * (sectorShare(state, id) - 1 / n) * n / 2));
+    const step = (rand(state) - 0.5) * TUNING.stockSwing + lean;
+    m.prev[id] = m.prices[id];
+    m.prices[id] = Math.max(20, Math.min(500, Math.round(m.prices[id] * (1 + step) * 100) / 100));
+  }
+}
+/** The most you can have invested at once: an hour of the town's shop income. */
+export function stockCap(state, now) {
+  return Math.max(200, Math.round(townRatePerMin(state, now) * TUNING.stockCapMinutes));
+}
+/** Your shares: what each is worth now and what it cost you. */
+export function portfolio(state, now) {
+  const m = marketOf(state);
+  const rows = Object.keys(STOCKS).map((id) => ({ id, ...STOCKS[id], price: m.prices[id], prev: m.prev[id], shares: m.shares[id], value: Math.floor(m.shares[id] * m.prices[id]), paid: Math.round(m.paid[id]) }));
+  const invested = rows.reduce((a, r) => a + r.paid, 0);
+  const cap = stockCap(state, now);
+  return { rows, invested, cap, room: Math.max(0, cap - invested) };
+}
+/** Buy shares for up to `coins` (never past the cap). */
+export function buyStock(state, id, coins, now) {
+  if (!hasExchange(state, now)) return fail('Build a Stock Exchange first.');
+  if (!STOCKS[id]) return fail("That stock isn't traded here.");
+  const p = portfolio(state, now);
+  if (p.room < 1) return fail('You have invested as much as the market allows. Sell something first.');
+  const spend = Math.floor(Math.min(coins, p.room, state.coins));
+  if (spend < 1) return fail('You need some coins to invest.');
+  const m = marketOf(state);
+  state.coins -= spend;
+  m.shares[id] += spend / m.prices[id];
+  m.paid[id] += spend;
+  events.emit('spend', { amount: spend, reason: 'stocks' });
+  return { ok: true, reason: '', spent: spend };
+}
+/** Sell all your shares of one stock at this hour's price: more or less than you paid. */
+export function sellStock(state, id, now) {
+  const m = marketOf(state);
+  if (!STOCKS[id] || !(m.shares[id] > 0)) return fail("You don't own any of that.");
+  const coins = Math.floor(m.shares[id] * m.prices[id]);
+  const gainLoss = coins - Math.round(m.paid[id]);
+  m.shares[id] = 0; m.paid[id] = 0;
+  if (coins > 0) gain(state, coins, 'stocks');
+  events.emit('stockSold', { id, coins, gainLoss });
+  return { ok: true, reason: '', coins, gainLoss };
 }
 
 // ---- the entry road and trucks ------------------------------------------------
@@ -2550,6 +2621,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
       if (end >= nextHour) {
         payRent(end);
         runContracts(state, end);
+        runMarket(state, end);
         nextHour = (hourNumber(end) + 1) * HOUR_MS;
       }
 

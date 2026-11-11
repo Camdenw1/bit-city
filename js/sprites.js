@@ -345,6 +345,15 @@ Object.assign(EMBLEM, {
     ' rrrrr ',
     '  r r  ',
   ],
+  exchange: [     // a chart going up
+    '      g',
+    '     gg',
+    '  g gg ',
+    ' gggg  ',
+    'gg     ',
+    'kkkkkkk',
+    '       ',
+  ],
   yard: [         // a yellow hard hat
     '       ',
     '  yyy  ',
@@ -416,6 +425,7 @@ const CAT_STYLE = {
   gov:      { roof: 'y', dark: 'O', tint: 'Y' },
   trade:    { roof: 'b', dark: 'B', tint: 's' },
   yard:     { roof: 'A', dark: 'k', tint: 'e' },   // grey roof: the hard hat on the sign does the talking
+  exchange: { roof: 'G', dark: 'k', tint: 'l' },   // green roof: money
 };
 
 function shop(id, cat) {
@@ -523,6 +533,7 @@ for (const d of Object.values(BUILDINGS)) {
 }
 BUILD.trade = () => shop('trade', 'trade');
 BUILD.yard = () => shop('yard', 'yard');
+BUILD.exchange = () => shop('exchange', 'exchange');
 for (const cat of Object.keys(CAT_STYLE)) SHOP_SPRITES.push([`mystery_${cat}`, () => shop('mystery', cat)]);
 
 BUILD.tree = () => {

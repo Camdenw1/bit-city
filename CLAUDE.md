@@ -115,6 +115,13 @@ covers running and publishing. This file holds the design decisions and the road
   each hour (`runContracts`, offline too) a neighbour truck takes the crops and pays on arrival;
   a short barn just skips that hour. Contract trucks don't count against your own trucks. Bot:
   contracts are ~10% of income (trade was 1-3%).
+- Stock market (2026-11-11, Camden approved the simple design): a Stock Exchange building
+  (`exchange`, 5,000 coins, opens at 20 residents) whose sheet is the market. `STOCKS`: Farm Co
+  (farming), Shop Ltd (retail, service), Fun Inc (creative, food). At the top of every hour
+  (`runMarket`, offline too) each price steps by luck (+-8%) plus a lean of up to +-3% from that
+  part's share of your shop income, kept within 20-500. Buy a quarter of your cap per tap, sell
+  all at the hour's price; you can lose coins. Invested coins are capped at `stockCapMinutes`
+  (60) of the town's base shop income. `state.market` is made when first needed.
 - Trade: farms fill a barn (`state.goods`) as well as the lifetime `state.crops`. The
   Trading Post sells the barn at a price that changes each local day, imports at a fixed
   2.5x the usual price (always dearer than selling, so no buy-low-sell-high loop), and
@@ -284,8 +291,8 @@ Also done on 2026-11-10 from his phone feedback: the entry road and trade trucks
 deliveries picking their own destination (red pin), jobs as map bubbles, the Upgrades tab and
 Construction Yard, goal progress, forgiving taps, the name Mini Mayor, the Build button removed.
 
-Still to build, in his order (propose a design and get his yes before each one):
-2. A stock market that can lose coins, kept simple.
+Still to build, in his order (he approved the designs on 2026-11-11):
+2. (done) A stock market that can lose coins, kept simple.
 3. About five raw materials, Catan-style (build sources, use them, trade them). The biggest
    threat to "really simple": push back if it gets heavy. A crew upgrade and the Yard exist.
 4. Prestige: points from the city's total value, a permanent upgrade tree and one that resets
@@ -332,7 +339,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (61 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (62 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

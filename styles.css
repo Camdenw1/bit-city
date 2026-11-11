@@ -1054,3 +1054,5 @@ body { position: fixed; inset: 0; }
 .coll-item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border: 2px solid var(--ink); border-radius: 10px; background: #fffbee; text-align: center; }
 .coll-item small { font-size: 11px; line-height: 1.1; }
 .coll-item.is-missing { opacity: 0.45; }
+.up { color: #3d8848; }
+.down { color: #a63d44; }

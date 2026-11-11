@@ -394,7 +394,7 @@ export function createUI(root, api) {
   const coinAmt = (n, s = 1) => `<span class="amt">${icon('coin', s, s === 1 ? 'i12' : '')}${formatCoins(n)}</span>`;
   const skillBadge = (cat, value, big) =>
     `<span class="skill${big ? ' big' : ''}" style="--c:${catColor(cat)}">${icon('cat_' + cat, 1, 'i12')}<b>${value}</b></span>`;
-  const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : d.kind === 'yard' ? { icon: 'hammer', name: 'Faster building' } : { icon: 'star', name: 'Town' });
+  const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : d.kind === 'yard' ? { icon: 'hammer', name: 'Faster building' } : d.kind === 'exchange' ? { icon: 'coin', name: 'Stocks' } : { icon: 'star', name: 'Town' });
   const cropName = (crop) => ((config.CROPS || {})[crop] || crop).toLowerCase();
 
   /** Everything the Trading Post does: sell, import, and neighbour orders. */
@@ -442,6 +442,23 @@ export function createUI(root, api) {
     return `${contracts}<h3 class="sec">Trucks</h3>${trucks}<p class="note">Trade drives in and out on the road from out of town. Sales pay when the truck leaves town; imports land when it arrives. A Trading Post near the entry road makes shorter trips; each level adds a truck.</p>
       <h3 class="sec">Your harvest</h3>${rows}<p class="note">Staffed farms fill the barn. Prices change every day.</p>
       <h3 class="sec">Orders from neighbours</h3>${orders || '<p class="note">Orders arrive soon.</p>'}<p class="note">Orders never run out of time.</p>`;
+  }
+  /** The Stock Exchange: three stocks, a cap on investing, buy a quarter of it or sell all. */
+  function marketPanel(s, now) {
+    const p = call('portfolio', s, now);
+    if (!p) return '';
+    const step = Math.max(1, Math.floor(p.cap / 4));
+    const rows = p.rows.map((r) => {
+      const ch = r.prev ? Math.round((r.price / r.prev - 1) * 1000) / 10 : 0;
+      const gl = r.value - r.paid;
+      return `<div class="trade-row" data-key="st-${r.id}"><div class="trade-head"><b>${icon(r.icon, 1, 'i12')}${esc(r.name)} · ${r.price.toFixed(2)}</b>
+          <span class="${ch >= 0 ? 'up' : 'down'}">${ch >= 0 ? '▲' : '▼'} ${Math.abs(ch)}% this hour</span>
+          ${r.shares > 0 ? `<span>Yours: worth ${formatCoins(r.value)} · paid ${formatCoins(r.paid)} · <b class="${gl >= 0 ? 'up' : 'down'}">${gl >= 0 ? '+' : ''}${formatCoins(gl)}</b></span>` : ''}</div>
+        <div class="row"><button class="btn btn-small ${p.room > 0 && s.coins >= 1 ? 'btn-coin' : 'btn-quiet'}" data-act="stock-buy" data-id="${r.id}" data-amt="${step}">Buy ${formatCoins(Math.min(step, p.room))}</button>
+          ${r.shares > 0 ? `<button class="btn btn-small btn-quiet" data-act="stock-sell" data-id="${r.id}">Sell all · ${formatCoins(r.value)}</button>` : ''}</div></div>`;
+    }).join('');
+    return `<h3 class="sec">Stocks · invested ${formatCoins(p.invested)} of ${formatCoins(p.cap)}</h3>${rows}
+      <p class="note">Prices change every hour, partly by luck and partly by how strong your town is in that business. You can lose coins. The most you can have invested is about an hour of your shops' income.</p>`;
   }
   const dreamTag = (text = 'Dream job') => `<span class="tag tag-dream">${icon('star', 1, 'i12')}${text}</span>`;
   const empty = (iconId, text) => `<div class="empty">${icon(iconId, 4)}<p>${text}</p></div>`;
@@ -629,7 +646,7 @@ export function createUI(root, api) {
             : `<span class="price">${icon('coin', 1, 'i12')}${formatCoins(cost)}</span>`}</button>`;
       };
       const homes = order.filter((id) => BUILDINGS[id].kind === 'home');
-      const town = order.filter((id) => !BUILDINGS[id].gov && ['park', 'trade', 'yard'].includes(BUILDINGS[id].kind));
+      const town = order.filter((id) => !BUILDINGS[id].gov && ['park', 'trade', 'yard', 'exchange'].includes(BUILDINGS[id].kind));
       const unlocked = (id) => call('isUnlocked', s, id);
       const openCat = (cat) => call('categoryUnlocked', s, cat);
       if (d.wish) {
@@ -745,7 +762,7 @@ export function createUI(root, api) {
           title: esc(name),
           html: `<div class="hero">${buildingArt(b, 4)}<div class="hero-info">
               <p class="lead">${esc(c.blurb || '')}</p>${lines.map((l) => `<p class="note">${l}</p>`).join('')}</div></div>
-            ${upgradeBlock}${c.kind === 'trade' ? tradePanel(s, now) : ''}${buildingActions(true)}`,
+            ${c.kind === 'exchange' ? marketPanel(s, now) : upgradeBlock}${c.kind === 'trade' ? tradePanel(s, now) : ''}${buildingActions(true)}`,
         };
       }
 
@@ -1398,6 +1415,8 @@ export function createUI(root, api) {
     },
     'nav-menu': () => openSheet({ kind: 'menu', reset: 0 }),
     'nav-upgrades': () => openSheet({ kind: 'upgrades' }),
+    'stock-buy': (el) => { const r = act('buyStock', el.dataset.id, Number(el.dataset.amt)); toast(r && r.ok ? `Bought ${formatCoins(r.spent)} of ${(config.STOCKS || {})[el.dataset.id]?.name}` : (r && r.reason) || ''); },
+    'stock-sell': (el) => { const r = act('sellStock', el.dataset.id); if (r && r.ok) toast(`Sold for ${formatCoins(r.coins)} · ${r.gainLoss >= 0 ? 'a gain of ' + formatCoins(r.gainLoss) : 'a loss of ' + formatCoins(-r.gainLoss)}`); },
     'contract-sign': (el) => { const r = act('signContract', el.dataset.town); toast(r && r.ok ? `Signed with ${el.dataset.town}! Their truck comes every hour.` : (r && r.reason) || ''); },
     'contract-cancel': (el) => { const r = act('cancelContract', el.dataset.town); if (r && r.ok) toast(`Contract with ${el.dataset.town} ended.`); },
     'vip-send': () => { vipSending = true; movingId = null; closeSheet(); refreshHUD(); },
