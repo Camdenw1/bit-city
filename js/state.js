@@ -1,7 +1,7 @@
 // Mini Mayor — state: new game, save/load (with backup copy), export/import, local day.
 // Pure: the only platform access is localStorage inside save()/load(), always guarded.
 
-import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats, TRAITS, HINTS, UPGRADES, VIPS, STOCKS, MATERIALS } from './config.js';
+import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats, TRAITS, HINTS, UPGRADES, VIPS, STOCKS, MATERIALS, TOWN_PERKS, PERM_PERKS } from './config.js';
 
 export const SAVE_KEY = 'bitcity.save.v1';
 const EXPORT_PREFIX = 'BITCITY1:';
@@ -135,6 +135,8 @@ export function newGame(now) {
     festivalUntil: 0,                  // a festival runs until then
     festivalReadyAt: 0,                // the next festival can start from then
     mats: { wood: 0, stone: 0, bricks: 0 },   // building materials in store
+    mayor: { xp: 0, spent: {} },       // mayor XP and the town perks bought with mayor levels (reset on prestige)
+    legacy: { points: 0, perks: {}, towns: 1 },   // prestige: points to spend, permanent perks, towns founded (kept for good)
     market: null,                      // stock market: { prices, prev, shares, paid } (made when first needed)
     vip: null,                         // a VIP waiting on the entry road: { kind, name, look, arrivedAt, leaveAt }
     nextVipAt: now + TUNING.vipGapMaxMs,
@@ -303,6 +305,13 @@ export function migrate(state) {
     if (!isNum(state.festivalUntil)) state.festivalUntil = 0;
     if (!isNum(state.festivalReadyAt)) state.festivalReadyAt = 0;
     if (!isNum(state.stats.festivals)) state.stats.festivals = 0;
+    // mayor level and prestige (2026-11-11)
+    const mayor = state.mayor && typeof state.mayor === 'object' ? state.mayor : {};
+    state.mayor = { xp: isNum(mayor.xp) ? Math.max(0, mayor.xp) : 0, spent: {} };
+    for (const k of Object.keys(TOWN_PERKS)) { const r = (mayor.spent || {})[k]; if (isNum(r) && r > 0) state.mayor.spent[k] = Math.min(TOWN_PERKS[k].max, Math.round(r)); }
+    const legacy = state.legacy && typeof state.legacy === 'object' ? state.legacy : {};
+    state.legacy = { points: isNum(legacy.points) ? Math.max(0, Math.floor(legacy.points)) : 0, perks: {}, towns: isNum(legacy.towns) ? Math.max(1, Math.floor(legacy.towns)) : 1 };
+    for (const k of Object.keys(PERM_PERKS)) { const r = (legacy.perks || {})[k]; if (isNum(r) && r > 0) state.legacy.perks[k] = Math.min(PERM_PERKS[k].max, Math.round(r)); }
     // building materials (2026-11-11)
     const mats = state.mats && typeof state.mats === 'object' ? state.mats : {};
     state.mats = {};

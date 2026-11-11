@@ -2,9 +2,9 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS, MAYOR_XP, TOWN_PERKS, PERM_PERKS } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
-import { localDay, makeApplicant, rand, randInt, pick } from './state.js';
+import { localDay, makeApplicant, rand, randInt, pick, newGame } from './state.js';
 
 // ---- events ---------------------------------------------------------------
 
@@ -399,6 +399,7 @@ function noteSeen(state) {
     if (!p.done || sn.pages.includes(p.id)) continue;
     sn.pages.push(p.id);
     gainGems(state, TUNING.collectionGems);
+    addXp(state, MAYOR_XP.page);
     events.emit('pageDone', { page: p });
   }
 }
@@ -445,6 +446,7 @@ function checkGoals(state, now) {
     if (!test || !test(state, now)) continue;
     state.goalsDone.push(goal.id);
     events.emit('goal', { goal });
+    addXp(state, MAYOR_XP.goal);
     // a milestone can open a building
     for (const d of Object.values(BUILDINGS)) if (d.unlockGoal === goal.id && population(state) >= d.unlockAt) events.emit('unlock', { type: d.id });
     if (goal.reward && goal.reward.coins) gain(state, goal.reward.coins, 'goal');
@@ -713,7 +715,7 @@ function potentialRate(state, b, mode = b.price) {
   const menu = catOf(b) === 'food' ? 1 + TUNING.recipeBonus * state.recipes.length : 1;
   const price = PRICE_MODES[mode] || PRICE_MODES.normal;
   const trouble = problemOf(state, b.id) ? 1 - TUNING.problemSalesCut : 1;
-  return statsOf(b).baseRate * staff * skill * dream * menu * qualityOf(b) * levelMult(b.level) * price.speed * price.pay * trouble * favOf(b) * vipBoost(state, b);
+  return statsOf(b).baseRate * staff * skill * dream * menu * qualityOf(b) * levelMult(b.level) * price.speed * price.pay * trouble * favOf(b) * vipBoost(state, b) * salesPerk(state);
 }
 
 export function ratePerMin(state, b) {
@@ -777,7 +779,7 @@ export function rentPerDay(state, now = state.lastTick) {
   for (const home of state.buildings) {
     if (!isHome(home)) continue;
     const res = residentsOf(state, home.id);
-    if (res.length) sum += Math.round(res.reduce((n, t) => n + traitRent(state, t, home), 0) * defOf(home).rentPerTenant * levelMult(home.level) * (1 + homeBoost(state, home, now)));
+    if (res.length) sum += Math.round(res.reduce((n, t) => n + traitRent(state, t, home), 0) * defOf(home).rentPerTenant * levelMult(home.level) * (1 + homeBoost(state, home, now)) * rentPerk(state));
   }
   return sum;
 }
@@ -1029,6 +1031,92 @@ export function sellStock(state, id, now) {
   if (coins > 0) gain(state, coins, 'stocks');
   events.emit('stockSold', { id, coins, gainLoss });
   return { ok: true, reason: '', coins, gainLoss };
+}
+
+// ---- mayor level and prestige ---------------------------------------------------------
+// Mayor XP (goals, VIPs, festivals, collection pages) raises the mayor level; every level is a
+// point for a town perk. Founding a new town (prestige) turns the city's value into prestige
+// points for permanent perks, and keeps those perks and the collection book.
+
+export const townPerk = (state, k) => Math.max(0, Math.min(TOWN_PERKS[k].max, ((state.mayor || {}).spent || {})[k] || 0));
+export const permPerk = (state, k) => Math.max(0, Math.min(PERM_PERKS[k].max, ((state.legacy || {}).perks || {})[k] || 0));
+const rentPerk = (state) => 1 + TOWN_PERKS.rent.per * townPerk(state, 'rent');
+const salesPerk = (state) => (1 + TOWN_PERKS.sales.per * townPerk(state, 'sales')) * (1 + PERM_PERKS.sales.per * permPerk(state, 'sales'));
+/** What rides and deliveries pay, on top of the fare: your car and the Good tipper perk. */
+function farePay(state) {
+  return carOf(state).pay * (1 + TOWN_PERKS.fares.per * townPerk(state, 'fares'));
+}
+/** How fast your taxi drives: the car, and both Lead foot (this town) and Turbo taxi (for good). */
+export function carSpeed(state) {
+  return carOf(state).speed * (1 + TOWN_PERKS.drive.per * townPerk(state, 'drive')) * (1 + PERM_PERKS.drive.per * permPerk(state, 'drive'));
+}
+
+/** Mayor level from XP: level L needs 5 + 10 + ... + 5L XP in all. */
+export function mayorLevel(state) {
+  const xp = (state.mayor || {}).xp || 0;
+  let level = 0;
+  while (xp >= 5 * (level + 1) * (level + 2) / 2) level++;
+  return { level, xp, next: 5 * (level + 1) * (level + 2) / 2, from: 5 * level * (level + 1) / 2 };
+}
+export function perkPoints(state) {
+  const spent = Object.values((state.mayor || {}).spent || {}).reduce((a, b) => a + b, 0);
+  return Math.max(0, mayorLevel(state).level - spent);
+}
+function addXp(state, n) {
+  if (!state.mayor) state.mayor = { xp: 0, spent: {} };
+  const before = mayorLevel(state).level;
+  state.mayor.xp += n;
+  const after = mayorLevel(state).level;
+  if (after > before) events.emit('mayorUp', { level: after });
+}
+export function buyTownPerk(state, k) {
+  const p = TOWN_PERKS[k];
+  if (!p) return fail("We don't know that perk.");
+  if (townPerk(state, k) >= p.max) return fail(`${p.name} is maxed out.`);
+  if (perkPoints(state) < 1) return fail('No perk points left. Mayor levels come from goals, VIPs, festivals and the collection book.');
+  state.mayor.spent[k] = townPerk(state, k) + 1;
+  return { ok: true, reason: '', rank: state.mayor.spent[k] };
+}
+export function buyPermPerk(state, k) {
+  const p = PERM_PERKS[k];
+  if (!p) return fail("We don't know that perk.");
+  if (permPerk(state, k) >= p.max) return fail(`${p.name} is maxed out.`);
+  if ((state.legacy.points || 0) < p.cost) return fail(`You need ${p.cost} prestige points. Found a new town to earn them.`);
+  state.legacy.points -= p.cost;
+  state.legacy.perks[k] = permPerk(state, k) + 1;
+  return { ok: true, reason: '', rank: state.legacy.perks[k] };
+}
+
+/** What the city is worth: everything spent on buildings and land. */
+export function cityValue(state) {
+  let land = 0;
+  for (let i = 1; i < state.land.length; i++) land += Math.round(TUNING.landBasePrice * Math.pow(TUNING.landGrowth, i - 1));
+  return Math.round(state.buildings.reduce((n, b) => n + (b.paid ?? defOf(b).cost), 0) + land);
+}
+export function prestigePoints(state) {
+  return Math.floor(Math.sqrt(cityValue(state) / TUNING.prestigeValuePerPoint));
+}
+export function prestigeIssue(state) {
+  if (state.tenants.length < TUNING.prestigePop) return `Found a new town once you have ${TUNING.prestigePop} residents.`;
+  if (prestigePoints(state) < 1) return 'Your city needs to be worth a little more first.';
+  if (state.ride || state.job) return 'Finish your current ride or job first.';
+  return '';
+}
+/**
+ * Found a new town: a fresh map and start, keeping prestige points (plus the ones this city
+ * earns), permanent perks, the collection book and settings. Returns the new state.
+ */
+export function foundNewTown(state, now) {
+  const issue = prestigeIssue(state);
+  if (issue) return fail(issue);
+  const earned = prestigePoints(state);
+  const next = newGame(now);
+  next.legacy = { points: (state.legacy.points || 0) + earned, perks: { ...state.legacy.perks }, towns: (state.legacy.towns || 1) + 1 };
+  next.seen = JSON.parse(JSON.stringify(state.seen || next.seen));
+  next.settings = { ...(state.settings || {}) };
+  next.coins += PERM_PERKS.coins.per * permPerk(next, 'coins');
+  events.emit('newTown', { earned, towns: next.legacy.towns });
+  return { ok: true, reason: '', earned, state: next };
 }
 
 // ---- the entry road and trucks ------------------------------------------------
@@ -1345,7 +1433,7 @@ export function rentBonusPerDay(state, now, mood = townMood(state, now)) {
     const res = residentsOf(state, home.id);
     if (!res.length) continue;
     const each = (defOf(home).rentPerTenant * levelMult(home.level) * (1 + homeBoost(state, home, now)));
-    for (const t of res) sum += each * traitRent(state, t, home) * moodRentFactor(t.trait === 'homebody' ? 100 : residentMood(state, t, now, mood).score);
+    for (const t of res) sum += each * rentPerk(state) * traitRent(state, t, home) * moodRentFactor(t.trait === 'homebody' ? 100 : residentMood(state, t, now, mood).score);
   }
   return Math.round(sum);
 }
@@ -1674,7 +1762,8 @@ export function yardNear(state, x, y, now) {
 }
 /** Share of the usual build time: the crew upgrade, and half again near a Construction Yard. */
 export function buildFactor(state, x, y, now) {
-  return (1 - UPGRADES.crew.per * upLevel(state, 'crew')) * (yardNear(state, x, y, now) ? TUNING.yardFactor : 1);
+  return (1 - UPGRADES.crew.per * upLevel(state, 'crew')) * (yardNear(state, x, y, now) ? TUNING.yardFactor : 1)
+    * (1 - TOWN_PERKS.build.per * townPerk(state, 'build')) * (1 - PERM_PERKS.build.per * permPerk(state, 'build'));
 }
 
 // ---- newcomers -----------------------------------------------------------------
@@ -1690,7 +1779,7 @@ function pickWeighted(state, list, weight) {
 
 /** Time until the next newcomer: arriveMs, half that during an ad, twice that after a move-out. */
 function arrivalGap(state, at) {
-  let gap = TUNING.arriveMs * (1 - UPGRADES.welcome.per * upLevel(state, 'welcome'));
+  let gap = TUNING.arriveMs * (1 - UPGRADES.welcome.per * upLevel(state, 'welcome')) * (1 - TOWN_PERKS.welcome.per * townPerk(state, 'welcome'));
   if (at < (state.adUntil || 0)) gap /= 2;
   if (at < (state.slowArrivalsUntil || 0)) gap *= 2;
   return gap;
@@ -1876,6 +1965,7 @@ export function startFestival(state, now) {
   state.festivalUntil = now + TUNING.festivalMs;
   state.festivalReadyAt = state.festivalUntil + TUNING.festivalCooldownMs;
   state.stats.festivals++;
+  addXp(state, MAYOR_XP.festival);
   const t = state.tenants[randInt(state, state.tenants.length)];
   if (t) post(state, now, t, 'resident', 'Best. Festival. Ever. 🎉', 'good');
   events.emit('festival', { until: state.festivalUntil });
@@ -1891,7 +1981,7 @@ export function vipSpot(state) {
 
 function maybeVip(state, now) {
   if (state.vip || now < state.nextVipAt) return;
-  state.nextVipAt = now + TUNING.vipGapMinMs + randInt(state, TUNING.vipGapMaxMs - TUNING.vipGapMinMs + 1);
+  state.nextVipAt = now + Math.round((TUNING.vipGapMinMs + randInt(state, TUNING.vipGapMaxMs - TUNING.vipGapMinMs + 1)) / (1 + PERM_PERKS.vips.per * permPerk(state, 'vips')));
   if (population(state) < TUNING.vipUnlockPop) return;
   arriveVip(state, now);
 }
@@ -1952,6 +2042,7 @@ export function sendVip(state, buildingId, now) {
   }
   state.vip = null;
   state.stats.vips++;
+  addXp(state, MAYOR_XP.vip);
   if (!state.seen.vips.includes(v.kind)) state.seen.vips.push(v.kind);
   post(state, now, v, 'visitor', text, 'good');
   events.emit('vipUsed', { vip: v, building: b });
@@ -2347,7 +2438,7 @@ export function pickupRide(state, now) {
   const t = Math.max(0, now - ride.requestedAt);
   const tip = t <= fast ? max : t >= slow ? 1 : max - ((max - 1) * (t - fast)) / (slow - fast);
   const base = Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.rideFareMinutes);
-  ride.fare = Math.round(base * distancePay(state, ride) * tip * carOf(state).pay);
+  ride.fare = Math.round(base * distancePay(state, ride) * tip * farePay(state));
   ride.state = 'driving';
   events.emit('rideStart', { ride, fare: ride.fare });
   return { ...r, fare: ride.fare, driving: true };
@@ -2367,7 +2458,7 @@ export function acceptRide(state, now) {
     ride.acceptedAt = now;
     if (ride.kind === 'delivery') {
       ride.fare = Math.round(Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.deliveryFareMinutes));
-      ride.fare = Math.round(ride.fare * distancePay(state, ride) * carOf(state).pay);
+      ride.fare = Math.round(ride.fare * distancePay(state, ride) * farePay(state));
     }
   }
   return { ok: true, reason: '', tenant, destination };
@@ -2428,7 +2519,7 @@ export function welcomeFare(state, tenantId, now) {
   const from = home && edgeRoad(state, home);
   if (!t || !t.welcome || !from) return 0;
   const base = Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.welcomeFareMinutes);
-  return Math.round(base * distancePay(state, { from, toId: home.id }) * carOf(state).pay);
+  return Math.round(base * distancePay(state, { from, toId: home.id }) * farePay(state));
 }
 export function startWelcome(state, tenantId, now) {
   if (state.job || state.ride) return fail('Finish or skip your current job first.');
@@ -2468,7 +2559,7 @@ export function chooseDestination(state, buildingId, now) {
   }
   if (ride.kind !== 'delivery') {
     const base = Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.rideFareMinutes);
-    ride.fare = Math.round(base * distancePay(state, ride) * tipFor(ride, now) * carOf(state).pay);
+    ride.fare = Math.round(base * distancePay(state, ride) * tipFor(ride, now) * farePay(state));
   }
   ride.state = 'driving';
   events.emit('rideStart', { ride, fare: ride.fare });
@@ -2614,7 +2705,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
         if (sold <= 0) continue;
         b.stock -= sold;
         // coins for those items: the shop's price, plus the ad bonus while a campaign runs
-        const exact = sold * shop.pay * boost * (active ? playExtras(state, b, t) : 1) * (t < (state.adUntil || 0) ? 1 + TUNING.adSalesBonus : 1) + (b.cc || 0);
+        const exact = sold * shop.pay * boost * (active ? playExtras(state, b, t) : 1 + PERM_PERKS.away.per * permPerk(state, 'away')) * (t < (state.adUntil || 0) ? 1 + TUNING.adSalesBonus : 1) + (b.cc || 0);
         const got = Math.floor(exact + 1e-9);
         b.cc = exact - got;
         shop.sold += got;

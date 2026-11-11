@@ -159,6 +159,8 @@ export const TUNING = {
   matCap: 300,                   // the most of each material you can store
   matDiscount: 0.3,              // paying an upgrade with materials takes this much off the coins
   matPerLevel: [0, 0, 12, 30],   // wood and stone an upgrade to level 2 / 3 uses (bricks: half)
+  prestigePop: 100,              // founding a new town opens at this many residents
+  prestigeValuePerPoint: 5000,   // prestige points = floor(sqrt(city value / this))
   collectionGems: 5,             // a finished page of the collection book pays this many gems (once)
   contractTowns: 4,              // neighbour towns that offer standing contracts
   contractMinutes: 3,            // one hourly delivery pays this many minutes of the town's shop income...
@@ -252,6 +254,29 @@ export const VIPS = {
   celebrity: { name: 'Celebrity',   icon: 'heart',  target: 'shop', does: 'Fans flock in: that shop sells double for 30 minutes.', ask: 'Tap a shop' },
   inspector: { name: 'Inspector',   icon: 'key',    target: 'any',  does: 'Fixes every shop problem in town at once.', ask: 'Tap any building' },
   recruiter: { name: 'Recruiter',   icon: 'person', target: 'home', does: 'Brings a star resident who moves straight into that home.', ask: 'Tap a home with room' },
+};
+
+// ---- Mayor level and prestige (both in the Upgrades tab) --------------------------
+// Mayor XP comes from goals, VIPs, festivals and collection pages; each mayor level is a perk
+// point for TOWN_PERKS, which reset when you found a new town. Founding a new town (from
+// `prestigePop` residents) turns the city's value into prestige points for PERM_PERKS, kept for
+// good. `per` is one rank's effect; `max` the most ranks.
+export const MAYOR_XP = { goal: 2, vip: 2, festival: 3, page: 3 };
+export const TOWN_PERKS = {
+  rent:     { name: 'Landlord',      per: 0.05, max: 5, says: (r) => `+${Math.round(r * 5)}% rent` },
+  sales:    { name: 'Shopkeeper',    per: 0.05, max: 5, says: (r) => `+${Math.round(r * 5)}% shop sales` },
+  welcome:  { name: 'Open doors',    per: 0.1,  max: 3, says: (r) => `newcomers ${Math.round(r * 10)}% sooner` },
+  fares:    { name: 'Good tipper',   per: 0.1,  max: 3, says: (r) => `+${Math.round(r * 10)}% ride and delivery pay` },
+  build:    { name: 'Quick builder', per: 0.05, max: 3, says: (r) => `${Math.round(r * 5)}% faster building` },
+  drive:    { name: 'Lead foot',     per: 0.1,  max: 3, says: (r) => `taxi ${Math.round(r * 10)}% faster` },
+};
+export const PERM_PERKS = {
+  drive:  { name: 'Turbo taxi',      per: 0.15, max: 5, cost: 2, says: (r) => `taxi ${Math.round(r * 15)}% faster, in every town` },
+  coins:  { name: 'Head start',      per: 2000, max: 5, cost: 1, says: (r) => `new towns start with ${r * 2000} extra coins` },
+  build:  { name: 'Master builders', per: 0.08, max: 5, cost: 2, says: (r) => `${Math.round(r * 8)}% faster building, always` },
+  sales:  { name: 'Famous town',     per: 0.1,  max: 5, cost: 3, says: (r) => `+${Math.round(r * 10)}% shop sales, always` },
+  vips:   { name: 'Guest list',      per: 0.15, max: 3, cost: 2, says: (r) => `VIPs come ${Math.round(r * 15)}% more often` },
+  away:   { name: 'Night shift',     per: 0.1,  max: 5, cost: 2, says: (r) => `shops earn +${Math.round(r * 10)}% while you're away` },
 };
 
 // ---- Building materials (the light version Camden approved) -----------------------

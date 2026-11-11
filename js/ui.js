@@ -316,7 +316,7 @@ export function createUI(root, api) {
     if (h.feedCount.hidden === (unread > 0)) h.feedCount.hidden = unread === 0;
     // Upgrades: a count of upgrades you can afford right now.
     const ups = Object.keys(config.UPGRADES || {}).filter((id) => { const c = call('upgradeNextCost', s, id); return c > 0 && c <= s.coins; }).length
-      + (call('nextCar', s) && call('nextCar', s).cost <= s.coins ? 1 : 0);
+      + (call('nextCar', s) && call('nextCar', s).cost <= s.coins ? 1 : 0) + (call('perkPoints', s) || 0);
     setText(h.jobsCount, String(ups));
     if (h.jobsCount.hidden === (ups > 0)) h.jobsCount.hidden = ups === 0;
     // jobs pop up on the map; a toast says when a resting one is back
@@ -1028,7 +1028,7 @@ export function createUI(root, api) {
     },
 
     /* --- Upgrades: the car and short ladders that make the town run better --- */
-    upgrades() {
+    upgrades(d) {
       const s = S();
       const car = call('carOf', s) || { name: 'Taxi', speed: 1, pay: 1 }; const next = call('nextCar', s);
       const carRow = `<div class="up-card" data-key="car"><div class="up-head">${icon('taxi', 2)}<b>${esc(car.name)}</b>
@@ -1045,7 +1045,27 @@ export function createUI(root, api) {
           ${adOn ? `<span class="tag tag-ok">${formatDuration(Math.max(0, (s.adUntil || 0) - N()))} left</span>`
             : `<button class="btn btn-small ${adCost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="run-ad">${formatCoins(adCost)} ${icon('coin', 1, 'i12')}</button>`}</div>
         <p class="note">An ad makes every sale pay +${Math.round((config.TUNING?.adSalesBonus ?? 0.25) * 100)}% and brings newcomers twice as fast, for ${formatDuration(call('adLengthMs', s) || 7200000)}. Marketing (below) makes ads last longer.</p></div>`;
-      return { title: 'Upgrades', html: `<h3 class="sec">Your car</h3>${carRow}<h3 class="sec">Advertising</h3>${adRow}<h3 class="sec">Running the town</h3>${rows}
+      // mayor level: perk points for this town's perks
+      const ml = call('mayorLevel', s) || { level: 0, xp: 0, next: 5, from: 0 }; const pts = call('perkPoints', s) || 0;
+      const perkRow = (k, p, rank, buy, costText, can) => `<div class="up-card" data-key="${buy}-${k}"><div class="up-head"><b>${esc(p.name)}</b><span class="up-pips">${'●'.repeat(rank)}${'○'.repeat(p.max - rank)}</span>
+          ${rank >= p.max ? '<span class="tag tag-ok">Max</span>' : `<button class="btn btn-small ${can ? 'btn-go' : 'btn-quiet'}" data-act="${buy}" data-k="${k}">${costText}</button>`}</div>
+        <p class="note">${rank ? `Now: ${esc(p.says(rank))}.` : ''}${rank < p.max ? ` Next: ${esc(p.says(rank + 1))}.` : ''}</p></div>`;
+      const townRows = Object.entries(config.TOWN_PERKS || {}).map(([k, p]) => perkRow(k, p, call('townPerk', s, k) || 0, 'buy-town-perk', '1 point', pts > 0)).join('');
+      const mayor = `<h3 class="sec">Mayor level ${ml.level} · ${pts} perk ${pts === 1 ? 'point' : 'points'}</h3>
+        <div class="meter meter-team"><i style="width:${Math.round(((ml.xp - ml.from) / Math.max(1, ml.next - ml.from)) * 100)}%"></i></div>
+        <p class="note">${ml.xp}/${ml.next} XP. Goals, VIPs, festivals and finished collection pages give XP; each level is a perk point. These perks are for this town.</p>${townRows}`;
+      // prestige: found a new town, keep points and permanent perks
+      const lg = s.legacy || { points: 0, perks: {}, towns: 1 };
+      const earn = call('prestigePoints', s) || 0; const why = call('prestigeIssue', s);
+      const permRows = Object.entries(config.PERM_PERKS || {}).map(([k, p]) => perkRow(k, p, call('permPerk', s, k) || 0, 'buy-perm-perk', `${p.cost} ${p.cost === 1 ? 'point' : 'points'}`, lg.points >= p.cost)).join('');
+      const found = d.confirmTown
+        ? `<div class="confirm"><span>Found a new town? You'll start fresh on new land with ${earn} new prestige ${earn === 1 ? 'point' : 'points'}. You keep your prestige points, permanent perks and collection book.</span>
+            <div class="row"><button class="btn btn-quiet" data-act="town-no">Not yet</button><button class="btn btn-warn" data-act="town-yes">Found a new town</button></div></div>`
+        : why ? `<p class="note">${esc(why)} This city is worth ${earn} ${earn === 1 ? 'point' : 'points'} so far.</p>`
+          : `<button class="btn btn-go btn-wide" data-act="town-ask">Found a new town · +${earn} prestige ${earn === 1 ? 'point' : 'points'}</button>`;
+      const prestige = `<h3 class="sec">New town (prestige) · ${lg.points} ${lg.points === 1 ? 'point' : 'points'}${lg.towns > 1 ? ` · town #${lg.towns}` : ''}</h3>
+        <p class="note">When your city is big, start a new town and turn this one's value into prestige points. Points buy permanent perks that help every town after.</p>${found}${permRows}`;
+      return { title: 'Upgrades', html: `<h3 class="sec">Your car</h3>${carRow}<h3 class="sec">Advertising</h3>${adRow}<h3 class="sec">Running the town</h3>${rows}${mayor}${prestige}
         <p class="note">Jobs now pop up on the map as gold bubbles: tap one to play. A Construction Yard (in Build) makes anything built near it go up twice as fast.</p>` };
     },
 
@@ -1434,6 +1454,15 @@ export function createUI(root, api) {
     },
     'nav-menu': () => openSheet({ kind: 'menu', reset: 0 }),
     'nav-upgrades': () => openSheet({ kind: 'upgrades' }),
+    'buy-town-perk': (el) => { const r = act('buyTownPerk', el.dataset.k); if (r && r.ok === false && r.reason) toast(r.reason); },
+    'buy-perm-perk': (el) => { const r = act('buyPermPerk', el.dataset.k); if (r && r.ok === false && r.reason) toast(r.reason); },
+    'town-ask': () => { sheet.confirmTown = true; renderSheet(); },
+    'town-no': () => { sheet.confirmTown = false; renderSheet(); },
+    'town-yes': () => {
+      const r = api.foundNewTown();
+      if (r && r.ok) { closeSheet(); toast(`Welcome to your new town! +${r.earned} prestige points to spend in Upgrades.`); }
+      else if (r && r.reason) toast(r.reason);
+    },
     'upgrade-mats': (el) => { const r = act('upgradeWithMaterials', Number(el.dataset.id)); if (r && r.ok === false && r.reason) toast(r.reason); },
     'buy-mat': (el) => { const r = act('buyMaterial', el.dataset.k, Number(el.dataset.qty)); toast(r && r.ok ? `Imported ${r.qty} ${((config.MATERIALS || {})[el.dataset.k]?.name || '').toLowerCase()}` : (r && r.reason) || ''); },
     'stock-buy': (el) => { const r = act('buyStock', el.dataset.id, Number(el.dataset.amt)); toast(r && r.ok ? `Bought ${formatCoins(r.spent)} of ${(config.STOCKS || {})[el.dataset.id]?.name}` : (r && r.reason) || ''); },

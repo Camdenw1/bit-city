@@ -48,6 +48,16 @@ const api = {
     persist();
     ui.refresh();
   },
+  foundNewTown: () => {
+    const res = sim.foundNewTown(state, getNow());
+    if (!res.ok) return res;
+    state = res.state;
+    persist();
+    ui.hideRide();
+    renderer.resetView();
+    ui.refresh();
+    return res;
+  },
   resetGame: () => {
     state = store.newGame(getNow());
     persist();
@@ -172,6 +182,11 @@ sim.events.on('festival', () => {
   if (quiet) return;
   ui.toast('🎉 Festival! For 30 minutes every shop sells 50% more and visitors come twice as often.');
 });
+sim.events.on('mayorUp', ({ level }) => {
+  if (quiet) return;
+  audio.play('dream');
+  ui.toast(`Mayor level ${level}! You have a perk point to spend in Upgrades.`);
+});
 sim.events.on('pageDone', ({ page }) => {
   if (quiet) return;
   audio.play('dream');
@@ -229,7 +244,7 @@ function startDrive() {
       else if (speedy) ui.toast(`Speedy driving! +${formatCoins(res.fare)} coins`);
     }
   };
-  if (from && to) renderer.driveTaxi(from, to, finish, ride.kind === 'delivery', sim.carOf(state).speed); else finish();
+  if (from && to) renderer.driveTaxi(from, to, finish, ride.kind === 'delivery', sim.carSpeed(state)); else finish();
 }
 
 function resumeRide() {

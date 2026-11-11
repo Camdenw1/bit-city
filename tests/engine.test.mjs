@@ -2085,3 +2085,43 @@ test('materials: sources make them, they cut upgrade coins, imports fill gaps, n
   const old = JSON.parse(JSON.stringify(s)); delete old.mats;
   assert.deepEqual(S.migrate(old).mats, { wood: 0, stone: 0, bricks: 0 });
 });
+
+test('mayor level gives town perks; a new town keeps prestige points, perks and the collection', () => {
+  const { s, diner } = smallTown();
+  allGoalsDone(s);
+  s.mayor.xp = 0; assert.equal(sim.mayorLevel(s).level, 0);
+  s.mayor.xp = 15;
+  assert.equal(sim.mayorLevel(s).level, 2); assert.equal(sim.perkPoints(s), 2);
+  const rate = sim.ratePerMin(s, diner);
+  assert.ok(sim.buyTownPerk(s, 'sales').ok);
+  assert.ok(Math.abs(sim.ratePerMin(s, diner) - rate * (1 + config.TOWN_PERKS.sales.per)) < 1e-9);
+  const speed = sim.carSpeed(s);
+  assert.ok(sim.buyTownPerk(s, 'drive').ok);
+  assert.ok(sim.carSpeed(s) > speed);
+  assert.match(sim.buyTownPerk(s, 'rent').reason, /No perk points/);
+  // prestige needs residents; points come from the city's value
+  assert.match(sim.prestigeIssue(s), /residents/);
+  for (let i = s.tenants.length; i < TUNING.prestigePop; i++) s.tenants.push({ ...s.tenants[0], id: 100000 + i });
+  s.buildings.forEach((b) => { b.paid = 50000; });
+  const pts = sim.prestigePoints(s);
+  assert.ok(pts >= 1);
+  s.seen.vips.push('critic');
+  const r = sim.foundNewTown(s, s.lastTick);
+  assert.ok(r.ok); assert.equal(r.earned, pts);
+  const n = r.state;
+  assert.equal(n.legacy.points, pts); assert.equal(n.legacy.towns, 2);
+  assert.ok(n.seen.vips.includes('critic'), 'the collection book carries over');
+  assert.equal(n.tenants.length, 0); assert.equal(n.mayor.xp, 0, 'town perks reset');
+  // permanent perks: bought with prestige points, kept in the next town
+  n.legacy.points = 10;
+  assert.ok(sim.buyPermPerk(n, 'coins').ok);
+  assert.ok(sim.buyPermPerk(n, 'drive').ok);
+  assert.ok(sim.carSpeed(n) > sim.carOf(n).speed);
+  for (let i = n.tenants.length; i < TUNING.prestigePop; i++) n.tenants.push({ ...s.tenants[0], id: 200000 + i, homeId: null });
+  n.buildings.push({ id: 999, type: 'tent', x: 0, y: 0, readyAt: 0, paid: 80000, level: 1 });
+  const r2 = sim.foundNewTown(n, n.lastTick);
+  assert.ok(r2.ok); assert.equal(r2.state.coins, TUNING.startCoins + config.PERM_PERKS.coins.per, 'Head start');
+  assert.equal(r2.state.legacy.perks.drive, 1);
+  const old = JSON.parse(JSON.stringify(s)); delete old.mayor; delete old.legacy;
+  const m = S.migrate(old); assert.deepEqual(m.legacy, { points: 0, perks: {}, towns: 1 }); assert.equal(m.mayor.xp, 0);
+});
