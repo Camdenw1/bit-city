@@ -182,6 +182,11 @@ sim.events.on('festival', () => {
   if (quiet) return;
   ui.toast('🎉 Festival! For 30 minutes every shop sells 50% more and visitors come twice as often.');
 });
+sim.events.on('care', ({ town, coins }) => {
+  if (quiet) return;
+  audio.play('coin');
+  ui.toast(`A care package from ${town}, your old town: +${formatCoins(coins)} coins 💌`);
+});
 sim.events.on('mayorUp', ({ level }) => {
   if (quiet) return;
   audio.play('dream');
@@ -203,9 +208,11 @@ sim.events.on('visit', ({ building, amount }) => {
   renderer.burst(building.x, building.y, 'hearts');
 });
 sim.events.on('truckIn', ({ truck }) => {
-  if (quiet || truck.kind === 'order') return;     // orders have their own thank-you
+  if (quiet || truck.kind === 'order' || truck.kind === 'care') return;     // orders and care packages have their own toasts
   audio.play('coin');
-  ui.toast(truck.kind === 'import' ? `${truck.qty} ${config.CROPS?.[truck.crop]?.toLowerCase?.() || truck.crop} reached the Trading Post`
+  const crop = config.CROPS?.[truck.crop]?.toLowerCase?.() || truck.crop;
+  ui.toast(truck.kind === 'import' ? `${truck.qty} ${crop} reached the Trading Post`
+    : truck.kind === 'contract' ? `${truck.town} paid ${formatCoins(truck.coins)} coins for ${truck.qty} ${crop}`
     : `The truck made it out of town · +${formatCoins(truck.coins)} coins`);
 });
 sim.events.on('ad', () => { audio.play('open'); ui.toast('Your ad is up! Sales pay more for 2 hours.'); });

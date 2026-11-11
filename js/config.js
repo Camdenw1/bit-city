@@ -1,6 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
-export const VERSION = 40;           // shown in Menu; keep in step with CACHE in sw.js
+export const VERSION = 41;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;
@@ -160,6 +160,7 @@ export const TUNING = {
   matCap: 300,                   // the most of each material you can store
   matDiscount: 0.3,              // paying an upgrade with materials takes this much off the coins
   matPerLevel: [0, 0, 12, 30],   // wood and stone an upgrade to level 2 / 3 uses (bricks: half)
+  careHours: 1,                  // a sister town's daily care package: this many hours of its old shop income
   prestigePop: 100,              // founding a new town opens at this many residents
   prestigeValuePerPoint: 5000,   // prestige points = floor(sqrt(city value / this))
   collectionGems: 5,             // a finished page of the collection book pays this many gems (once)
@@ -263,6 +264,9 @@ export const VIPS = {
 // `prestigePop` residents) turns the city's value into prestige points for PERM_PERKS, kept for
 // good. `per` is one rank's effect; `max` the most ranks.
 export const MAYOR_XP = { goal: 2, vip: 2, festival: 3, page: 3 };
+// Old towns live on as sister towns: best-friend contract partners that also send a daily care
+// package (one hour of the income they had when you left). Named in order from this list.
+export const SISTER_NAMES = ['Old Oak', 'Brightwater', 'Hilltop', 'Sunnyvale', 'Bramble Bay', 'Lantern Hill', 'Cozy Cove', 'Juniper Glen'];
 export const TOWN_PERKS = {
   rent:     { name: 'Landlord',      per: 0.05, max: 5, says: (r) => `+${Math.round(r * 5)}% rent` },
   sales:    { name: 'Shopkeeper',    per: 0.05, max: 5, says: (r) => `+${Math.round(r * 5)}% shop sales` },

@@ -134,6 +134,13 @@ covers running and publishing. This file holds the design decisions and the road
   taxi (Camden wanted taxi speed in both trees), Head start coins, Master builders, Famous town
   sales, Guest list VIPs, Night shift (away sales +10%/rank: the "away income" open item).
   Taxi speed is `carSpeed(state)`; fares go through `farePay`.
+- Sister towns (2026-11-11, Camden's idea that old towns stay in the game; he chose (a)+(b)):
+  `foundNewTown` saves the town you leave in `legacy.oldTowns` ({ name from `SISTER_NAMES`, pop,
+  income per hour }). Sister towns join the contract list (`tradeTowns`) as best friends (♥♥♥,
+  bigger, better-paid contracts), some visitors' posts say they came from one, and once a local
+  day each sends a care truck worth `careHours` (1) of its old shop income (`sendCare`, starting
+  the day after you found the new town; one per day even after days away). Visiting old towns
+  as a frozen map (option c) was offered and left for later.
 - Building materials (2026-11-11, the light version; made optional so nothing new is required,
   per Camden's "seamless additions"): Lumber Yard, Quarry, Brickworks (kind 'source', open at 12
   residents, no workers) make `matPerHour` (8, x level) wood / stone / bricks up to `matCap` 300
@@ -363,7 +370,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` and `VERSION` in config.js together when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (64 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (65 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

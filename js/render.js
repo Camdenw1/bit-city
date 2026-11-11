@@ -692,7 +692,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       const route = safe(() => truckRoute(state, now), null);
       if (!route || route.length < 2) return null;
       path = [...route, ...entryOut.slice(0, 4)];          // drive on until it's out of sight
-      if (tr.kind === 'import') path.reverse();
+      if (tr.kind === 'import' || tr.kind === 'care') path.reverse();   // these drive in
       truckPaths.set(tr.id, path);
     }
     const span = Math.max(1, tr.arriveAt - tr.leaveAt);

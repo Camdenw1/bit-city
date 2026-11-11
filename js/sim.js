@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS, MAYOR_XP, TOWN_PERKS, PERM_PERKS } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick, newGame } from './state.js';
 
@@ -907,7 +907,13 @@ export function fillOrder(state, orderId, now) {
 // own truck and paid well. Sign once and it runs by itself; a short hour is simply skipped.
 // Every delivery builds friendship, and friendship makes contracts bigger and better paid.
 
+/** The towns you trade with: four neighbours, then your sister towns (old towns). */
+export function tradeTowns(state) {
+  return NEIGHBOURS.slice(0, TUNING.contractTowns).concat(((state.legacy || {}).oldTowns || []).map((t) => t.name));
+}
+const isSister = (state, town) => ((state.legacy || {}).oldTowns || []).some((t) => t.name === town);
 export function friendLevel(state, town) {
+  if (isSister(state, town)) return TUNING.contractLevels.length;     // sister towns are best friends from the start
   const n = (state.friends || {})[town] || 0;
   return TUNING.contractLevels.filter((x) => n >= x).length;
 }
@@ -917,7 +923,7 @@ export function contractSlots(state, now) {
 }
 /** What a town's contract asks for and pays right now. */
 export function contractTerms(state, town, now) {
-  const i = NEIGHBOURS.indexOf(town);
+  const i = tradeTowns(state).indexOf(town);
   const level = friendLevel(state, town);
   const crop = Object.keys(CROP_PRICE)[(i < 0 ? 0 : i) % Object.keys(CROP_PRICE).length];
   const qty = TUNING.contractQty[level];
@@ -926,11 +932,11 @@ export function contractTerms(state, town, now) {
 }
 /** The towns that offer contracts and whether you have signed each. */
 export function contractOffers(state, now) {
-  return NEIGHBOURS.slice(0, TUNING.contractTowns).map((town) => ({ ...contractTerms(state, town, now), signed: state.contracts.some((c) => c.town === town) }));
+  return tradeTowns(state).map((town) => ({ ...contractTerms(state, town, now), signed: state.contracts.some((c) => c.town === town), sister: isSister(state, town) }));
 }
 export function signContract(state, town, now) {
   if (!hasTrade(state, now)) return fail('Build a Trading Post first.');
-  if (!NEIGHBOURS.slice(0, TUNING.contractTowns).includes(town)) return fail("That town isn't trading yet.");
+  if (!tradeTowns(state).includes(town)) return fail("That town isn't trading yet.");
   if (state.contracts.some((c) => c.town === town)) return fail(`You already have a contract with ${town}.`);
   if (state.contracts.length >= contractSlots(state, now)) return fail('No room for another contract. Upgrade the Trading Post for more.');
   const t = contractTerms(state, town, now);
@@ -1087,6 +1093,19 @@ export function buyPermPerk(state, k) {
   return { ok: true, reason: '', rank: state.legacy.perks[k] };
 }
 
+/** Once a local day, each sister town sends a truck with one hour of its old shop income. */
+function sendCare(state, now) {
+  const sisters = (state.legacy || {}).oldTowns || [];
+  if (!sisters.length) return;
+  const day = localDay(now);
+  if (state.lastCareDay === day) return;
+  state.lastCareDay = day;
+  sisters.forEach((t, i) => {
+    const coins = Math.max(1, Math.round(t.income * TUNING.careHours));
+    state.trucks.push({ id: state.nextId++, kind: 'care', town: t.name, crop: 'veggies', qty: 0, coins, leaveAt: now, arriveAt: now + 12000 + i * 4000 });
+  });
+}
+
 /** What the city is worth: everything spent on buildings and land. */
 export function cityValue(state) {
   let land = 0;
@@ -1111,7 +1130,12 @@ export function foundNewTown(state, now) {
   if (issue) return fail(issue);
   const earned = prestigePoints(state);
   const next = newGame(now);
-  next.legacy = { points: (state.legacy.points || 0) + earned, perks: { ...state.legacy.perks }, towns: (state.legacy.towns || 1) + 1 };
+  // the town you leave lives on as a sister town
+  const old = (state.legacy.oldTowns || []).slice();
+  old.push({ name: SISTER_NAMES[old.length % SISTER_NAMES.length] + (old.length >= SISTER_NAMES.length ? ` ${Math.floor(old.length / SISTER_NAMES.length) + 1}` : ''),
+    pop: state.tenants.length, income: Math.round(townRatePerMin(state, now) * 60), founded: now });
+  next.legacy = { points: (state.legacy.points || 0) + earned, perks: { ...state.legacy.perks }, towns: (state.legacy.towns || 1) + 1, oldTowns: old };
+  next.lastCareDay = localDay(now);                 // the first care packages come tomorrow
   next.seen = JSON.parse(JSON.stringify(state.seen || next.seen));
   next.settings = { ...(state.settings || {}) };
   next.coins += PERM_PERKS.coins.per * permPerk(next, 'coins');
@@ -1226,7 +1250,7 @@ export function truckCount(state, now) {
 
 /** A friendly reason when every truck is out, else ''. */
 function truckBusy(state, now) {
-  const out = (state.trucks || []).filter((t) => t.arriveAt > now && t.kind !== 'contract');   // neighbours bring their own trucks for contracts
+  const out = (state.trucks || []).filter((t) => t.arriveAt > now && t.kind !== 'contract' && t.kind !== 'care');   // neighbours bring their own trucks
   if (out.length < truckCount(state, now)) return '';
   const back = Math.max(1, Math.ceil((Math.min(...out.map((t) => t.arriveAt)) - now) / 1000));
   return `Your ${out.length > 1 ? 'trucks are' : 'truck is'} on the road. One is free in ${back}s (upgrade the Trading Post for more trucks).`;
@@ -1253,6 +1277,9 @@ function finishTrucks(state, now) {
       discoverRecipes(state);
     } else if (t.kind === 'contract') {
       gain(state, t.coins, 'contract');
+    } else if (t.kind === 'care') {
+      gain(state, t.coins, 'care');
+      events.emit('care', { town: t.town, coins: t.coins });
     } else if (t.kind === 'order') {
       gain(state, t.coins, 'order');
       gainGems(state, t.gems);
@@ -1867,7 +1894,9 @@ export function visit(state, now, cat = null) {
   const spent = Math.max(5, Math.round(townRatePerMin(state, now) * TUNING.activeBoost * TUNING.visitorSpendMinutes));
   gain(state, spent, 'visitor', shop.id);
   const lines = VISITS[cat].good;
-  post(state, now, v, 'visitor', lines[randInt(state, lines.length)].replace('{shop}', buildingName(shop)), 'good');
+  const sisters = (state.legacy || {}).oldTowns || [];
+  const from = sisters.length && rand(state) < 0.3 ? ` (visiting from ${sisters[randInt(state, sisters.length)].name})` : '';
+  post(state, now, v, 'visitor', lines[randInt(state, lines.length)].replace('{shop}', buildingName(shop)) + from, 'good');
   events.emit('visit', { building: shop, amount: spent, visitor: v });
   // a great time in a happy town: they may ask to move in
   let movedIn = false;
@@ -2786,6 +2815,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
   }
 
   if (hasTrade(state, now)) ensureOrders(state);   // neighbours start ordering once there is a Trading Post
+  sendCare(state, now);                            // sister towns' daily care packages
   finishTrucks(state, now);                        // even after a long time away, every truck arrives
   state.lastTick = now;
 

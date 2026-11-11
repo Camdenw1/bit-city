@@ -418,7 +418,7 @@ export function createUI(root, api) {
           <span>Pays ${formatCoins(o.coins)} ${icon('coin', 1, 'i12')} + ${o.gems} ${icon('gem', 1, 'i12')} · you have ${formatCoins(Math.min(have, o.qty))}/${formatCoins(o.qty)}</span></div>
         <button class="btn btn-small ${ready ? 'btn-go' : 'btn-quiet'}" data-act="fill-order" data-id="${o.id}">${ready ? 'Deliver' : 'Not enough yet'}</button></div>`;
     }).join('');
-    const out = (s.trucks || []).filter((t) => t.arriveAt > now && t.kind !== 'contract').sort((a, b) => a.arriveAt - b.arriveAt);
+    const out = (s.trucks || []).filter((t) => t.arriveAt > now && t.kind !== 'contract' && t.kind !== 'care').sort((a, b) => a.arriveAt - b.arriveAt);
     const fleet = call('truckCount', s, now) || 1;
     const what = (t) => t.kind === 'contract' ? `${formatCoins(t.qty)} ${esc(cropName(t.crop))} to ${esc(t.town)}` : t.kind === 'import' ? `${formatCoins(t.qty)} ${esc(cropName(t.crop))} coming in` :
       t.kind === 'order' ? `${formatCoins(t.qty)} ${esc(cropName(t.crop))} to ${esc(t.town || 'a neighbour')}` : `${formatCoins(t.qty)} ${esc(cropName(t.crop))} going to market`;
@@ -431,7 +431,7 @@ export function createUI(root, api) {
     const contractRows = offers.map((o) => {
       const c = (s.contracts || []).find((x) => x.town === o.town);
       const have = Math.floor((s.goods && s.goods[o.crop]) || 0);
-      return `<div class="trade-row" data-key="ct-${o.town}"><div class="trade-head"><b>${esc(o.town)} <span class="hearts">${hearts(o.level)}</span></b>
+      return `<div class="trade-row" data-key="ct-${o.town}"><div class="trade-head"><b>${esc(o.town)} <span class="hearts">${hearts(o.level)}</span>${o.sister ? ' <span class="tag tag-dream">Sister town</span>' : ''}</b>
           <span>${formatCoins(o.qty)} ${esc(cropName(o.crop))} every hour · pays ${formatCoins(o.pay)} ${icon('coin', 1, 'i12')}${o.next ? ` · ${o.deliveries}/${o.next} to the next ♥` : ''}</span>
           ${c ? `<span>${have >= o.qty ? `${icon('box', 1, 'i12')}Ready for the next pickup` : `Barn has ${formatCoins(have)}/${formatCoins(o.qty)}: short hours are skipped`} · ${c.done} delivered</span>` : ''}</div>
         ${c ? `<button class="btn btn-small btn-quiet" data-act="contract-cancel" data-town="${esc(o.town)}">End contract</button>`
@@ -1064,7 +1064,9 @@ export function createUI(root, api) {
         : why ? `<p class="note">${esc(why)} This city is worth ${earn} ${earn === 1 ? 'point' : 'points'} so far.</p>`
           : `<button class="btn btn-go btn-wide" data-act="town-ask">Found a new town · +${earn} prestige ${earn === 1 ? 'point' : 'points'}</button>`;
       const prestige = `<h3 class="sec">New town (prestige) · ${lg.points} ${lg.points === 1 ? 'point' : 'points'}${lg.towns > 1 ? ` · town #${lg.towns}` : ''}</h3>
-        <p class="note">When your city is big, start a new town and turn this one's value into prestige points. Points buy permanent perks that help every town after.</p>${found}${permRows}`;
+        <p class="note">When your city is big, start a new town and turn this one's value into prestige points. Points buy permanent perks that help every town after. Your old town lives on as a sister town: a best friend to trade with that sends a care package every day.</p>${found}
+        ${(lg.oldTowns || []).length ? `<h3 class="sec">Sister towns</h3>${lg.oldTowns.map((t) => `<div class="want-row plain" data-key="sis-${esc(t.name)}">${icon('heart', 2)}<div><b>${esc(t.name)}</b><span>${t.pop} residents · sends ${formatCoins(Math.round(t.income * (config.TUNING?.careHours ?? 1)))} coins every day</span></div></div>`).join('')}` : ''}
+        ${permRows}`;
       return { title: 'Upgrades', html: `<h3 class="sec">Your car</h3>${carRow}<h3 class="sec">Advertising</h3>${adRow}<h3 class="sec">Running the town</h3>${rows}${mayor}${prestige}
         <p class="note">Jobs now pop up on the map as gold bubbles: tap one to play. A Construction Yard (in Build) makes anything built near it go up twice as fast.</p>` };
     },

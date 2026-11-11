@@ -2123,5 +2123,30 @@ test('mayor level gives town perks; a new town keeps prestige points, perks and 
   assert.ok(r2.ok); assert.equal(r2.state.coins, TUNING.startCoins + config.PERM_PERKS.coins.per, 'Head start');
   assert.equal(r2.state.legacy.perks.drive, 1);
   const old = JSON.parse(JSON.stringify(s)); delete old.mayor; delete old.legacy;
-  const m = S.migrate(old); assert.deepEqual(m.legacy, { points: 0, perks: {}, towns: 1 }); assert.equal(m.mayor.xp, 0);
+  const m = S.migrate(old); assert.deepEqual(m.legacy, { points: 0, perks: {}, towns: 1, oldTowns: [] }); assert.equal(m.mayor.xp, 0);
+});
+
+test('sister towns: old towns trade as best friends and send a daily care package', () => {
+  const { s } = smallTown();
+  allGoalsDone(s);
+  for (let i = s.tenants.length; i < TUNING.prestigePop; i++) s.tenants.push({ ...s.tenants[0], id: 300000 + i });
+  s.buildings.forEach((b) => { b.paid = 50000; });
+  const income = Math.round(sim.townRatePerMin(s, s.lastTick) * 60);
+  const r = sim.foundNewTown(s, s.lastTick);
+  const n = r.state;
+  assert.equal(n.legacy.oldTowns.length, 1);
+  const sister = n.legacy.oldTowns[0];
+  assert.equal(sister.name, config.SISTER_NAMES[0]); assert.equal(sister.income, income);
+  // best friends from the start, listed with the neighbours
+  assert.equal(sim.friendLevel(n, sister.name), TUNING.contractLevels.length);
+  assert.ok(sim.contractOffers(n, n.lastTick).some((o) => o.town === sister.name && o.sister));
+  // no care package the day you found the new town; one the next day, by truck
+  const coins = n.coins;
+  sim.advance(n, n.lastTick + 60000);
+  assert.equal(n.trucks.filter((t) => t.kind === 'care').length, 0);
+  sim.advance(n, n.lastTick + 26 * HOUR, { live: false });
+  sim.advance(n, n.lastTick + 60000);
+  assert.ok(n.coins >= coins + Math.max(1, sister.income), 'the care package arrived');
+  // care trucks never block your own trading
+  assert.equal(n.trucks.filter((t) => t.kind === 'care' && t.arriveAt > n.lastTick).length, 0);
 });

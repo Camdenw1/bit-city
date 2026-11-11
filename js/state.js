@@ -136,7 +136,8 @@ export function newGame(now) {
     festivalReadyAt: 0,                // the next festival can start from then
     mats: { wood: 0, stone: 0, bricks: 0 },   // building materials in store
     mayor: { xp: 0, spent: {} },       // mayor XP and the town perks bought with mayor levels (reset on prestige)
-    legacy: { points: 0, perks: {}, towns: 1 },   // prestige: points to spend, permanent perks, towns founded (kept for good)
+    legacy: { points: 0, perks: {}, towns: 1, oldTowns: [] },   // prestige: points, permanent perks, towns founded, sister towns (kept for good)
+    lastCareDay: null,                 // the local day the sister towns' care packages last came
     market: null,                      // stock market: { prices, prev, shares, paid } (made when first needed)
     vip: null,                         // a VIP waiting on the entry road: { kind, name, look, arrivedAt, leaveAt }
     nextVipAt: now + TUNING.vipGapMaxMs,
@@ -310,7 +311,9 @@ export function migrate(state) {
     state.mayor = { xp: isNum(mayor.xp) ? Math.max(0, mayor.xp) : 0, spent: {} };
     for (const k of Object.keys(TOWN_PERKS)) { const r = (mayor.spent || {})[k]; if (isNum(r) && r > 0) state.mayor.spent[k] = Math.min(TOWN_PERKS[k].max, Math.round(r)); }
     const legacy = state.legacy && typeof state.legacy === 'object' ? state.legacy : {};
-    state.legacy = { points: isNum(legacy.points) ? Math.max(0, Math.floor(legacy.points)) : 0, perks: {}, towns: isNum(legacy.towns) ? Math.max(1, Math.floor(legacy.towns)) : 1 };
+    state.legacy = { points: isNum(legacy.points) ? Math.max(0, Math.floor(legacy.points)) : 0, perks: {}, towns: isNum(legacy.towns) ? Math.max(1, Math.floor(legacy.towns)) : 1,
+      oldTowns: (Array.isArray(legacy.oldTowns) ? legacy.oldTowns : []).filter((t) => t && typeof t.name === 'string' && isNum(t.income)) };
+    if (typeof state.lastCareDay !== 'string') state.lastCareDay = null;
     for (const k of Object.keys(PERM_PERKS)) { const r = (legacy.perks || {})[k]; if (isNum(r) && r > 0) state.legacy.perks[k] = Math.min(PERM_PERKS[k].max, Math.round(r)); }
     // building materials (2026-11-11)
     const mats = state.mats && typeof state.mats === 'object' ? state.mats : {};
