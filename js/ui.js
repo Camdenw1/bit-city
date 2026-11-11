@@ -505,10 +505,13 @@ export function createUI(root, api) {
     const hint = (config.HINTS || {})[t.hint] || '';
     const go = home
       ? `<button class="btn btn-small btn-go" data-act="move-in" data-i="${i}" data-id="${home.id}">${icon('key', 1, 'i12')} Move in here</button>`
-      : `<button class="btn btn-small btn-go" data-act="pick-home" data-i="${i}">${icon('key', 1, 'i12')} Pick a home</button>`;
+      : `<button class="btn btn-small btn-go" data-act="welcome-one" data-i="${i}">${icon('key', 1, 'i12')} Welcome!</button>`;
+    const lj = home ? null : call('likelyJob', S(), t, N());
     return `<div class="app-card${t.star ? ' is-star' : ''}" data-key="a${t.id}">
       <div class="app-who"><span class="avatar big">${person(t.look, 5)}</span><b>${esc(t.name)}</b>${t.star ? `<span class="tag tag-dream">${icon('star', 1, 'i12')}Star</span>` : ''}</div>
-      <div>${rangeBars(t)}<p class="app-hint">“${esc(hint)}”</p></div>
+      <div>${rangeBars(t)}<p class="app-hint">“${esc(hint)}”</p>
+        ${lj ? `<p class="app-hint">Likely job: <b>${esc(bName(lj.building))}</b>${lj.dream ? ' (dream job!)' : ''}</p>` : home ? '' : '<p class="app-hint">No open jobs right now</p>'}
+        ${home ? '' : `<button class="link" data-act="pick-home" data-i="${i}">Choose a home</button>`}</div>
       <div class="app-dream">${bld(t.dream, 2)}<span class="tiny">${icon('star', 1, 'i12')}Dream</span><b>${esc(dd.name)}</b>
         ${inTown ? '<span class="tag tag-ok">In town ✓</span>' : ''}</div>
       <div class="app-actions"><button class="btn btn-small btn-quiet" data-act="send-away" data-i="${i}">Not now</button>${go}</div></div>`;
@@ -665,7 +668,7 @@ export function createUI(root, api) {
           ${locked ? `<span class="card-note">Unlocks at ${d.unlockAt} residents</span>`
             : `<span class="price">${icon('coin', 1, 'i12')}${formatCoins(cost)}</span>`}</button>`;
       };
-      const homes = order.filter((id) => BUILDINGS[id].kind === 'home');
+      const homes = order.filter((id) => BUILDINGS[id].kind === 'home' && !(id === 'tent' && pop >= (config.TUNING?.tentRetirePop ?? 20)));   // tents retire
       const town = order.filter((id) => !BUILDINGS[id].gov && ['park', 'trade', 'yard', 'exchange', 'source', 'transit', 'gateway'].includes(BUILDINGS[id].kind));
       const unlocked = (id) => call('isUnlocked', s, id);
       const openCat = (cat) => call('categoryUnlocked', s, cat);
@@ -777,11 +780,6 @@ export function createUI(root, api) {
           const mk = (config.MATERIALS || {})[c.makes] || {};
           lines.push(`${esc(mk.emoji || '')} Makes ${Math.round((config.TUNING?.matPerHour ?? 8) * (config.levelMult ? config.levelMult(b.level) : 1))} ${esc((mk.name || '').toLowerCase())} an hour · you have ${Math.floor((s.mats || {})[c.makes] || 0)}/${config.TUNING?.matCap ?? 300}`);
           lines.push('Materials take 30% off the coins of any upgrade. Look for "Upgrade with materials".');
-        }
-        if (c.kind === 'transit') {
-          const stops = s.buildings.filter((x) => x.type === 'busstop').length;
-          lines.push(`${icon('coin', 1, 'i12')}Homes within ${call('reachOf', b) || 0} lots pay ${Math.round((config.TUNING?.transitRent ?? 0.08) * 100)}% more rent`);
-          lines.push(stops >= 2 ? `${icon('taxi', 1, 'i12')}Bus line: ${stops} stops · visitors come more often` : `${icon('taxi', 1, 'i12')}Build a second stop to start a bus line (more visitors)`);
         }
         if (c.kind === 'yard') lines.push(`${icon('hammer', 1, 'i12')}Anything built within ${call('reachOf', b) || 0} lots goes up twice as fast`);
         if (c.lessons) lines.push(`${icon('star', 1, 'i12')}Teaches ${c.lessons} skill ${c.lessons === 1 ? 'point' : 'points'} an hour`);
@@ -902,7 +900,7 @@ export function createUI(root, api) {
       const cards = list.map((t, i) => (t ? newcomerCard(t, i, null) : '')).join('');
       return {
         title: 'Newcomers',
-        html: `<p class="note">They drove in on the road from out of town. Skills show as a range; you find out the real numbers, and any trait, when they move in.</p>
+        html: `<p class="note">They drove in on the road from out of town. Skills show as a range; you find out the real numbers, and any trait, when they move in. "Welcome!" gives them your best free home and the best open job.</p>
           ${cards || empty('person', `Nobody is waiting right now. Someone new drives in ${arrivalText(s)}.`)}${cards ? newcomerNote(s) : ''}`,
       };
     },
@@ -1046,12 +1044,19 @@ export function createUI(root, api) {
       const carRow = `<div class="up-card" data-key="car"><div class="up-head">${icon('taxi', 2)}<b>${esc(car.name)}</b>
           ${next ? `<button class="btn btn-small ${next.cost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="upgrade-car">${esc(next.name)} · ${formatCoins(next.cost)} ${icon('coin', 1, 'i12')}</button>` : '<span class="tag tag-ok">Best car</span>'}</div>
         <p class="note">${next ? `Next: ${Math.round((next.speed / car.speed - 1) * 100)}% faster and fares +${Math.round((next.pay / car.pay - 1) * 100)}%.` : 'The fastest car in town.'} Hold GAS while driving for up to +${Math.round((config.TUNING?.gasBonus ?? 0.5) * 100)}%.</p></div>`;
-      const rows = Object.entries(config.UPGRADES || {}).map(([id, u]) => {
+      // City and Operations ladders; the cheapest one you can buy right now gets a "best value" tag
+      const pop = s.tenants.length;
+      const open = (u) => !u.unlockPop || pop >= u.unlockPop;
+      const buyable = Object.entries(config.UPGRADES || {}).filter(([id, u]) => open(u) && (call('upgradeNextCost', s, id) || 0) > 0 && (call('upgradeNextCost', s, id) || 0) <= s.coins);
+      const best = buyable.sort((a, z) => (call('upgradeNextCost', s, a[0]) || 0) - (call('upgradeNextCost', s, z[0]) || 0))[0]?.[0];
+      const rowsFor = (group) => Object.entries(config.UPGRADES || {}).filter(([, u]) => (u.group || 'ops') === group).map(([id, u]) => {
         const lvl = call('upLevel', s, id) || 0; const max = u.costs.length; const cost = call('upgradeNextCost', s, id) || 0;
-        return `<div class="up-card" data-key="u-${id}"><div class="up-head">${icon(u.icon, 2)}<b>${esc(u.name)}</b><span class="up-pips">${'●'.repeat(lvl)}${'○'.repeat(max - lvl)}</span>
-            ${cost ? `<button class="btn btn-small ${cost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="buy-upgrade" data-id="${id}">${formatCoins(cost)} ${icon('coin', 1, 'i12')}</button>` : '<span class="tag tag-ok">Max</span>'}</div>
-          <p class="note">${lvl ? `Now: ${esc(u.says(lvl))}.` : 'Not bought yet.'}${cost ? ` Next: ${esc(u.says(lvl + 1))}.` : ''}</p></div>`;
+        const locked = !open(u);
+        return `<div class="up-card${locked ? ' is-locked' : ''}" data-key="u-${id}"><div class="up-head">${icon(u.icon, 2)}<b>${esc(u.name)}${id === best ? ' <span class="tag tag-ok">Best value</span>' : ''}</b><span class="up-pips">${'●'.repeat(lvl)}${'○'.repeat(max - lvl)}</span>
+            ${locked ? `<span class="tag">${u.unlockPop} residents</span>` : cost ? `<button class="btn btn-small ${cost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="buy-upgrade" data-id="${id}">${formatCoins(cost)} ${icon('coin', 1, 'i12')}</button>` : '<span class="tag tag-ok">Max</span>'}</div>
+          <p class="note">${lvl ? `Now: ${esc(u.says(lvl))}.` : locked ? `Opens at ${u.unlockPop} residents.` : 'Not bought yet.'}${cost ? ` Next: ${esc(u.says(lvl + 1))}.` : ''}</p></div>`;
       }).join('');
+      const rows = `<p class="note">For the whole town; nothing takes a lot.</p>${rowsFor('city')}<h3 class="sec">Operations</h3>${rowsFor('ops')}`;
       const adOn = call('adActive', s, N()); const adCost = call('adCost', s, N()) || 0;
       const adRow = `<div class="up-card" data-key="ad"><div class="up-head">${icon('star', 2)}<b>Run an ad</b>
           ${adOn ? `<span class="tag tag-ok">${formatDuration(Math.max(0, (s.adUntil || 0) - N()))} left</span>`
@@ -1079,7 +1084,7 @@ export function createUI(root, api) {
         <p class="note">When your city is big, start a new town and turn this one's value into prestige points. Points buy permanent perks that help every town after. Your old town lives on as a sister town: a best friend to trade with that sends a care package every day.</p>${found}
         ${(lg.oldTowns || []).length ? `<h3 class="sec">Sister towns</h3>${lg.oldTowns.map((t) => `<div class="want-row plain" data-key="sis-${esc(t.name)}">${icon('heart', 2)}<div><b>${esc(t.name)}</b><span>${t.pop} residents · sends ${formatCoins(Math.round(t.income * (config.TUNING?.careHours ?? 1)))} coins every day</span></div></div>`).join('')}` : ''}
         ${permRows}`;
-      return { title: 'Upgrades', html: `<h3 class="sec">Your car</h3>${carRow}<h3 class="sec">Advertising</h3>${adRow}<h3 class="sec">Running the town</h3>${rows}${mayor}${prestige}
+      return { title: 'Upgrades', html: `<h3 class="sec">Your car</h3>${carRow}<h3 class="sec">Advertising</h3>${adRow}<h3 class="sec">City</h3>${rows}${mayor}${prestige}
         <p class="note">Jobs now pop up on the map as gold bubbles: tap one to play. A Construction Yard (in Build) makes anything built near it go up twice as fast.</p>` };
     },
 
@@ -1638,6 +1643,15 @@ export function createUI(root, api) {
         if (r.tenant) { revealToast(r.tenant); welcomeOffer = { id: r.tenant.id, until: N() + 90000 }; }
         const back = buildingSheet(homeId);
         if (back) openSheet(back); else closeSheet();
+      } else if (r && r.reason) toast(r.reason);
+    },
+    'welcome-one': (el) => {
+      const r = act('welcomeNewcomer', Number(el.dataset.i));
+      if (r && r.ok) {
+        revealToast(r.tenant);
+        toast(`${r.tenant.name} lives in the ${bName(r.home)}${r.job ? ` and works at the ${bName(r.job)}${r.dream ? ' (dream job!)' : ''}` : ''}.`);
+        welcomeOffer = { id: r.tenant.id, until: N() + 90000 };
+        if (!(S().applicants || []).length) closeSheet();
       } else if (r && r.reason) toast(r.reason);
     },
     'pick-home': (el) => openSheet({ kind: 'pickHome', i: Number(el.dataset.i), back: { kind: 'newcomers' } }),

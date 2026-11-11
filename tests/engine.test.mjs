@@ -100,7 +100,7 @@ test('config: shape, roads, every type complete, balance targets', () => {
   assert.equal(config.isRoad(3, 0), true); assert.equal(config.isRoad(0, 2), true); assert.equal(config.isRoad(0, 0), false);
   assert.equal(lots().length, 90);
   const ids = Object.keys(BUILDINGS);
-  assert.equal(ids.length, 69);
+  assert.equal(ids.length, 65);
   assert.equal(ids.filter((id) => BUILDINGS[id].kind === 'biz').length, 43);
   assert.deepEqual([...config.BUILD_ORDER].sort(), [...ids].sort());
   for (const id of ids) {
@@ -2151,36 +2151,39 @@ test('sister towns: old towns trade as best friends and send a daily care packag
   assert.equal(n.trucks.filter((t) => t.kind === 'care' && t.arriveAt > n.lastTick).length, 0);
 });
 
-test('transit and gateways: bus stops lift rent and start a bus line; station, port and airport bring the world in', () => {
+test('city infrastructure: bought for the whole town, no lots; old transit buildings become levels', () => {
   const { s } = smallTown();
   allGoalsDone(s);
   const now = s.lastTick;
+  s.coins = 1e7;
   const home = s.buildings.find((b) => config.BUILDINGS[b.type].kind === 'home');
-  const before = sim.homeBoost(s, home, now);
-  let near = null;
-  for (let dy = -3; dy <= 3 && !near; dy++) for (let dx = -3; dx <= 3 && !near; dx++) if (sim.isLot(s, home.x + dx, home.y + dy) && !sim.tileAt(s, home.x + dx, home.y + dy)) near = [home.x + dx, home.y + dy];
-  const stop = sim.build(s, 'busstop', near[0], near[1], now).building || (() => { s.buildings.push({ id: s.nextId++, type: 'busstop', x: near[0], y: near[1], readyAt: now, paid: 400, level: 1 }); return s.buildings.at(-1); })();
-  stop.readyAt = now;
-  assert.ok(Math.max(Math.abs(stop.x - home.x), Math.abs(stop.y - home.y)) <= sim.reachOf(stop));
-  assert.ok(Math.abs(sim.homeBoost(s, home, now) - before - TUNING.transitRent) < 1e-9);
-  const sv = sim.seasonOf(now).visitors;
-  assert.equal(sim.visitorsMult(s, now), sv, 'one stop is not a line yet');
-  put(s, 'busstop', now);
-  assert.ok(Math.abs(sim.visitorsMult(s, now) - sv * (1 + TUNING.busLineVisitors)) < 1e-9);
-  // the station: more visitors and one more newcomer spot
+  for (let i = s.tenants.length; i < 12; i++) s.tenants.push({ ...s.tenants[0], id: 410000 + i, homeId: null, jobId: null });
+  // bus network: rent for every home and more visitors; opens with population
+  const before = sim.homeBoost(s, home, now), v0 = sim.visitorsMult(s, now);
+  assert.ok(sim.buyUpgrade(s, 'bus', now).ok);
+  assert.ok(Math.abs(sim.homeBoost(s, home, now) - before - config.UPGRADES.bus.per) < 1e-9);
+  assert.ok(sim.visitorsMult(s, now) > v0);
+  assert.match(sim.buyUpgrade(s, 'airport', now).reason, /residents/);
+  // station: a 4th Welcome spot; trade network and port: more contracts
+  for (let i = s.tenants.length; i < 60; i++) s.tenants.push({ ...s.tenants[0], id: 400000 + i, homeId: null, jobId: null });
   const spots = sim.maxApplicants(s);
-  put(s, 'station', now);
+  assert.ok(sim.buyUpgrade(s, 'station', now).ok);
   assert.equal(sim.maxApplicants(s), spots + 1);
-  assert.ok(sim.visitorsMult(s, now) > sv * (1 + TUNING.busLineVisitors));
-  // the port: one more contract
   put(s, 'trade', now);
   const slots = sim.contractSlots(s, now);
-  put(s, 'port', now);
-  assert.equal(sim.contractSlots(s, now), slots + 1);
-  // bike lanes add rent everywhere
-  const b2 = sim.homeBoost(s, home, now);
-  s.coins = 1e6; assert.ok(sim.buyUpgrade(s, 'bikes', now).ok);
-  assert.ok(Math.abs(sim.homeBoost(s, home, now) - b2 - config.UPGRADES.bikes.per) < 1e-9);
+  assert.ok(sim.buyUpgrade(s, 'trade', now).ok); assert.ok(sim.buyUpgrade(s, 'port', now).ok);
+  assert.equal(sim.contractSlots(s, now), slots + 2);
+  // roads: a faster taxi
+  const speed = sim.carSpeed(s);
+  assert.ok(sim.buyUpgrade(s, 'roads', now).ok);
+  assert.ok(sim.carSpeed(s) > speed);
+  // a save with placed bus stops and a station: they become levels and the lots free up
+  const old = JSON.parse(JSON.stringify(s));
+  old.upgrades = {};
+  old.buildings.push({ id: 900001, type: 'busstop', x: 0, y: 0, readyAt: 0, paid: 400, level: 1 }, { id: 900002, type: 'busstop', x: 0, y: 1, readyAt: 0, paid: 400, level: 1 }, { id: 900003, type: 'station', x: 1, y: 0, readyAt: 0, paid: 8000, level: 1 });
+  const m = S.migrate(old);
+  assert.equal(m.upgrades.bus, 2); assert.equal(m.upgrades.station, 1);
+  assert.ok(!m.buildings.some((b) => ['busstop', 'station'].includes(b.type)));
 });
 
 test('seasons turn every two days with small effects; rival towns grow and rank with you', () => {
@@ -2211,4 +2214,23 @@ test('seasons turn every two days with small effects; rival towns grow and rank 
   sim.advance(s, s.lastTick + 1000);
   sim.events.off('season', fn);
   assert.equal(log.length, 1);
+});
+
+test('one-tap welcome: best home and best job; tents retire as the town grows', () => {
+  const { s } = smallTown();
+  allGoalsDone(s);
+  const now = s.lastTick;
+  const cabin = put(s, 'cabin', now);
+  s.applicants.unshift(S.makeApplicant(s));
+  const a = s.applicants[0];
+  const lj = sim.likelyJob(s, a, now);
+  const r = sim.welcomeNewcomer(s, 0, now);
+  assert.ok(r.ok); assert.equal(r.tenant.id, a.id);
+  assert.equal(r.home.id, sim.bestHome ? r.home.id : cabin.id);
+  if (lj) assert.ok(r.tenant.jobId != null, 'hired into an open job');
+  // tents: available in a small town, retired from tentRetirePop residents
+  assert.equal(sim.isUnlocked(s, 'tent'), true);
+  for (let i = s.tenants.length; i < TUNING.tentRetirePop; i++) s.tenants.push({ ...s.tenants[0], id: 420000 + i, homeId: null, jobId: null });
+  assert.equal(sim.isUnlocked(s, 'tent'), false);
+  assert.match(sim.unlockHint(s, 'tent'), /grown past tents/);
 });

@@ -289,6 +289,7 @@ export function buyMaterial(state, kind, qty, now) {
 
 export function isUnlocked(state, type) {
   const def = BUILDINGS[type];
+  if (type === 'tent' && population(state) >= TUNING.tentRetirePop) return false;   // a grown town builds proper homes
   return !!def && population(state) >= def.unlockAt && (!def.unlockGoal || state.goalsDone.includes(def.unlockGoal));
 }
 
@@ -296,6 +297,7 @@ export function isUnlocked(state, type) {
 export function unlockHint(state, type) {
   const def = BUILDINGS[type];
   if (!def) return '';
+  if (type === 'tent' && population(state) >= TUNING.tentRetirePop) return 'Your town has grown past tents';
   if (population(state) < def.unlockAt) return `Unlocks at ${def.unlockAt} residents`;
   const goal = GOALS.find((g) => g.id === def.unlockGoal);
   return goal ? `Unlocks with: ${goal.text}` : '';
@@ -760,9 +762,8 @@ export function homeBoost(state, home, now = state.lastTick) {
     if (Math.max(Math.abs(b.x - home.x), Math.abs(b.y - home.y)) <= TUNING.parkRadius) boost += d.rentBoost * levelMult(b.level);
   }
   if (isWaterfront(state, home.x, home.y)) boost += TUNING.waterfrontBoost;
-  // a bus stop in reach (easy commute) and bike lanes come on top of the park cap
-  const bus = state.buildings.some((b) => b.type === 'busstop' && isBuilt(b, now) && Math.max(Math.abs(b.x - home.x), Math.abs(b.y - home.y)) <= reachOf(b));
-  return Math.min(TUNING.parkBoostMax, boost) + (bus ? TUNING.transitRent : 0) + UPGRADES.bikes.per * upLevel(state, 'bikes');
+  // the bus network and bike lanes (City upgrades) come on top of the park cap, for every home
+  return Math.min(TUNING.parkBoostMax, boost) + UPGRADES.bus.per * upLevel(state, 'bus') + UPGRADES.bikes.per * upLevel(state, 'bikes');
 }
 
 /** Rent share for one resident from traits: party animals pay more and their next-door neighbours less. */
@@ -923,7 +924,7 @@ export function friendLevel(state, town) {
 }
 /** Contracts you can hold at once: one, plus one per Trading Post level. */
 export function contractSlots(state, now) {
-  return hasTrade(state, now) ? 1 + truckCount(state, now) + (has(state, 'port', now) ? 1 : 0) : 0;
+  return hasTrade(state, now) ? 1 + truckCount(state, now) + upLevel(state, 'port') + upLevel(state, 'trade') : 0;
 }
 /** What a town's contract asks for and pays right now. */
 export function contractTerms(state, town, now) {
@@ -931,7 +932,7 @@ export function contractTerms(state, town, now) {
   const level = friendLevel(state, town);
   const crop = Object.keys(CROP_PRICE)[(i < 0 ? 0 : i) % Object.keys(CROP_PRICE).length];
   const qty = TUNING.contractQty[level];
-  const pay = Math.round(Math.max(qty * CROP_PRICE[crop] * 2, townRatePerMin(state, now) * TUNING.contractMinutes * (1 + TUNING.contractLevelPay * level)) * seasonOf(now).contracts);
+  const pay = Math.round(Math.max(qty * CROP_PRICE[crop] * 2, townRatePerMin(state, now) * TUNING.contractMinutes * (1 + TUNING.contractLevelPay * level)) * seasonOf(now).contracts * (1 + UPGRADES.trade.per * upLevel(state, 'trade')));
   return { town, crop, qty, pay, level, deliveries: (state.friends || {})[town] || 0, next: TUNING.contractLevels[level] ?? null };
 }
 /** The towns that offer contracts and whether you have signed each. */
@@ -1054,11 +1055,11 @@ const rentPerk = (state) => 1 + TOWN_PERKS.rent.per * townPerk(state, 'rent');
 const salesPerk = (state) => (1 + TOWN_PERKS.sales.per * townPerk(state, 'sales')) * (1 + PERM_PERKS.sales.per * permPerk(state, 'sales'));
 /** What rides and deliveries pay, on top of the fare: your car and the Good tipper perk. */
 function farePay(state) {
-  return carOf(state).pay * (1 + TOWN_PERKS.fares.per * townPerk(state, 'fares'));
+  return carOf(state).pay * (1 + TOWN_PERKS.fares.per * townPerk(state, 'fares')) * (1 + 0.05 * upLevel(state, 'roads'));
 }
 /** How fast your taxi drives: the car, and both Lead foot (this town) and Turbo taxi (for good). */
 export function carSpeed(state) {
-  return carOf(state).speed * (1 + TOWN_PERKS.drive.per * townPerk(state, 'drive')) * (1 + PERM_PERKS.drive.per * permPerk(state, 'drive'));
+  return carOf(state).speed * (1 + TOWN_PERKS.drive.per * townPerk(state, 'drive')) * (1 + PERM_PERKS.drive.per * permPerk(state, 'drive')) * (1 + UPGRADES.roads.per * upLevel(state, 'roads'));
 }
 
 /** Mayor level from XP: level L needs 5 + 10 + ... + 5L XP in all. */
@@ -1157,13 +1158,12 @@ function has(state, type, now) {
 }
 /** How many newcomers can wait at the Welcome sign: one more with a train station. */
 export function maxApplicants(state) {
-  return TUNING.applicantCount + (has(state, 'station', state.lastTick) ? 1 : 0);
+  return TUNING.applicantCount + (upLevel(state, 'station') > 0 ? 1 : 0);
 }
 /** How much more often visitors come: the bus line, a station, an airport. */
 export function visitorsMult(state, now) {
-  const stops = state.buildings.filter((b) => b.type === 'busstop' && isBuilt(b, now)).length;
-  return seasonOf(now).visitors * (1 + TUNING.busLineVisitors * Math.max(0, Math.min(3, stops - 1)))
-    * (has(state, 'station', now) ? 1 + TUNING.stationVisitors : 1) * (has(state, 'airport', now) ? 1 + TUNING.airportVisitors : 1);
+  return seasonOf(now).visitors * (1 + 0.15 * upLevel(state, 'bus'))
+    * (1 + UPGRADES.station.per * upLevel(state, 'station')) * (1 + UPGRADES.airport.per * upLevel(state, 'airport'));
 }
 
 // ---- seasons and rival towns ----------------------------------------------------------
@@ -1303,7 +1303,7 @@ export function truckRoute(state, now) {
 export function truckTripMs(state, now) {
   const path = truckRoute(state, now);
   const lots = path ? path.length - 1 : 15;
-  const speed = TUNING.truckSpeed * (1 + UPGRADES.trucks.per * upLevel(state, 'trucks'));
+  const speed = TUNING.truckSpeed * (1 + UPGRADES.trucks.per * upLevel(state, 'trucks')) * (1 + UPGRADES.roads.per * upLevel(state, 'roads'));
   return Math.round(Math.min(TUNING.truckMaxMs, Math.max(TUNING.truckMinMs, (lots / speed) * 1000)));
 }
 
@@ -1838,6 +1838,7 @@ export function buyUpgrade(state, id, now) {
   if (!u) return fail("We don't know that upgrade.");
   const cost = upgradeNextCost(state, id);
   if (!cost) return fail(`${u.name} is fully upgraded.`);
+  if (u.unlockPop && population(state) < u.unlockPop) return fail(`${u.name} opens at ${u.unlockPop} residents.`);
   if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins.`);
   state.coins -= cost;
   state.upgrades = { ...(state.upgrades || {}), [id]: upLevel(state, id) + 1 };
@@ -1873,7 +1874,7 @@ function arrivalGap(state, at) {
   let gap = TUNING.arriveMs * (1 - UPGRADES.welcome.per * upLevel(state, 'welcome')) * (1 - TOWN_PERKS.welcome.per * townPerk(state, 'welcome'));
   if (at < (state.adUntil || 0)) gap /= 2;
   if (at < (state.slowArrivalsUntil || 0)) gap *= 2;
-  if (has(state, 'station', at)) gap *= 1 - TUNING.stationArrivals;
+  gap *= 1 - 0.15 * upLevel(state, 'station');
   return gap;
 }
 
@@ -1881,6 +1882,37 @@ function arrivalGap(state, at) {
 function openSpot(state, now) {
   const next = now + arrivalGap(state, now);
   if (state.nextApplicantAt <= now || state.nextApplicantAt > next) state.nextApplicantAt = next;
+}
+
+/** The best free home for a newcomer: the best rent per resident, then the nearest the town's middle. */
+export function bestHome(state, now) {
+  const homes = state.buildings.filter((b) => isHome(b) && isBuilt(b, now) && residentsOf(state, b.id).length < defOf(b).capacity);
+  return homes.sort((a, b) => defOf(b).rentPerTenant * levelMult(b.level) - defOf(a).rentPerTenant * levelMult(a.level) || a.id - b.id)[0] || null;
+}
+/**
+ * The job a newcomer would most likely get, judged only by what you can see (their dream and the
+ * middle of each skill range), so the card never gives away their real skills.
+ */
+export function likelyJob(state, applicant, now) {
+  let best = null, bestScore = -1;
+  for (const b of builtBiz(state, now)) {
+    if (workersOf(state, b.id).length >= slotsOf(b)) continue;
+    const r = (applicant.seen || {})[catOf(b)] || [applicant.skills[catOf(b)], applicant.skills[catOf(b)]];
+    const score = applicant.dream === b.type ? 10 : (r[0] + r[1]) / 2;
+    if (score > bestScore || (score === bestScore && b.id < best.id)) { bestScore = score; best = b; }
+  }
+  return best ? { building: best, dream: applicant.dream === best.type, guess: Math.round(bestScore) } : null;
+}
+/** One tap: move a newcomer into the best free home and give them the best open job for their real skills. */
+export function welcomeNewcomer(state, applicantIndex, now) {
+  const home = bestHome(state, now);
+  if (!home) return fail('Every home is full. Build a home first.');
+  const r = moveIn(state, applicantIndex, home.id, now);
+  if (!r.ok) return r;
+  const t = r.tenant;
+  const job = bestJobs(state, t.id, now).find((j) => j.open);
+  const hired = job ? assignJob(state, t.id, job.building.id, now) : null;
+  return { ok: true, reason: '', tenant: t, home, job: job && hired && hired.ok ? job.building : null, dream: !!(hired && hired.dream) };
 }
 
 /** "Not now": a newcomer drives on, for free, and someone else arrives a little later. */
@@ -1957,7 +1989,7 @@ export function visit(state, now, cat = null) {
     return { ok: true, reason: '', visitor: v, cat, shop: null, spent: 0 };
   }
   const spent = Math.max(5, Math.round(townRatePerMin(state, now) * TUNING.activeBoost * TUNING.visitorSpendMinutes
-    * (has(state, 'port', now) ? 1 + TUNING.portSpend : 1) * (1 + UPGRADES.pedestrian.per * upLevel(state, 'pedestrian'))));
+    * (1 + UPGRADES.port.per * upLevel(state, 'port')) * (1 + UPGRADES.pedestrian.per * upLevel(state, 'pedestrian'))));
   gain(state, spent, 'visitor', shop.id);
   const lines = VISITS[cat].good;
   const sisters = (state.legacy || {}).oldTowns || [];
@@ -2076,7 +2108,7 @@ export function vipSpot(state) {
 
 function maybeVip(state, now) {
   if (state.vip || now < state.nextVipAt) return;
-  state.nextVipAt = now + Math.round((TUNING.vipGapMinMs + randInt(state, TUNING.vipGapMaxMs - TUNING.vipGapMinMs + 1)) / (1 + PERM_PERKS.vips.per * permPerk(state, 'vips')) / (has(state, 'airport', now) ? 1 + TUNING.airportVips : 1));
+  state.nextVipAt = now + Math.round((TUNING.vipGapMinMs + randInt(state, TUNING.vipGapMaxMs - TUNING.vipGapMinMs + 1)) / (1 + PERM_PERKS.vips.per * permPerk(state, 'vips')) / (1 + 0.2 * upLevel(state, 'airport')));
   if (population(state) < TUNING.vipUnlockPop) return;
   arriveVip(state, now);
 }

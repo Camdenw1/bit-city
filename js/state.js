@@ -69,8 +69,8 @@ export function makeApplicant(state, opts = {}) {
   for (let i = 0; i < 12 && taken.has(name); i++) name = pick(state, FIRST_NAMES);
 
   // A star has two strong skills; anyone may have a trait (a genius gets +2 everywhere).
-  const airport = (state.buildings || []).some((b) => b.type === 'airport' && !(b.readyAt > (state.lastTick || 0)));
-  const star = rand(state) < TUNING.starChance * (airport ? 2 : 1);   // an airport brings more stars
+  const airport = ((state.upgrades || {}).airport) || 0;
+  const star = rand(state) < TUNING.starChance * (1 + 0.5 * airport);   // an airport brings more stars
   if (star) {
     skills[best] = 8 + randInt(state, 2);
     const second = pick(state, CATEGORIES.filter((c) => c !== best));
@@ -254,6 +254,18 @@ export function migrate(state) {
     state.stats = {};
     for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks', 'visitors', 'vips', 'festivals']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
 
+    // City infrastructure no longer takes lots (2026-11-11): placed bus stops, stations, ports and
+    // airports become City levels (none lost) and their lots are freed
+    {
+      const old = (state.buildings || []).filter((b) => b && ['busstop', 'station', 'port', 'airport'].includes(b.type));
+      if (old.length) {
+        const up = state.upgrades && typeof state.upgrades === 'object' ? state.upgrades : (state.upgrades = {});
+        const n = (t) => old.filter((b) => b.type === t).length;
+        if (n('busstop')) up.bus = Math.max(up.bus || 0, Math.min(5, n('busstop')));
+        for (const t of ['station', 'port', 'airport']) if (n(t)) up[t] = Math.max(up[t] || 0, 1);
+        state.buildings = state.buildings.filter((b) => !old.includes(b));
+      }
+    }
     state.buildings = state.buildings.filter(
       (b) => b && typeof b === 'object' && isNum(b.id) && BUILDINGS[b.type] && isNum(b.x) && isNum(b.y)
     );

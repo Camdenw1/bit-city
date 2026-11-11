@@ -144,18 +144,26 @@ covers running and publishing. This file holds the design decisions and the road
   when they pass 25/50/100/150/200. Goals "Overtake a neighbour town" (one of 25+) and "Be the
   biggest town in the region" (from 100 residents). First version paid both within the hour
   (rivals started at 3): the bot jumped 136 -> 172 residents; fixed with starts of 8-20 and those limits.
-- City infrastructure (2026-11-11, Camden: "more city infrastructure stuff"; this is also the bus
-  line): Bus Stop (kind 'transit', 400, from 10 residents, reach 4): homes in reach +8% rent;
-  2+ stops make a bus line (a red bus loops through them, `busPos` in render) and each stop past
-  the first brings visitors 25% more often (up to 3). Gateways (kind 'gateway'): Train Station
-  (8k, 30 residents: visitors +50%, newcomers 25% sooner, a 4th Welcome spot via
-  `maxApplicants`), Port (20k, 50, needs water: visitors spend +50%, one more contract), Airport
-  (60k, 80: visitors x2, VIPs +25%, stars x2). `visitorsMult` holds the visitor side. Upgrades
-  rows: Bike lanes (3 levels, +3% rent each, green curb strips) and Pedestrian streets (one
-  level, visitors spend +25%, streets by the town square paved). The ground cache key includes
-  both (`groundKeyOf`). More places: High-rise (home, 8 residents, 60k, 50 residents) and five
-  shops: Bowling Alley, Climbing Gym, Bubble Tea, Pharmacy, Electronics. Bot: +8% residents at
-  day 2.5, mostly from bike lanes.
+- City infrastructure (2026-11-11, revised the same day: Camden wants infrastructure to "not
+  require a spot and provide good benefits"): the Upgrades tab's City section, for the whole town,
+  no lots (`UPGRADES` with `group: 'city'` and `unlockPop`): Bus network (5 levels: +4% rent for
+  every home and +15% visitors each; a red bus loops the town's corner roads), Road improvements
+  (5: taxis and trucks +10% faster, rides +5%), Bike lanes (5: +3% rent, green curb strips),
+  Pedestrian streets (3: visitors spend +15%, square streets paved), Trade network (3: +1
+  contract and +10% contract pay each), Train station (3: visitors +30%, newcomers 15% sooner, a
+  4th Welcome spot), Port (3: visitor spend +25%, +1 contract), Airport (3: visitors +50%, VIPs
+  +20%, stars +50%). Operations ladders got longer. The cheapest buyable row shows "Best value".
+  Saves with placed bus stops, stations, ports or airports convert them to levels and free the
+  lots (in `migrate`, before unknown types are dropped).
+- More places (2026-11-11): High-rise (home, 8 residents, 60k, 50 residents) and five shops:
+  Bowling Alley, Climbing Gym, Bubble Tea, Pharmacy, Electronics.
+- Moving in (2026-11-11): each newcomer card says their likely job (judged only from what you can
+  see, `likelyJob`) and "Welcome!" moves them into the best free home and the best open job in
+  one tap (`welcomeNewcomer`); "Choose a home" stays as a link. Tents retire from
+  `tentRetirePop` (20) residents (Camden: "at a certain point the tent should never be bought");
+  the Cabin dropped to 450 so small budgets still grow (bot: casual 42 -> 57 residents at day 2.5).
+- Residents never stroll aimlessly (Camden): with no job they go shopping, moving between the 4
+  nearest shops; lunch and evening rotate between nearby places (`routineGoal`, `turn`).
 - Sister towns (2026-11-11, Camden's idea that old towns stay in the game; he chose (a)+(b)):
   `foundNewTown` saves the town you leave in `legacy.oldTowns` ({ name from `SISTER_NAMES`, pop,
   income per hour }). Sister towns join the contract list (`tradeTowns`) as best friends (♥♥♥,
@@ -392,7 +400,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` and `VERSION` in config.js together when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (67 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (68 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

@@ -1,6 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
-export const VERSION = 43;           // shown in Menu; keep in step with CACHE in sw.js
+export const VERSION = 44;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;
@@ -160,14 +160,8 @@ export const TUNING = {
   matCap: 300,                   // the most of each material you can store
   matDiscount: 0.3,              // paying an upgrade with materials takes this much off the coins
   matPerLevel: [0, 0, 12, 30],   // wood and stone an upgrade to level 2 / 3 uses (bricks: half)
-  transitRent: 0.08,             // homes within reach of a bus stop pay this much more rent
-  busLineVisitors: 0.25,         // each bus stop past the first: visitors this much more often (up to 3)
-  stationVisitors: 0.5,          // a train station: visitors 50% more often...
-  stationArrivals: 0.25,         // ...newcomers 25% sooner, and one more spot at the Welcome sign
-  portSpend: 0.5,                // a port: visitors spend 50% more, and one more contract
-  airportVisitors: 1,            // an airport: visitors twice as often...
-  airportVips: 0.25,             // ...VIPs 25% more often, and stars twice as likely
   seasonDays: 2,                 // each season lasts this many real days
+  tentRetirePop: 20,             // from this many residents, Tents are no longer built (Camden)
   careHours: 1,                  // a sister town's daily care package: this many hours of its old shop income
   prestigePop: 100,              // founding a new town opens at this many residents
   prestigeValuePerPoint: 5000,   // prestige points = floor(sqrt(city value / this))
@@ -336,21 +330,35 @@ export const STOCKS = {
 // Each is a short ladder paid in coins. `per` is how much one level changes things.
 // The car (CARS) sits at the top of the same tab.
 export const UPGRADES = {
-  crew:      { name: 'Construction crew', icon: 'hammer', per: 0.12, costs: [600, 3000, 15000, 75000],
-               says: (l) => `Everything builds ${Math.round(l * 12)}% faster` },
-  trucks:    { name: 'Faster trucks',     icon: 'box',    per: 0.25, costs: [1500, 8000, 40000],
-               says: (l) => `Trade trucks drive ${Math.round(l * 25)}% faster` },
-  interview: { name: 'Interviews',        icon: 'person', per: 1,    costs: [1000, 6000, 30000],
-               says: (l) => (l >= 3 ? "Newcomers' skills are exact" : `Newcomers' skill ranges are ${l} narrower`) },
-  welcome:   { name: 'Welcome center',    icon: 'key',    per: 0.2,  costs: [1200, 7000, 35000],
-               says: (l) => `Newcomers arrive ${Math.round(l * 20)}% sooner` },
-  repair:    { name: 'Repair team',       icon: 'star',   per: 0.2,  costs: [2000, 10000, 50000],
-               says: (l) => `Shop problems cost ${Math.round(l * 20)}% less and stations fix them ${Math.round(l * 20)}% faster` },
-  bikes:     { name: 'Bike lanes',        icon: 'heart',  per: 0.03, costs: [3000, 15000, 60000],
+  // City: infrastructure bought for the whole town. Nothing takes a lot (Camden, 2026-11-11).
+  bus:       { group: 'city', name: 'Bus network',       icon: 'taxi',   per: 0.04, unlockPop: 10, costs: [1500, 6000, 20000, 60000, 150000],
+               says: (l) => `Buses on your streets: +${l * 4}% rent and ${l * 15}% more visitors` },
+  roads:     { group: 'city', name: 'Road improvements', icon: 'hammer', per: 0.1,  unlockPop: 5,  costs: [2000, 8000, 25000, 70000, 180000],
+               says: (l) => `Smoother roads: taxis and trucks ${l * 10}% faster, rides pay +${l * 5}%` },
+  bikes:     { group: 'city', name: 'Bike lanes',        icon: 'heart',  per: 0.03, unlockPop: 8,  costs: [3000, 12000, 35000, 90000, 200000],
                says: (l) => `Green bike lanes on every street: +${l * 3}% rent` },
-  pedestrian: { name: 'Pedestrian streets', icon: 'person', per: 0.25, costs: [20000],
-               says: () => 'The streets by the town square go car-free: visitors spend 25% more' },
-  marketing: { name: 'Marketing',         icon: 'coin',   per: 0.5,  costs: [1500, 9000, 45000],
+  pedestrian: { group: 'city', name: 'Pedestrian streets', icon: 'person', per: 0.15, unlockPop: 15, costs: [10000, 40000, 120000],
+               says: (l) => `Car-free streets by the town square: visitors spend +${l * 15}%` },
+  trade:     { group: 'city', name: 'Trade network',     icon: 'box',    per: 0.1,  unlockPop: 10, costs: [5000, 25000, 80000],
+               says: (l) => `${l} more ${l === 1 ? 'contract' : 'contracts'} with neighbours, and contracts pay +${l * 10}%` },
+  station:   { group: 'city', name: 'Train station',     icon: 'person', per: 0.3,  unlockPop: 30, costs: [8000, 30000, 90000],
+               says: (l) => `Trains: ${l * 30}% more visitors, newcomers ${l * 15}% sooner, a 4th spot at the Welcome sign` },
+  port:      { group: 'city', name: 'Port',              icon: 'box',    per: 0.25, unlockPop: 50, costs: [20000, 60000, 150000],
+               says: (l) => `Ferries and cargo: visitors spend +${l * 25}% and ${l} more ${l === 1 ? 'contract' : 'contracts'}` },
+  airport:   { group: 'city', name: 'Airport',           icon: 'star',   per: 0.5,  unlockPop: 80, costs: [60000, 180000, 500000],
+               says: (l) => `Flights: ${l * 50}% more visitors, VIPs ${l * 20}% more often, stars ${l * 50}% more likely` },
+  // Operations: how the town runs.
+  crew:      { group: 'ops', name: 'Construction crew', icon: 'hammer', per: 0.12, costs: [600, 3000, 15000, 75000],
+               says: (l) => `Everything builds ${Math.round(l * 12)}% faster` },
+  trucks:    { group: 'ops', name: 'Faster trucks',     icon: 'box',    per: 0.25, costs: [1500, 8000, 40000, 120000],
+               says: (l) => `Trade trucks drive ${Math.round(l * 25)}% faster` },
+  interview: { group: 'ops', name: 'Interviews',        icon: 'person', per: 1,    costs: [1000, 6000, 30000],
+               says: (l) => (l >= 3 ? "Newcomers' skills are exact" : `Newcomers' skill ranges are ${l} narrower`) },
+  welcome:   { group: 'ops', name: 'Welcome center',    icon: 'key',    per: 0.15, costs: [1200, 7000, 35000, 100000],
+               says: (l) => `Newcomers arrive ${Math.round(l * 15)}% sooner` },
+  repair:    { group: 'ops', name: 'Repair team',       icon: 'star',   per: 0.2,  costs: [2000, 10000, 50000],
+               says: (l) => `Shop problems cost ${Math.round(l * 20)}% less and stations fix them ${Math.round(l * 20)}% faster` },
+  marketing: { group: 'ops', name: 'Marketing',         icon: 'coin',   per: 0.5,  costs: [1500, 9000, 45000],
                says: (l) => `Ads (see "Run an ad" above) last ${l * 30} minutes longer` },
 };
 
@@ -423,7 +431,7 @@ function town(id, name, kind, cost, buildSecs, unlockAt, extra, blurb) {
 export const BUILDINGS = {
   //            id           name             cost  secs unlock cap rent
   tent:      home('tent',      'Tent',           80,   10,  0, 1, 250, 'A cozy tent for one. Everyone starts somewhere!'),
-  cabin:     home('cabin',     'Cabin',         600,   90,  4, 2, 450, 'A snug log cabin with room for two.'),
+  cabin:     home('cabin',     'Cabin',         450,   90,  4, 2, 450, 'A snug log cabin with room for two.'),
   apartment: home('apartment', 'Apartments',   4000,  420, 12, 4, 700, 'Four friendly neighbours under one roof.'),
   house:     home('house',     'Family House',15000, 1500, 24, 3, 1400, 'The nicest home in town. Pays the best rent.'),
   highrise:  home('highrise',  'High-rise',   60000, 2400, 50, 8, 1700, 'Twenty floors of city living. The densest home in town.'),
@@ -495,10 +503,6 @@ BUILDINGS.exchange = town('exchange', 'Stock Exchange', 'exchange', 5000, 240, 2
 BUILDINGS.lumber = town('lumber', 'Lumber Yard', 'source', 900, 90, 12, { makes: 'wood' }, 'Saws and stacks of planks. Makes wood all day.');
 BUILDINGS.quarry = town('quarry', 'Quarry', 'source', 1200, 90, 12, { makes: 'stone' }, 'Hard hats and big rocks. Makes stone all day.');
 BUILDINGS.brickworks = town('brickworks', 'Brickworks', 'source', 1800, 120, 12, { makes: 'bricks' }, 'A warm kiln baking bricks all day.');
-BUILDINGS.busstop = town('busstop', 'Bus Stop', 'transit', 400, 30, 10, { reach: 4 }, 'Hop on, hop off. Homes nearby pay more rent; two or more stops start a bus line.');
-BUILDINGS.station = town('station', 'Train Station', 'gateway', 8000, 600, 30, {}, 'Trains from the city bring tourists and new faces.');
-BUILDINGS.port = town('port', 'Port', 'gateway', 20000, 900, 50, { near: ['water'] }, 'Ferries and cargo ships: visitors spend more, and one more contract.');
-BUILDINGS.airport = town('airport', 'Airport', 'gateway', 60000, 1800, 80, {}, 'Flights from everywhere: twice the visitors, more VIPs and more stars.');
 BUILDINGS.yard = town('yard', 'Construction Yard', 'yard', 1500, 120, 8, { reach: 4 }, 'Cranes and hard hats. Anything built near it goes up twice as fast.');
 BUILDINGS.trade = town('trade', 'Trading Post', 'trade', 2000, 300, 10, {}, 'Sell your harvest, import what you lack, and fill orders from neighbour towns.');
 BUILDINGS.fountain.unlockGoal = 'happy90';  // a milestone opens this one

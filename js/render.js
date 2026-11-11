@@ -492,19 +492,32 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     }
     return best;
   }
-  /** Where a resident wants to be at this hour of the game day, and for how long once there. */
-  function routineGoal(state, tenant, hour) {
+  /** The few places of a kind nearest a home, nearest first. */
+  function nearestFew(state, home, pred, k = 3) {
+    return (state.buildings || []).filter((b) => pred(b) && inMap(b.x, b.y))
+      .sort((a, b) => (Math.abs(a.x - home.x) + Math.abs(a.y - home.y)) - (Math.abs(b.x - home.x) + Math.abs(b.y - home.y)) || a.id - b.id)
+      .slice(0, k);
+  }
+  /**
+   * Where a resident wants to be at this hour of the game day, and for how long once there. Nobody
+   * strolls about with nothing to do (Camden): out of work hours they shop, eat or have fun, moving
+   * on between a few nearby places every so often (`turn`).
+   */
+  function routineGoal(state, tenant, hour, turn) {
     const home = byIdOf(state, tenant.homeId);
     if (!home) return null;
     const job = tenant.jobId != null ? byIdOf(state, tenant.jobId) : null;
-    const shop = (cat) => nearestOf(state, home, (b) => BUILDINGS[b.type]?.kind === 'biz' && catOfB(b) === cat);
+    const pickOf = (list) => (list.length ? list[(turn + Math.floor(hashStr(`p${tenant.id}`) * 7)) % list.length] : null);
+    const shops = (cats) => nearestFew(state, home, (b) => BUILDINGS[b.type]?.kind === 'biz' && cats.includes(catOfB(b)), 4);
     if (hour < 6 || hour >= 22) return { b: home, stay: Infinity, plan: 'night' };
-    if (hour >= 11 && hour < 13) return { b: shop('food') || home, stay: 40000, plan: 'lunch' };
+    if (hour >= 11 && hour < 13) { const b = pickOf(shops(['food'])); return { b: b || home, stay: 60000, plan: 'lunch' }; }
     if (hour >= 17) {
-      const fun = shop('creative') || nearestOf(state, home, (b) => ['park', 'civic'].includes(BUILDINGS[b.type]?.kind));
-      return fun ? { b: fun, stay: 45000, plan: 'evening' } : { b: null, stay: 0, plan: 'evening' };
+      const fun = pickOf(shops(['creative', 'food']).concat(nearestFew(state, home, (b) => ['park', 'civic'].includes(BUILDINGS[b.type]?.kind), 2)));
+      return { b: fun || home, stay: 60000, plan: 'evening' };
     }
-    return job ? { b: job, stay: Infinity, plan: hour < 11 ? 'morning' : 'afternoon' } : { b: null, stay: 0, plan: 'wander' };
+    if (job) return { b: job, stay: Infinity, plan: hour < 11 ? 'morning' : 'afternoon' };
+    const shop = pickOf(shops(['retail', 'service', 'food', 'creative']));     // no job: out shopping
+    return { b: shop || home, stay: 50000, plan: 'shopping' };
   }
   /** Send a resident's walker to a building now (they bought something there), then back to their day. */
   function sendWalker(tenantId, building, stay = 20000) {
@@ -533,7 +546,8 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       w.look = tenant.look;
       // what should they be doing? (each resident keeps a slightly different clock, so streets don't empty at once)
       const hour = (clockHour + (hashStr(`r${tenant.id}`) - 0.5) * 2 + 24) % 24;
-      const goal = w.errand || routineGoal(state, tenant, hour);
+      const turn = Math.floor((clockHour * 60 + hashStr(`t${tenant.id}`) * 40) / 40);   // a new place every ~40 game minutes
+      const goal = w.errand || routineGoal(state, tenant, hour, turn);
       const key = w.errand ? `errand${w.errand.b.id}` : `${goal?.plan}${goal?.b?.id ?? ''}`;
       if (key !== w.planKey) {                      // a new part of the day: set off somewhere
         w.planKey = key;
@@ -543,7 +557,8 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         if (rt < w.insideUntil) continue;            // still in there
         w.inside = false; w.path = null; w.goalId = null;
         if (w.errand) { w.errand = null; w.planKey = null; continue; }
-        if (w.dir < 0) w.dir = pickDir(w);
+        w.planKey = null;                            // done here: on to wherever the day says next
+        continue;
       }
       if (w.path) {                                  // walking a route
         w.t += (dt / 1000) * w.speed;
@@ -710,9 +725,13 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   let busRoute = null, busKey = '';
   /** Where the bus is: it drives a loop through every bus stop at a steady pace. */
   function busPos(state, rt) {
-    const stops = (state.buildings || []).filter((b) => b.type === 'busstop' && !(b.readyAt > (getNow ? getNow() : Date.now()))).sort((a, b) => a.id - b.id);
-    if (stops.length < 2) return null;
-    const key = stops.map((b) => `${b.id}:${b.x},${b.y}`).join('|');
+    // with the Bus network (City upgrades) a bus loops round the town: through the road tiles
+    // nearest each corner of the land you own
+    if (!((state.upgrades || {}).bus > 0) || !roadTiles.length) return null;
+    const xs = roadTiles.map((t) => t.x), ys = roadTiles.map((t) => t.y);
+    const corners = [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)], [Math.min(...xs), Math.max(...ys)]];
+    const stops = corners.map(([cx, cy]) => roadTiles.reduce((best, t) => (Math.abs(t.x - cx) + Math.abs(t.y - cy) < Math.abs(best.x - cx) + Math.abs(best.y - cy) ? t : best), roadTiles[0]));
+    const key = stops.map((b) => `${b.x},${b.y}`).join('|');
     if (key !== busKey) {
       busKey = key; busRoute = [];
       for (let i = 0; i < stops.length; i++) {
