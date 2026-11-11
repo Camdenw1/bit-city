@@ -758,7 +758,9 @@ export function homeBoost(state, home, now = state.lastTick) {
     if (Math.max(Math.abs(b.x - home.x), Math.abs(b.y - home.y)) <= TUNING.parkRadius) boost += d.rentBoost * levelMult(b.level);
   }
   if (isWaterfront(state, home.x, home.y)) boost += TUNING.waterfrontBoost;
-  return Math.min(TUNING.parkBoostMax, boost);
+  // a bus stop in reach (easy commute) and bike lanes come on top of the park cap
+  const bus = state.buildings.some((b) => b.type === 'busstop' && isBuilt(b, now) && Math.max(Math.abs(b.x - home.x), Math.abs(b.y - home.y)) <= reachOf(b));
+  return Math.min(TUNING.parkBoostMax, boost) + (bus ? TUNING.transitRent : 0) + UPGRADES.bikes.per * upLevel(state, 'bikes');
 }
 
 /** Rent share for one resident from traits: party animals pay more and their next-door neighbours less. */
@@ -919,7 +921,7 @@ export function friendLevel(state, town) {
 }
 /** Contracts you can hold at once: one, plus one per Trading Post level. */
 export function contractSlots(state, now) {
-  return hasTrade(state, now) ? 1 + truckCount(state, now) : 0;
+  return hasTrade(state, now) ? 1 + truckCount(state, now) + (has(state, 'port', now) ? 1 : 0) : 0;
 }
 /** What a town's contract asks for and pays right now. */
 export function contractTerms(state, town, now) {
@@ -1141,6 +1143,25 @@ export function foundNewTown(state, now) {
   next.coins += PERM_PERKS.coins.per * permPerk(next, 'coins');
   events.emit('newTown', { earned, towns: next.legacy.towns });
   return { ok: true, reason: '', earned, state: next };
+}
+
+// ---- transit and gateways ---------------------------------------------------------
+// Bus stops (rent for homes in reach; two or more make a bus line that brings visitors), and the
+// gateways that connect to other cities: a train station, a port and an airport.
+
+/** Is there a built building of this type? */
+function has(state, type, now) {
+  return state.buildings.some((b) => b.type === type && isBuilt(b, now));
+}
+/** How many newcomers can wait at the Welcome sign: one more with a train station. */
+export function maxApplicants(state) {
+  return TUNING.applicantCount + (has(state, 'station', state.lastTick) ? 1 : 0);
+}
+/** How much more often visitors come: the bus line, a station, an airport. */
+export function visitorsMult(state, now) {
+  const stops = state.buildings.filter((b) => b.type === 'busstop' && isBuilt(b, now)).length;
+  return (1 + TUNING.busLineVisitors * Math.max(0, Math.min(3, stops - 1)))
+    * (has(state, 'station', now) ? 1 + TUNING.stationVisitors : 1) * (has(state, 'airport', now) ? 1 + TUNING.airportVisitors : 1);
 }
 
 // ---- the entry road and trucks ------------------------------------------------
@@ -1809,6 +1830,7 @@ function arrivalGap(state, at) {
   let gap = TUNING.arriveMs * (1 - UPGRADES.welcome.per * upLevel(state, 'welcome')) * (1 - TOWN_PERKS.welcome.per * townPerk(state, 'welcome'));
   if (at < (state.adUntil || 0)) gap /= 2;
   if (at < (state.slowArrivalsUntil || 0)) gap *= 2;
+  if (has(state, 'station', at)) gap *= 1 - TUNING.stationArrivals;
   return gap;
 }
 
@@ -1874,7 +1896,7 @@ export function readFeed(state) {
 
 function maybeVisitor(state, now) {
   if (now < state.nextVisitAt) return;
-  state.nextVisitAt = now + Math.round((TUNING.visitorGapMinMs + randInt(state, TUNING.visitorGapMaxMs - TUNING.visitorGapMinMs + 1)) / (state.festivalUntil > now ? 2 : 1));
+  state.nextVisitAt = now + Math.round((TUNING.visitorGapMinMs + randInt(state, TUNING.visitorGapMaxMs - TUNING.visitorGapMinMs + 1)) / (state.festivalUntil > now ? 2 : 1) / visitorsMult(state, now));
   if (population(state) < TUNING.visitorUnlockPop) return;
   visit(state, now);
 }
@@ -1891,7 +1913,8 @@ export function visit(state, now, cat = null) {
     events.emit('visitMiss', { cat });
     return { ok: true, reason: '', visitor: v, cat, shop: null, spent: 0 };
   }
-  const spent = Math.max(5, Math.round(townRatePerMin(state, now) * TUNING.activeBoost * TUNING.visitorSpendMinutes));
+  const spent = Math.max(5, Math.round(townRatePerMin(state, now) * TUNING.activeBoost * TUNING.visitorSpendMinutes
+    * (has(state, 'port', now) ? 1 + TUNING.portSpend : 1) * (1 + UPGRADES.pedestrian.per * upLevel(state, 'pedestrian'))));
   gain(state, spent, 'visitor', shop.id);
   const lines = VISITS[cat].good;
   const sisters = (state.legacy || {}).oldTowns || [];
@@ -1900,7 +1923,7 @@ export function visit(state, now, cat = null) {
   events.emit('visit', { building: shop, amount: spent, visitor: v });
   // a great time in a happy town: they may ask to move in
   let movedIn = false;
-  if (state.applicants.length < TUNING.applicantCount && vacancies(state) > 0 && happiness(state, now) >= 70 && rand(state) < TUNING.visitorMoveInChance) {
+  if (state.applicants.length < maxApplicants(state) && vacancies(state) > 0 && happiness(state, now) >= 70 && rand(state) < TUNING.visitorMoveInChance) {
     v.dream = shop.type;
     v.arrivedAt = now;
     state.applicants.push(v);
@@ -2010,7 +2033,7 @@ export function vipSpot(state) {
 
 function maybeVip(state, now) {
   if (state.vip || now < state.nextVipAt) return;
-  state.nextVipAt = now + Math.round((TUNING.vipGapMinMs + randInt(state, TUNING.vipGapMaxMs - TUNING.vipGapMinMs + 1)) / (1 + PERM_PERKS.vips.per * permPerk(state, 'vips')));
+  state.nextVipAt = now + Math.round((TUNING.vipGapMinMs + randInt(state, TUNING.vipGapMaxMs - TUNING.vipGapMinMs + 1)) / (1 + PERM_PERKS.vips.per * permPerk(state, 'vips')) / (has(state, 'airport', now) ? 1 + TUNING.airportVips : 1));
   if (population(state) < TUNING.vipUnlockPop) return;
   arriveVip(state, now);
 }
@@ -2701,7 +2724,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
       // at the same time as small live ticks.
       const end = Math.min(now, t + TUNING.stepMs, nextHour,
         pending.at(-1)?.readyAt ?? Infinity,
-        state.applicants.length < TUNING.applicantCount ? Math.max(t + 1, state.nextApplicantAt) : Infinity,
+        state.applicants.length < maxApplicants(state) ? Math.max(t + 1, state.nextApplicantAt) : Infinity,
         perHour > 0 ? Math.max(t + 1, state.nextLessonAt) : Infinity,
         state.adUntil > t ? state.adUntil : Infinity, t + msUntilRecipe(state, growth),
         ...state.problems.map((p) => (p.fixAt != null && p.fixAt > t ? p.fixAt : Infinity)));
@@ -2778,14 +2801,14 @@ export function advance(state, now, { live = true, active = false } = {}) {
 
       // 3. newcomers drive in on the entry road and wait at the Welcome sign. They never
       //    leave on their own: an open spot fills arriveMs after it opened.
-      while (end >= state.nextApplicantAt && state.applicants.length < TUNING.applicantCount) {
+      while (end >= state.nextApplicantAt && state.applicants.length < maxApplicants(state)) {
         const a = makeApplicant(state);
         a.arrivedAt = state.nextApplicantAt;
         state.applicants.push(a);
         state.nextApplicantAt += arrivalGap(state, state.nextApplicantAt);
         events.emit('arrival', { applicant: a });
       }
-      if (state.applicants.length >= TUNING.applicantCount && state.nextApplicantAt < end) state.nextApplicantAt = end;
+      if (state.applicants.length >= maxApplicants(state) && state.nextApplicantAt < end) state.nextApplicantAt = end;
 
       // 4. rent and contract pickups at the top of every hour
       if (end >= nextHour) {

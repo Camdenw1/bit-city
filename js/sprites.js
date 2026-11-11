@@ -345,6 +345,87 @@ Object.assign(EMBLEM, {
     ' rrrrr ',
     '  r r  ',
   ],
+  busstop: [      // a bus
+    ' yyyyy ',
+    'ycccccy',
+    'ycccccy',
+    'yyyyyyy',
+    'yYyyyYy',
+    ' k   k ',
+    '       ',
+  ],
+  station: [      // a train front
+    ' rrrrr ',
+    'rcccccr',
+    'rcccccr',
+    'rrrrrrr',
+    'rYrrrYr',
+    'k k k k',
+    'kkkkkkk',
+  ],
+  port: [         // an anchor
+    '   u   ',
+    '  uuu  ',
+    '   u   ',
+    '   u   ',
+    'u  u  u',
+    ' uuuuu ',
+    '       ',
+  ],
+  airport: [      // a plane
+    '   w   ',
+    '   w   ',
+    'wwwwwww',
+    '  www  ',
+    '   w   ',
+    '  www  ',
+    '       ',
+  ],
+  bowling: [      // a pin and a ball
+    '  w    ',
+    ' wrw   ',
+    ' www vv',
+    ' wrwvVv',
+    '  w vvv',
+    ' www   ',
+    '       ',
+  ],
+  climbing: [     // a wall with coloured holds
+    'tttttt ',
+    'tytttt ',
+    'tttgtt ',
+    'titttt ',
+    'ttttut ',
+    'tttytt ',
+    '       ',
+  ],
+  bubbletea: [    // a cup with pearls and a straw
+    '    k  ',
+    ' pppkp ',
+    ' pqqqp ',
+    ' pqqqp ',
+    ' pkqkp ',
+    '  kkk  ',
+    '       ',
+  ],
+  pharmacy: [     // a green cross
+    '  ggg  ',
+    '  gwg  ',
+    'gggwggg',
+    'gwwwwwg',
+    'gggwggg',
+    '  gwg  ',
+    '  ggg  ',
+  ],
+  electronics: [  // a little screen
+    'kkkkkkk',
+    'kuuuuuk',
+    'kucCuuk',
+    'kuuuuuk',
+    'kkkkkkk',
+    '  kkk  ',
+    '       ',
+  ],
   lumber: [       // a log
     '       ',
     ' bbbbb ',
@@ -454,6 +535,8 @@ const CAT_STYLE = {
   yard:     { roof: 'A', dark: 'k', tint: 'e' },   // grey roof: the hard hat on the sign does the talking
   exchange: { roof: 'G', dark: 'k', tint: 'l' },   // green roof: money
   source:   { roof: 'B', dark: 'k', tint: 'p' },   // brown roof: workshops
+  transit:  { roof: 'u', dark: 'U', tint: 'z' },   // blue roof: getting around
+  gateway:  { roof: 'U', dark: 'k', tint: 'z' },   // dark blue: the way to other cities
 };
 
 function shop(id, cat) {
@@ -528,6 +611,16 @@ BUILD.apartment = () => {
   return g;
 };
 
+BUILD.highrise = () => {                                        // a tall glass tower
+  const g = new Grid(B_W, B_H);
+  g.set(8, 0, 'r').vl(8, 1, 1, 'A');                            // antenna with a red light
+  g.rect(3, 2, 12, 15, 'e').vl(12, 2, 15, 'a').hl(3, 12, 2, 'A');
+  for (let y = 4; y <= 12; y += 2) for (const x of [4, 6, 8, 10]) g.set(x, y, (x + y) % 4 ? 'c' : 'C');
+  g.rect(7, 13, 8, 15, 'B');                                    // door
+  g.outline();
+  return g;
+};
+
 BUILD.house = () => {
   const g = new Grid(B_W, B_H);
   g.rect(11, 1, 12, 4, 'E');                                    // chimney
@@ -563,6 +656,8 @@ BUILD.trade = () => shop('trade', 'trade');
 BUILD.yard = () => shop('yard', 'yard');
 BUILD.exchange = () => shop('exchange', 'exchange');
 for (const id of ['lumber', 'quarry', 'brickworks']) BUILD[id] = () => shop(id, 'source');
+BUILD.busstop = () => shop('busstop', 'transit');
+for (const id of ['station', 'port', 'airport']) BUILD[id] = () => shop(id, 'gateway');
 for (const cat of Object.keys(CAT_STYLE)) SHOP_SPRITES.push([`mystery_${cat}`, () => shop('mystery', cat)]);
 
 BUILD.tree = () => {
@@ -720,6 +815,34 @@ const TAXI_S = [
   'AyCccccCyA',
   'kyyyyyyyyk',
   'kYyyyyyyYk',
+  '.kkkkkkkk.',
+  '..........',
+];
+
+// town bus: long, red and full of windows
+const BUS_E = [
+  '.kkkkkkkkkkkk.',
+  'krrrrrrrrrrrrk',
+  'krcckcckcckcck',
+  'krcckcckcckcck',
+  'krrrrrrrrrrrYk',
+  'krrrrrrrrrrrrk',
+  'kkAAkkkkkkAAkk',
+  '.kAAk....kAAk.',
+  '..kk......kk..',
+];
+const BUS_N = [
+  '.kkkkkkkk.',
+  'krrrrrrrrk',
+  'krccccccrk',
+  'krrrrrrrrk',
+  'AkcckkcckA',
+  'krrrrrrrrk',
+  'kkcckkcckk',
+  'krrrrrrrrk',
+  'AkcckkcckA',
+  'krrrrrrrrk',
+  'kYrrrrrrYk',
   '.kkkkkkkk.',
   '..........',
 ];
@@ -1074,6 +1197,10 @@ def('pin', () => Grid.from([        // red map pin over a taxi rider's destinati
   '..kRk..',
   '...k...',
 ]));
+def('bus_e', () => Grid.from(BUS_E));
+def('bus_w', () => Grid.from(BUS_E).flipH());
+def('bus_n', () => Grid.from(BUS_N));
+def('bus_s', () => Grid.from(BUS_N).flipV());
 def('truck_e', () => Grid.from(TRUCK_E));
 def('truck_w', () => Grid.from(TRUCK_E).flipH());
 def('truck_n', () => Grid.from(TRUCK_N));

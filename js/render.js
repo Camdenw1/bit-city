@@ -234,12 +234,18 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     return h > 0.58 ? 'grass1' : 'grass0';
   }
 
+  /** What the cached ground depends on: the town, its land, bike lanes and car-free streets. */
+  function groundKeyOf(st) {
+    const u = (st && st.upgrades) || {};
+    return `${st?.worldSeed ?? 0}|${(st?.land || ['home']).join(',')}|${u.bikes || 0}|${u.pedestrian || 0}`;
+  }
+
   function buildGround() {
     const state = getState ? getState() : null;
     OWNED.clear();
     for (const id of state?.land || ['home']) OWNED.add(id);
     const seed = state?.worldSeed ?? 0;
-    groundKey = `${seed}|${[...OWNED].join(',')}`;
+    groundKey = groundKeyOf(state);
     STREET = state ? (x, y) => isRoadAt(state, x, y) : (x, y) => isRoad(x, y);
     ENTRY.clear(); entryOut = [];
     const entry = state ? safe(() => entryRoute(state), null) : null;
@@ -275,6 +281,26 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         const id = roadAt(tx, ty) ? `road${roadMask(tx, ty)}` : mine && state && isPlazaAt(state, tx, ty) ? 'plaza' : sceneryId(tx, ty);
         const px = (tx - WORLD.x0 + groundPad) * TILE, py = (ty - WORLD.y0 + groundPad) * TILE;
         c.drawImage(getSprite(id), px, py);
+        if (mine && state && roadAt(tx, ty)) {
+          // bike lanes: a green strip along each curb
+          if ((state.upgrades || {}).bikes) {
+            c.fillStyle = '#5bb450';
+            if (!roadAt(tx, ty - 1)) c.fillRect(px, py + 1, TILE, 1);
+            if (!roadAt(tx, ty + 1)) c.fillRect(px, py + TILE - 2, TILE, 1);
+            if (!roadAt(tx - 1, ty)) c.fillRect(px + 1, py, 1, TILE);
+            if (!roadAt(tx + 1, ty)) c.fillRect(px + TILE - 2, py, 1, TILE);
+          }
+          // car-free streets next to the town square: paved
+          if ((state.upgrades || {}).pedestrian) {
+            let byPlaza = false;
+            for (let dy = -1; dy <= 1 && !byPlaza; dy++) for (let dx = -1; dx <= 1; dx++) if (isPlazaAt(state, tx + dx, ty + dy)) { byPlaza = true; break; }
+            if (byPlaza) {
+              c.fillStyle = 'rgba(216, 210, 198, 0.85)'; c.fillRect(px, py, TILE, TILE);
+              c.fillStyle = 'rgba(184, 180, 188, 0.9)';
+              for (let i = 0; i < TILE; i += 4) { c.fillRect(px + i, py, 1, TILE); c.fillRect(px, py + i, TILE, 1); }
+            }
+          }
+        }
         if (!mine) {                        // land that isn't yours yet is a touch deeper
           c.fillStyle = 'rgba(46, 92, 78, 0.16)';
           c.fillRect(px, py, TILE, TILE);
@@ -665,6 +691,27 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     return { x: lerp(a.x, b.x, t) * TILE + 8, y: lerp(a.y, b.y, t) * TILE + 6, dir: job.dir };
   }
 
+  let busRoute = null, busKey = '';
+  /** Where the bus is: it drives a loop through every bus stop at a steady pace. */
+  function busPos(state, rt) {
+    const stops = (state.buildings || []).filter((b) => b.type === 'busstop' && !(b.readyAt > (getNow ? getNow() : Date.now()))).sort((a, b) => a.id - b.id);
+    if (stops.length < 2) return null;
+    const key = stops.map((b) => `${b.id}:${b.x},${b.y}`).join('|');
+    if (key !== busKey) {
+      busKey = key; busRoute = [];
+      for (let i = 0; i < stops.length; i++) {
+        const leg = bfsPath(nearestRoad(stops[i]), nearestRoad(stops[(i + 1) % stops.length]));
+        if (leg) busRoute.push(...(busRoute.length ? leg.slice(1) : leg));
+      }
+      if (busRoute.length < 2) busRoute = null;
+    }
+    if (!busRoute) return null;
+    const f = ((rt / 1000) * 1.2) % (busRoute.length - 1);
+    const i = Math.floor(f), t = f - i;
+    const a = busRoute[i], b = busRoute[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    return { x: lerp(a.x, b.x, t) * TILE + 8, y: lerp(a.y, b.y, t) * TILE + 6, dir: dx > 0 ? 'e' : dx < 0 ? 'w' : dy > 0 ? 's' : 'n' };
+  }
   const ARRIVE_DRIVE_MS = 6000;
   /** Where a newcomer's car is, t from 0 (off the edge of the world) to 1 (at the Welcome spot). */
   function arrivalPos(state, t) {
@@ -934,7 +981,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     else {
       stepView(dt);
       const st = getState && getState();
-      if (st && `${st.worldSeed ?? 0}|${(st.land || ['home']).join(',')}` !== groundKey) buildGround();   // new town or new land
+      if (st && groundKeyOf(st) !== groundKey) buildGround();   // new town, new land, bike lanes or car-free streets
     }
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -990,6 +1037,10 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
           movers.push({ y: pos.y + s.height / 2, draw: () => drawTaxi(pos, darkness) });
         }
       }
+      // the bus line: with two or more bus stops, a bus loops between them
+      const bus = busPos(state, rt);
+      if (bus) movers.push({ y: bus.y + 5, draw: () => { const sp = getSprite(`bus_${bus.dir}`); blit(sp, Math.round(bus.x - sp.width / 2), Math.round(bus.y - sp.height / 2)); } });
+
       // trade trucks on their way in or out along the entry road
       const live = new Set();
       for (const tr of state.trucks || []) {

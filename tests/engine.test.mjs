@@ -100,15 +100,15 @@ test('config: shape, roads, every type complete, balance targets', () => {
   assert.equal(config.isRoad(3, 0), true); assert.equal(config.isRoad(0, 2), true); assert.equal(config.isRoad(0, 0), false);
   assert.equal(lots().length, 90);
   const ids = Object.keys(BUILDINGS);
-  assert.equal(ids.length, 59);
-  assert.equal(ids.filter((id) => BUILDINGS[id].kind === 'biz').length, 38);
+  assert.equal(ids.length, 69);
+  assert.equal(ids.filter((id) => BUILDINGS[id].kind === 'biz').length, 43);
   assert.deepEqual([...config.BUILD_ORDER].sort(), [...ids].sort());
   for (const id of ids) {
     const d = BUILDINGS[id];
     assert.equal(d.id, id);
     assert.ok(d.name && d.blurb && d.cost > 0 && d.buildSecs > 0 && d.unlockAt >= 0, id);
     if (d.kind === 'home') { assert.ok(d.capacity >= 1 && d.rentPerTenant > 0); assert.equal(d.category, null); }
-    else if (['trade', 'yard', 'exchange', 'source'].includes(d.kind)) { assert.equal(d.category, null); }
+    else if (['trade', 'yard', 'exchange', 'source', 'transit', 'gateway'].includes(d.kind)) { assert.equal(d.category, null); }
     else if (d.kind === 'civic' || d.kind === 'park') {
       assert.equal(d.category, null); assert.ok(config.NEEDS.some((n) => n.id === d.provides.need) && d.provides.serves > 0, id);
     } else {
@@ -123,7 +123,7 @@ test('config: shape, roads, every type complete, balance targets', () => {
   }
   assert.deepEqual(Object.keys(config.SHOP_CATS).filter((c) => config.SHOP_CATS[c].unlockAt === 0), ['food', 'retail', 'service']);
   for (const c of CATEGORIES) assert.ok(ids.filter((id) => BUILDINGS[id].kind === 'biz' && BUILDINGS[id].categories.includes(c)).length >= 6, `${c} has variety`);
-  assert.ok(Math.max(...ids.map((id) => BUILDINGS[id].unlockAt)) <= 36);
+  assert.ok(Math.max(...ids.map((id) => BUILDINGS[id].unlockAt)) <= 100, 'late-game buildings (high-rise, airport) open by 100 residents');
   assert.ok(BUILDINGS.tent.cost + BUILDINGS.diner.cost <= TUNING.startCoins);
   assert.equal(BUILDINGS.tent.capacity, 1); assert.equal(BUILDINGS.cabin.capacity, 2);
   assert.equal(BUILDINGS.apartment.capacity, 4); assert.equal(BUILDINGS.house.capacity, 3);
@@ -2149,4 +2149,35 @@ test('sister towns: old towns trade as best friends and send a daily care packag
   assert.ok(n.coins >= coins + Math.max(1, sister.income), 'the care package arrived');
   // care trucks never block your own trading
   assert.equal(n.trucks.filter((t) => t.kind === 'care' && t.arriveAt > n.lastTick).length, 0);
+});
+
+test('transit and gateways: bus stops lift rent and start a bus line; station, port and airport bring the world in', () => {
+  const { s } = smallTown();
+  allGoalsDone(s);
+  const now = s.lastTick;
+  const home = s.buildings.find((b) => config.BUILDINGS[b.type].kind === 'home');
+  const before = sim.homeBoost(s, home, now);
+  let near = null;
+  for (let dy = -3; dy <= 3 && !near; dy++) for (let dx = -3; dx <= 3 && !near; dx++) if (sim.isLot(s, home.x + dx, home.y + dy) && !sim.tileAt(s, home.x + dx, home.y + dy)) near = [home.x + dx, home.y + dy];
+  const stop = sim.build(s, 'busstop', near[0], near[1], now).building || (() => { s.buildings.push({ id: s.nextId++, type: 'busstop', x: near[0], y: near[1], readyAt: now, paid: 400, level: 1 }); return s.buildings.at(-1); })();
+  stop.readyAt = now;
+  assert.ok(Math.max(Math.abs(stop.x - home.x), Math.abs(stop.y - home.y)) <= sim.reachOf(stop));
+  assert.ok(Math.abs(sim.homeBoost(s, home, now) - before - TUNING.transitRent) < 1e-9);
+  assert.equal(sim.visitorsMult(s, now), 1, 'one stop is not a line yet');
+  put(s, 'busstop', now);
+  assert.ok(Math.abs(sim.visitorsMult(s, now) - (1 + TUNING.busLineVisitors)) < 1e-9);
+  // the station: more visitors and one more newcomer spot
+  const spots = sim.maxApplicants(s);
+  put(s, 'station', now);
+  assert.equal(sim.maxApplicants(s), spots + 1);
+  assert.ok(sim.visitorsMult(s, now) > 1 + TUNING.busLineVisitors);
+  // the port: one more contract
+  put(s, 'trade', now);
+  const slots = sim.contractSlots(s, now);
+  put(s, 'port', now);
+  assert.equal(sim.contractSlots(s, now), slots + 1);
+  // bike lanes add rent everywhere
+  const b2 = sim.homeBoost(s, home, now);
+  s.coins = 1e6; assert.ok(sim.buyUpgrade(s, 'bikes', now).ok);
+  assert.ok(Math.abs(sim.homeBoost(s, home, now) - b2 - config.UPGRADES.bikes.per) < 1e-9);
 });

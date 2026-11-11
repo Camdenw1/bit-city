@@ -69,7 +69,8 @@ export function makeApplicant(state, opts = {}) {
   for (let i = 0; i < 12 && taken.has(name); i++) name = pick(state, FIRST_NAMES);
 
   // A star has two strong skills; anyone may have a trait (a genius gets +2 everywhere).
-  const star = rand(state) < TUNING.starChance;
+  const airport = (state.buildings || []).some((b) => b.type === 'airport' && !(b.readyAt > (state.lastTick || 0)));
+  const star = rand(state) < TUNING.starChance * (airport ? 2 : 1);   // an airport brings more stars
   if (star) {
     skills[best] = 8 + randInt(state, 2);
     const second = pick(state, CATEGORIES.filter((c) => c !== best));

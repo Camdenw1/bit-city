@@ -363,7 +363,7 @@ export function createUI(root, api) {
       if (api.renderer && api.renderer.setSelection) api.renderer.setSelection(tile);
       // a town building shows the area it serves while its sheet is open
       const b = tile && sheet && sheet.kind === 'building' ? byId(sheet.id) : null;
-      const reach = b && (def(b.type).provides || def(b.type).kind === 'yard') ? { x: b.x, y: b.y, r: call('reachOf', b) || 0 } : null;
+      const reach = b && (def(b.type).provides || ['yard', 'transit'].includes(def(b.type).kind)) ? { x: b.x, y: b.y, r: call('reachOf', b) || 0 } : null;
       if (api.renderer && api.renderer.setReach) api.renderer.setReach(reach);
     } catch (e) { /* cosmetic */ }
   }
@@ -394,7 +394,7 @@ export function createUI(root, api) {
   const coinAmt = (n, s = 1) => `<span class="amt">${icon('coin', s, s === 1 ? 'i12' : '')}${formatCoins(n)}</span>`;
   const skillBadge = (cat, value, big) =>
     `<span class="skill${big ? ' big' : ''}" style="--c:${catColor(cat)}">${icon('cat_' + cat, 1, 'i12')}<b>${value}</b></span>`;
-  const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : d.kind === 'yard' ? { icon: 'hammer', name: 'Faster building' } : d.kind === 'exchange' ? { icon: 'coin', name: 'Stocks' } : d.kind === 'source' ? { icon: 'hammer', name: (config.MATERIALS || {})[d.makes]?.name || 'Materials' } : { icon: 'star', name: 'Town' });
+  const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : d.kind === 'yard' ? { icon: 'hammer', name: 'Faster building' } : d.kind === 'exchange' ? { icon: 'coin', name: 'Stocks' } : d.kind === 'source' ? { icon: 'hammer', name: (config.MATERIALS || {})[d.makes]?.name || 'Materials' } : d.kind === 'transit' ? { icon: 'taxi', name: 'Transit' } : d.kind === 'gateway' ? { icon: 'person', name: 'Tourists' } : { icon: 'star', name: 'Town' });
   const cropName = (crop) => ((config.CROPS || {})[crop] || crop).toLowerCase();
 
   /** Everything the Trading Post does: sell, import, and neighbour orders. */
@@ -659,7 +659,7 @@ export function createUI(root, api) {
             : `<span class="price">${icon('coin', 1, 'i12')}${formatCoins(cost)}</span>`}</button>`;
       };
       const homes = order.filter((id) => BUILDINGS[id].kind === 'home');
-      const town = order.filter((id) => !BUILDINGS[id].gov && ['park', 'trade', 'yard', 'exchange', 'source'].includes(BUILDINGS[id].kind));
+      const town = order.filter((id) => !BUILDINGS[id].gov && ['park', 'trade', 'yard', 'exchange', 'source', 'transit', 'gateway'].includes(BUILDINGS[id].kind));
       const unlocked = (id) => call('isUnlocked', s, id);
       const openCat = (cat) => call('categoryUnlocked', s, cat);
       if (d.wish) {
@@ -770,6 +770,11 @@ export function createUI(root, api) {
           const mk = (config.MATERIALS || {})[c.makes] || {};
           lines.push(`${esc(mk.emoji || '')} Makes ${Math.round((config.TUNING?.matPerHour ?? 8) * (config.levelMult ? config.levelMult(b.level) : 1))} ${esc((mk.name || '').toLowerCase())} an hour · you have ${Math.floor((s.mats || {})[c.makes] || 0)}/${config.TUNING?.matCap ?? 300}`);
           lines.push('Materials take 30% off the coins of any upgrade. Look for "Upgrade with materials".');
+        }
+        if (c.kind === 'transit') {
+          const stops = s.buildings.filter((x) => x.type === 'busstop').length;
+          lines.push(`${icon('coin', 1, 'i12')}Homes within ${call('reachOf', b) || 0} lots pay ${Math.round((config.TUNING?.transitRent ?? 0.08) * 100)}% more rent`);
+          lines.push(stops >= 2 ? `${icon('taxi', 1, 'i12')}Bus line: ${stops} stops · visitors come more often` : `${icon('taxi', 1, 'i12')}Build a second stop to start a bus line (more visitors)`);
         }
         if (c.kind === 'yard') lines.push(`${icon('hammer', 1, 'i12')}Anything built within ${call('reachOf', b) || 0} lots goes up twice as fast`);
         if (c.lessons) lines.push(`${icon('star', 1, 'i12')}Teaches ${c.lessons} skill ${c.lessons === 1 ? 'point' : 'points'} an hour`);

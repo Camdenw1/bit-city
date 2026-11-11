@@ -1,6 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
-export const VERSION = 41;           // shown in Menu; keep in step with CACHE in sw.js
+export const VERSION = 42;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;
@@ -160,6 +160,13 @@ export const TUNING = {
   matCap: 300,                   // the most of each material you can store
   matDiscount: 0.3,              // paying an upgrade with materials takes this much off the coins
   matPerLevel: [0, 0, 12, 30],   // wood and stone an upgrade to level 2 / 3 uses (bricks: half)
+  transitRent: 0.08,             // homes within reach of a bus stop pay this much more rent
+  busLineVisitors: 0.25,         // each bus stop past the first: visitors this much more often (up to 3)
+  stationVisitors: 0.5,          // a train station: visitors 50% more often...
+  stationArrivals: 0.25,         // ...newcomers 25% sooner, and one more spot at the Welcome sign
+  portSpend: 0.5,                // a port: visitors spend 50% more, and one more contract
+  airportVisitors: 1,            // an airport: visitors twice as often...
+  airportVips: 0.25,             // ...VIPs 25% more often, and stars twice as likely
   careHours: 1,                  // a sister town's daily care package: this many hours of its old shop income
   prestigePop: 100,              // founding a new town opens at this many residents
   prestigeValuePerPoint: 5000,   // prestige points = floor(sqrt(city value / this))
@@ -318,6 +325,10 @@ export const UPGRADES = {
                says: (l) => `Newcomers arrive ${Math.round(l * 20)}% sooner` },
   repair:    { name: 'Repair team',       icon: 'star',   per: 0.2,  costs: [2000, 10000, 50000],
                says: (l) => `Shop problems cost ${Math.round(l * 20)}% less and stations fix them ${Math.round(l * 20)}% faster` },
+  bikes:     { name: 'Bike lanes',        icon: 'heart',  per: 0.03, costs: [3000, 15000, 60000],
+               says: (l) => `Green bike lanes on every street: +${l * 3}% rent` },
+  pedestrian: { name: 'Pedestrian streets', icon: 'person', per: 0.25, costs: [20000],
+               says: () => 'The streets by the town square go car-free: visitors spend 25% more' },
   marketing: { name: 'Marketing',         icon: 'coin',   per: 0.5,  costs: [1500, 9000, 45000],
                says: (l) => `Ads (see "Run an ad" above) last ${l * 30} minutes longer` },
 };
@@ -394,6 +405,7 @@ export const BUILDINGS = {
   cabin:     home('cabin',     'Cabin',         600,   90,  4, 2, 450, 'A snug log cabin with room for two.'),
   apartment: home('apartment', 'Apartments',   4000,  420, 12, 4, 700, 'Four friendly neighbours under one roof.'),
   house:     home('house',     'Family House',15000, 1500, 24, 3, 1400, 'The nicest home in town. Pays the best rent.'),
+  highrise:  home('highrise',  'High-rise',   60000, 2400, 50, 8, 1700, 'Twenty floors of city living. The densest home in town.'),
 
   // food
   diner:    biz('diner',    'Burger Diner',   ['food'],             30, 'Burgers and pancakes all day.'),
@@ -438,6 +450,11 @@ export const BUILDINGS = {
   arcade:   biz('arcade',   'Arcade',         ['creative'],          120, 'Blinking lights and high scores.'),
   theatre:  biz('theatre',  'Theatre',        ['creative'],          180, 'Tonight only: the whole town on stage.', { slots: 4 }),
   photo:    biz('photo',    'Photo Studio',   ['creative', 'service'], 120, 'Say cheese!', { slots: 1 }),
+  bowling:  biz('bowling',  'Bowling Alley',  ['creative'],          120, 'Strikes, spares and cheesy fries.', { slots: 3 }),
+  climbing: biz('climbing', 'Climbing Gym',   ['creative', 'service'], 120, 'Chalky hands and colourful walls.', { slots: 2 }),
+  bubbletea: biz('bubbletea', 'Bubble Tea',   ['food'],              45, 'Chewy pearls in every cup.', { slots: 1 }),
+  pharmacy: biz('pharmacy', 'Pharmacy',       ['service', 'retail'], 90, 'Plasters, vitamins and kind advice.'),
+  electronics: biz('electronics', 'Electronics', ['retail'],         90, 'Gadgets, games and blinking lights.', { slots: 3 }),
 
   //            id          name        kind     cost  secs unlock
   tree:     town('tree',     'Tree',     'park',    150,   20,  5, { provides: { need: 'beauty', serves: 3 },  rentBoost: 0.05 }, 'A leafy tree. Nearby homes pay a little more rent.'),
@@ -457,6 +474,10 @@ BUILDINGS.exchange = town('exchange', 'Stock Exchange', 'exchange', 5000, 240, 2
 BUILDINGS.lumber = town('lumber', 'Lumber Yard', 'source', 900, 90, 12, { makes: 'wood' }, 'Saws and stacks of planks. Makes wood all day.');
 BUILDINGS.quarry = town('quarry', 'Quarry', 'source', 1200, 90, 12, { makes: 'stone' }, 'Hard hats and big rocks. Makes stone all day.');
 BUILDINGS.brickworks = town('brickworks', 'Brickworks', 'source', 1800, 120, 12, { makes: 'bricks' }, 'A warm kiln baking bricks all day.');
+BUILDINGS.busstop = town('busstop', 'Bus Stop', 'transit', 400, 30, 10, { reach: 4 }, 'Hop on, hop off. Homes nearby pay more rent; two or more stops start a bus line.');
+BUILDINGS.station = town('station', 'Train Station', 'gateway', 8000, 600, 30, {}, 'Trains from the city bring tourists and new faces.');
+BUILDINGS.port = town('port', 'Port', 'gateway', 20000, 900, 50, { near: ['water'] }, 'Ferries and cargo ships: visitors spend more, and one more contract.');
+BUILDINGS.airport = town('airport', 'Airport', 'gateway', 60000, 1800, 80, {}, 'Flights from everywhere: twice the visitors, more VIPs and more stars.');
 BUILDINGS.yard = town('yard', 'Construction Yard', 'yard', 1500, 120, 8, { reach: 4 }, 'Cranes and hard hats. Anything built near it goes up twice as fast.');
 BUILDINGS.trade = town('trade', 'Trading Post', 'trade', 2000, 300, 10, {}, 'Sell your harvest, import what you lack, and fill orders from neighbour towns.');
 BUILDINGS.fountain.unlockGoal = 'happy90';  // a milestone opens this one
