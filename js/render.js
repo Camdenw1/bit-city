@@ -19,7 +19,7 @@ const TAP_SNAP = 5;                  // art px: a tap this close to a lot (on th
 const WALK_SPEED = 1.5;              // tiles per second
 const TAXI_SPEED = 6;                // tiles per second
 const TAXI_MIN_MS = 1200;
-const MAX_WALKERS = 8;
+const MAX_WALKERS = 20;               // residents drawn on the streets at most
 const DIRS = [                       // index = direction id; bit = road mask bit
   { dx: 0, dy: -1, bit: 1, name: 'n' },
   { dx: 1, dy: 0, bit: 2, name: 'e' },
@@ -438,14 +438,90 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     return w;
   }
 
-  function updateWalkers(state, dt) {
+  // ---- daily routines: home at night, work by day, lunch out, a park or fun place in the evening ----
+  const byIdOf = (state, id) => (state.buildings || []).find((b) => b.id === id) || null;
+  const catOfB = (b) => b.cat || BUILDINGS[b.type]?.category;
+  function nearestOf(state, home, pred) {
+    let best = null, bd = Infinity;
+    for (const b of state.buildings || []) {
+      if (!pred(b) || !inMap(b.x, b.y)) continue;
+      const d = Math.abs(b.x - home.x) + Math.abs(b.y - home.y) + hashStr(`${b.id}`) * 0.5;
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best;
+  }
+  /** Where a resident wants to be at this hour of the game day, and for how long once there. */
+  function routineGoal(state, tenant, hour) {
+    const home = byIdOf(state, tenant.homeId);
+    if (!home) return null;
+    const job = tenant.jobId != null ? byIdOf(state, tenant.jobId) : null;
+    const shop = (cat) => nearestOf(state, home, (b) => BUILDINGS[b.type]?.kind === 'biz' && catOfB(b) === cat);
+    if (hour < 6 || hour >= 22) return { b: home, stay: Infinity, plan: 'night' };
+    if (hour >= 11 && hour < 13) return { b: shop('food') || home, stay: 40000, plan: 'lunch' };
+    if (hour >= 17) {
+      const fun = shop('creative') || nearestOf(state, home, (b) => ['park', 'civic'].includes(BUILDINGS[b.type]?.kind));
+      return fun ? { b: fun, stay: 45000, plan: 'evening' } : { b: null, stay: 0, plan: 'evening' };
+    }
+    return job ? { b: job, stay: Infinity, plan: hour < 11 ? 'morning' : 'afternoon' } : { b: null, stay: 0, plan: 'wander' };
+  }
+  /** Send a resident's walker to a building now (they bought something there), then back to their day. */
+  function sendWalker(tenantId, building, stay = 20000) {
+    const w = walkers.get(tenantId);
+    if (!w || !building) return;
+    w.errand = { b: building, stay };
+    w.goalId = null; w.path = null; w.inside = false;
+  }
+  function headFor(w, b) {
+    const from = nearestRoad({ x: w.x, y: w.y }), to = nearestRoad(b);
+    const path = from && to ? bfsPath(from, to) : null;
+    w.inside = false; w.goalId = b.id;
+    if (!path || path.length < 2) { w.x = (to || w).x; w.y = (to || w).y; w.path = null; w.atGoal = true; return; }
+    w.x = path[0].x; w.y = path[0].y; w.path = path; w.step = 1; w.t = 0; w.atGoal = false;
+  }
+
+  function updateWalkers(state, dt, now) {
     const tenants = (state.tenants || []).filter((t) => t && t.homeId != null).slice(0, MAX_WALKERS);
     const seen = new Set();
+    const clockHour = gameClock(now).t * 24;
+    const rt = clock();
     for (const tenant of tenants) {
       seen.add(tenant.id);
       let w = walkers.get(tenant.id);
       if (!w) { w = makeWalker(tenant); walkers.set(tenant.id, w); }
       w.look = tenant.look;
+      // what should they be doing? (each resident keeps a slightly different clock, so streets don't empty at once)
+      const hour = (clockHour + (hashStr(`r${tenant.id}`) - 0.5) * 2 + 24) % 24;
+      const goal = w.errand || routineGoal(state, tenant, hour);
+      const key = w.errand ? `errand${w.errand.b.id}` : `${goal?.plan}${goal?.b?.id ?? ''}`;
+      if (key !== w.planKey) {                      // a new part of the day: set off somewhere
+        w.planKey = key;
+        if (goal && goal.b) headFor(w, goal.b); else { w.path = null; w.inside = false; w.goalId = null; if (w.dir < 0) w.dir = pickDir(w); }
+      }
+      if (w.inside) {
+        if (rt < w.insideUntil) continue;            // still in there
+        w.inside = false; w.path = null; w.goalId = null;
+        if (w.errand) { w.errand = null; w.planKey = null; continue; }
+        if (w.dir < 0) w.dir = pickDir(w);
+      }
+      if (w.path) {                                  // walking a route
+        w.t += (dt / 1000) * w.speed;
+        while (w.t >= 1 && w.path) {
+          w.t -= 1; w.x = w.path[w.step].x; w.y = w.path[w.step].y; w.step++;
+          if (w.step >= w.path.length) { w.path = null; w.atGoal = true; }
+        }
+        if (w.path) {
+          const nx = w.path[w.step], dx = nx.x - w.x, dy = nx.y - w.y;
+          w.dir = dx > 0 ? 1 : dx < 0 ? 3 : dy > 0 ? 2 : 0;
+        }
+      }
+      if (w.atGoal && !w.path) {                     // arrived: go inside for a while
+        w.atGoal = false; w.inside = true; w.t = 0;
+        const stay = w.errand ? w.errand.stay : goal ? goal.stay : 0;
+        w.insideUntil = rt + (stay === Infinity ? 1e12 : stay);
+        continue;
+      }
+      if (w.path || w.goalId != null) { if (w.dir === 1) w.facing = 1; else if (w.dir === 3) w.facing = -1; continue; }
+      // nothing planned: stroll
       if (w.dir < 0) continue;
       w.t += (dt / 1000) * w.speed;
       let guard = 0;
@@ -895,9 +971,10 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       for (const sg of saleSigns) blit(sign, sg.x * TILE, sg.y * TILE + (Math.sin(rt / 400 + sg.x) > 0 ? -1 : 0));
 
       // movers, bucketed by the row their feet are in
-      updateWalkers(state, dt);
+      updateWalkers(state, dt, now);
       const movers = [];
       for (const w of walkers.values()) {
+        if (w.inside) continue;                      // at home, at work or in a shop
         const p = walkerPos(w);
         movers.push({ y: p.y, draw: () => drawWalker(w, rt) });
       }
@@ -1283,7 +1360,9 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   resize();
 
   return {
-    resize, draw, onTap, floatText, burst, driveTaxi, setGas, setSelection, setReach, focusTile, tileToScreen,
+    // for testing: what residents on the map are doing right now
+    walkerStats: () => { const o = { walking: 0, inside: 0, strolling: 0, plans: {} }; for (const w of walkers.values()) { if (w.inside) o.inside++; else if (w.path) o.walking++; else o.strolling++; const p = (w.planKey || '').replace(/\d+$/, ''); o.plans[p] = (o.plans[p] || 0) + 1; } return o; },
+    resize, draw, onTap, floatText, burst, driveTaxi, sendWalker, setGas, setSelection, setReach, focusTile, tileToScreen,
     setMovePreview(preview) { movePreview = preview; },
     // extras beyond the spec
     gameClock,

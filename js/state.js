@@ -128,6 +128,7 @@ export function newGame(now) {
     slowArrivalsUntil: 0,
     upgrades: {},                      // Upgrades tab: id -> level bought (0 if missing)
     nextVisitAt: now + TUNING.visitorGapMaxMs,   // visitors only come while you play
+    nextShopAt: now + TUNING.residentShopGapMs,  // residents' own shopping, also only while you play
     nextPostAt: now + TUNING.postGapMs,
     feed: [],                          // posts, newest last: { id, at, name, look, text, who: 'visitor'|'resident', tone }
     feedRead: 0,                       // the id of the newest post you have seen              // after asking someone to move out, newcomers come slower until then
@@ -280,6 +281,7 @@ export function migrate(state) {
     if (!isNum(state.slowArrivalsUntil)) state.slowArrivalsUntil = 0;
     // visitors and the feed (2026-11-10)
     if (!isNum(state.nextVisitAt)) state.nextVisitAt = state.lastTick + TUNING.visitorGapMaxMs;
+    if (!isNum(state.nextShopAt)) state.nextShopAt = state.lastTick + TUNING.residentShopGapMs;
     if (!isNum(state.nextPostAt)) state.nextPostAt = state.lastTick + TUNING.postGapMs;
     state.feed = (Array.isArray(state.feed) ? state.feed : []).filter((p) => p && isNum(p.id) && isNum(p.at) && typeof p.text === 'string').slice(-TUNING.feedMax);
     if (!isNum(state.feedRead)) state.feedRead = 0;

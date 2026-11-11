@@ -153,6 +153,11 @@ sim.events.on('arrival', ({ applicant, visitor }) => {
   ui.toast(visitor ? `${applicant.name} loved their visit and wants to move in! Tap the key by the entry road.`
     : `${applicant.name} drove into town${applicant.star ? ' (a star!)' : ''}. Tap the key by the entry road to meet them.`);
 });
+sim.events.on('residentBuy', ({ tenant, building, amount }) => {
+  if (quiet) return;
+  renderer.sendWalker(tenant.id, building);          // you see them walk over and pop in
+  renderer.floatText(building.x, building.y, `+${formatCoins(amount)}`, COIN);
+});
 sim.events.on('visit', ({ building, amount }) => {
   if (quiet) return;
   renderer.floatText(building.x, building.y, `+${formatCoins(amount)}`, COIN);

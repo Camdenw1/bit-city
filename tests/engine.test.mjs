@@ -1892,3 +1892,20 @@ test('visitors spend at your best shop, or post what is missing; the feed keeps 
   const m = S.migrate(old);
   assert.deepEqual(m.feed, []); assert.equal(m.feedRead, 0); assert.ok(m.nextVisitAt > 0);
 });
+
+test('residents shop nearby while you play: lunch at a food shop', () => {
+  const { s, diner } = smallTown();
+  allGoalsDone(s);
+  const lunch = Math.floor(s.lastTick / config.DAY_LENGTH_MS) * config.DAY_LENGTH_MS + config.DAY_LENGTH_MS * 11.5 / 24;
+  assert.equal(sim.gameHour(lunch), 11);
+  const coins = s.coins;
+  const r = sim.residentBuy(s, lunch);
+  assert.ok(r && r.building.id === diner.id && r.amount >= 1);
+  assert.equal(s.coins, coins + r.amount);
+  // only while you play
+  s.nextShopAt = s.lastTick;
+  const n = s.coins;
+  sim.advance(s, s.lastTick + HOUR, { live: false });
+  assert.ok(s.nextShopAt > s.lastTick);
+  assert.ok(n <= s.coins);
+});

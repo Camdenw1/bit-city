@@ -179,6 +179,13 @@ covers running and publishing. This file holds the design decisions and the road
   size changes (ResizeObserver, visualViewport, and a check on every tap), and taps scale x and
   y separately, so an iOS height change after launch can't skew taps. A faint ring shows where
   each tap landed, so Camden can say which way it is off if it still is.
+- Residents with routines (2026-11-10): walkers (render only, up to 20) follow the game clock:
+  home 22-6, work 6-11 and 13-17 (no job: stroll), lunch at the nearest food shop 11-13, the
+  evening at a fun shop or park; each has a slightly shifted clock. They walk real road paths
+  and go inside on arrival. Spending is in the sim (`residentBuy`, every `residentShopGapMs`
+  while playing, `residentSpendMinutes` 0.03 of the town's play income, ~9% extra while open):
+  the event sends that resident's walker to the shop (`renderer.sendWalker`) with a coin pop.
+  `renderer.walkerStats()` reports what they're doing, for testing.
 - Mission pay (Camden: "not close at all"): tuned to about the same coins per second of play.
   Minutes of town shop income: taxi fare 4 (was 8, then x distance x tip x gas, so 4-6x the
   rest), delivery 7, Lunch Rush 12, Odd Jobs 5 (+10%/skill), Lost & Found 10, Courier 6 a stop.
@@ -253,8 +260,16 @@ Still to build, in his order (propose a design and get his yes before each one):
 Also open: more "other sports" places if he names them, away income (shops only earn the 10x
 boost while open), more goals (he likes goals as the guide; a keen bot clears all 23 in a week)
 and maybe a Goals list in Menu (offered, not asked for).
-Camden also asked for residents who go to work and visit shops and parks, larger trade with
-other towns, comparable mission payouts for the time they take, and optional VIP visits.
+His calls on the next batch (2026-11-10, answers to a question card):
+- Residents with routines: home -> work -> lunch at a food shop -> evening at a park or fun
+  place -> home. They also spend (a small coin pop at the shop), not just look busy.
+- Trade much bigger through contracts with neighbour towns: standing hourly deliveries that run
+  by themselves, with friendship levels. (Shop exports were offered; he chose contracts.)
+- VIPs like Tiny Tower, and he sends them: tap the VIP, then tap the building (Builder, Big
+  Spender, Critic, Celebrity, Inspector, Recruiter).
+- Mission payouts made comparable (done). Taps fixed again (done).
+- Added to the list: more goals plus a Goals page, festivals at high happiness, a collection book.
+  Not chosen: daily gift and streak.
 
 ## How a session usually goes (what Camden expects)
 
@@ -281,7 +296,7 @@ other towns, comparable mission payouts for the time they take, and optional VIP
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (55 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (56 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

@@ -53,6 +53,8 @@ export const TUNING = {
   stepMs: 60000,                 // largest simulation step
   maxOfflineMs: 14 * 86400000,   // offline catch-up cap
   yardFactor: 0.5,               // build time near a Construction Yard
+  residentShopGapMs: 20000,      // while you play, a resident buys something nearby this often
+  residentSpendMinutes: 0.03,    // ...spending this many minutes of the town's while-you-play shop income (~9% extra)
   visitorUnlockPop: 6,           // visitors start coming once the town has this many residents
   visitorGapMinMs: 60000,        // while you play, a visitor arrives every 1 to 2.5 minutes
   visitorGapMaxMs: 150000,

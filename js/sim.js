@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick } from './state.js';
 
@@ -1549,6 +1549,36 @@ export function visit(state, now, cat = null) {
   return { ok: true, reason: '', visitor: v, cat, shop, spent, movedIn };
 }
 
+/** The game hour (0-23) of the cosmetic day; one real hour is one game day. */
+export function gameHour(now) {
+  return Math.floor((((now % DAY_LENGTH_MS) + DAY_LENGTH_MS) % DAY_LENGTH_MS) / DAY_LENGTH_MS * 24);
+}
+
+/**
+ * Residents go about their day and spend a little: lunch at a food shop, shopping or fun in
+ * the evening. While you play, one of them buys something nearby every residentShopGapMs.
+ */
+function maybeResidentBuy(state, now) {
+  if (now < state.nextShopAt) return;
+  state.nextShopAt = now + TUNING.residentShopGapMs;
+  residentBuy(state, now);
+}
+export function residentBuy(state, now) {
+  const people = state.tenants.filter((t) => t.homeId != null);
+  if (!people.length) return null;
+  const t = people[randInt(state, people.length)];
+  const home = buildingById(state, t.homeId);
+  const hour = gameHour(now);
+  const cats = hour >= 11 && hour < 13 ? ['food'] : hour >= 17 && hour < 22 ? ['creative', 'food', 'retail'] : ['retail', 'service', 'food'];
+  const open = builtBiz(state, now).filter((b) => cats.includes(catOf(b)) && workersOf(state, b.id).length && (b.stock > 0 || b.dreamStars) && b.id !== t.jobId);
+  if (!home || !open.length) return null;
+  const shop = open.sort((a, b) => (Math.abs(a.x - home.x) + Math.abs(a.y - home.y)) - (Math.abs(b.x - home.x) + Math.abs(b.y - home.y)) || a.id - b.id)[0];
+  const amount = Math.max(1, Math.round(townRatePerMin(state, now) * TUNING.activeBoost * TUNING.residentSpendMinutes));
+  gain(state, amount, 'resident', shop.id);
+  events.emit('residentBuy', { tenant: t, building: shop, amount });
+  return { tenant: t, building: shop, amount };
+}
+
 /** Now and then a resident posts what they wish the town had (the most useful hint first). */
 function maybePost(state, now) {
   if (now < state.nextPostAt) return;
@@ -2292,10 +2322,11 @@ export function advance(state, now, { live = true, active = false } = {}) {
   }
   if (live) maybeRequestRide(state, now);
   if (live) maybeProblem(state, now);
-  if (live) { maybeVisitor(state, now); maybePost(state, now); }
+  if (live) { maybeVisitor(state, now); maybePost(state, now); maybeResidentBuy(state, now); }
   else {                                   // visitors and posts only happen while you play
     if (state.nextVisitAt < now) state.nextVisitAt = now + TUNING.visitorGapMinMs;
     if (state.nextPostAt < now) state.nextPostAt = now + TUNING.postGapMs;
+    if (state.nextShopAt < now) state.nextShopAt = now + TUNING.residentShopGapMs;
   }
   checkGoals(state, now);
   return res;

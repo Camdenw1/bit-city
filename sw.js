@@ -1,7 +1,7 @@
 // Mini Mayor service worker: makes the game work offline once it has been opened.
 // Strategy: answer from the cache right away, and refresh the cache in the
 // background so the next launch picks up any update.
-const CACHE = 'bitcity-v31';
+const CACHE = 'bitcity-v32';
 const FILES = [
   './', './index.html', './styles.css', './manifest.webmanifest',
   './js/main.js', './js/config.js', './js/state.js', './js/sim.js',
