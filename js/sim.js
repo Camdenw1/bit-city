@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES, SEASONS, RIVALS, TIERS, STREET_NAMES, PROMISES } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES, SEASONS, RIVALS, TIERS, STREET_NAMES, PROMISES, TREE } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick, newGame } from './state.js';
 
@@ -121,7 +121,7 @@ export function homesWithVacancy(state, now) {
 }
 
 export function unemployed(state) {
-  return state.tenants.filter((t) => t.jobId == null);
+  return state.tenants.filter((t) => t.jobId == null && !t.kid);
 }
 
 // ---- land -------------------------------------------------------------------
@@ -222,10 +222,15 @@ export function stockMaxOf(b) {
 }
 
 /** Coins to take this building up one level, or 0 when it is already at the top. */
+/** Landmarks have three stages; everything else five levels. */
+export function maxLevelOf(b) {
+  return defOf(b).kind === 'landmark' ? 3 : TUNING.maxLevel;
+}
+
 export function upgradeCost(state, b) {
   const level = b.level || 1;
-  if (level >= TUNING.maxLevel) return 0;
-  return Math.round((isBiz(b) ? statsOf(b).cost : defOf(b).cost) * TUNING.upgradeCost[level]);
+  if (level >= maxLevelOf(b)) return 0;
+  return Math.round((isBiz(b) ? statsOf(b).cost : defOf(b).cost) * TUNING.upgradeCost[level] * (1 - UPGRADES.architects.per * upLevel(state, 'architects')));
 }
 
 export function upgrade(state, buildingId, now) {
@@ -235,9 +240,6 @@ export function upgrade(state, buildingId, now) {
   const cost = upgradeCost(state, b);
   if (!cost) return fail("It's already the best it can be!");
   if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins to upgrade.`);
-  const mats = landmarkNeeds(state, b);
-  if (mats && !hasMaterials(state, mats)) return fail(`The next stage needs ${mats.wood} wood, ${mats.stone} stone and ${mats.bricks} bricks.`);
-  if (mats) for (const k of Object.keys(MATERIALS)) state.mats[k] -= mats[k];
   state.coins -= cost;
   b.level = (b.level || 1) + 1;
   b.paid = (b.paid ?? defOf(b).cost) + cost;
@@ -247,59 +249,10 @@ export function upgrade(state, buildingId, now) {
   return { ok: true, reason: '', cost, level: b.level };
 }
 
-/** Materials a landmark's next stage needs ({ wood, stone, bricks }), or null for other buildings. */
-export function landmarkNeeds(state, b) {
-  if (defOf(b).kind !== 'landmark') return null;
-  const n = TUNING.landmarkMats[(b.level || 1) + 1] || 0;
-  return { wood: n, stone: n, bricks: Math.ceil(n / 2) };
-}
 /** A landmark's stage (0 if you don't have it). */
 export function landmarkLevel(state, type) {
   const b = state.buildings.find((x) => x.type === type && isBuilt(x, state.lastTick));
   return b ? b.level || 1 : 0;
-}
-
-/** What an upgrade paid partly in materials uses: { wood, stone, bricks, coins }. */
-export function materialUpgrade(state, b) {
-  const cost = upgradeCost(state, b);
-  if (!cost || defOf(b).kind === 'landmark') return null;     // landmarks always need materials
-  const n = TUNING.matPerLevel[(b.level || 1) + 1] || 0;
-  return { wood: n, stone: n, bricks: Math.ceil(n / 2), coins: Math.round(cost * (1 - TUNING.matDiscount)) };
-}
-export function hasMaterials(state, need) {
-  return !!need && Object.keys(MATERIALS).every((k) => (state.mats[k] || 0) + 1e-9 >= need[k]);
-}
-/** Upgrade using materials: fewer coins. Never required; the plain upgrade always works too. */
-export function upgradeWithMaterials(state, buildingId, now) {
-  const b = buildingById(state, buildingId);
-  if (!b) return fail("That building isn't there any more.");
-  if (!isBuilt(b, now)) return fail('Let it finish building first.');
-  const need = materialUpgrade(state, b);
-  if (!need) return fail("It's already the best it can be!");
-  if (!hasMaterials(state, need)) return fail('Not enough materials yet. Lumber yards, quarries and brickworks make them, or import some.');
-  if (state.coins < need.coins) return fail(`You need ${need.coins - Math.floor(state.coins)} more coins to upgrade.`);
-  for (const k of Object.keys(MATERIALS)) state.mats[k] -= need[k];
-  state.coins -= need.coins;
-  b.level = (b.level || 1) + 1;
-  b.paid = (b.paid ?? defOf(b).cost) + need.coins;
-  if (isBiz(b)) b.stock = stockMaxOf(b);
-  events.emit('spend', { amount: need.coins, reason: 'upgrade' });
-  events.emit('upgraded', { building: b });
-  return { ok: true, reason: '', cost: need.coins, level: b.level };
-}
-/** Import building materials at the Trading Post (instant, at a fixed price). */
-export function buyMaterial(state, kind, qty, now) {
-  if (!hasTrade(state, now)) return fail('Build a Trading Post first.');
-  if (!MATERIALS[kind] || !(qty > 0)) return fail("We can't import that.");
-  const room = Math.floor(TUNING.matCap - (state.mats[kind] || 0));
-  qty = Math.min(qty, room);
-  if (qty <= 0) return fail('Your store is full.');
-  const cost = qty * MATERIALS[kind].price;
-  if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins for that.`);
-  state.coins -= cost;
-  state.mats[kind] += qty;
-  events.emit('spend', { amount: cost, reason: 'import' });
-  return { ok: true, reason: '', cost, qty };
 }
 
 export function isUnlocked(state, type) {
@@ -328,7 +281,7 @@ const GOAL_TESTS = {
   movein: (s) => s.tenants.length >= 1,
   diner: (s) => s.buildings.some((b) => isBiz(b) && catOf(b) === 'food'),
   hire: (s) => s.tenants.some((t) => t.jobId != null),
-  restock: (s) => s.stats.restocks >= 1 || s.stats.dreamJobs >= 1,
+  restock: (s, now) => builtBiz(s, now).some((b) => neighbourBonus(s, b, now).parts.some((p) => p.why.includes('home'))),
   ride: (s) => s.stats.rides >= 1,
   pop4: (s) => s.tenants.length >= 4,
   dream: (s) => s.stats.dreamJobs >= 1,
@@ -369,6 +322,7 @@ const GOAL_TESTS = {
   collect1: (s) => collectionPages(s).some((p) => p.done),
   land8: (s) => s.land.length >= PARCELS.length,
   pop150: (s) => s.tenants.length >= 150,
+  family1: (s) => (s.stats.kids || 0) >= 1,
   landmark1: (s) => s.buildings.some((b) => defOf(b).kind === 'landmark'),
   rebuild1: (s) => (s.stats.rebuilds || 0) >= 1,
   mayor5: (s) => mayorLevel(s).level >= 5,
@@ -792,12 +746,13 @@ function potentialRate(state, b, mode = b.price) {
   const menu = catOf(b) === 'food' ? 1 + TUNING.recipeBonus * state.recipes.length : 1;
   const price = PRICE_MODES[mode] || PRICE_MODES.normal;
   const trouble = problemOf(state, b.id) ? 1 - TUNING.problemSalesCut : 1;
-  return statsOf(b).baseRate * staff * skill * dream * menu * qualityOf(b) * levelMult(b.level) * price.speed * price.pay * trouble * favOf(b) * vipBoost(state, b) * salesPerk(state);
+  const hood = 1 + neighbourBonus(state, b).pct;
+  return statsOf(b).baseRate * staff * skill * dream * menu * hood * qualityOf(b) * levelMult(b.level) * price.speed * price.pay * trouble * favOf(b) * vipBoost(state, b) * salesPerk(state);
 }
 
 export function ratePerMin(state, b) {
   if (!b || !isBiz(b)) return 0;
-  if (!isBuilt(b, state.lastTick) || !(b.stock > 0)) return 0;
+  if (!isBuilt(b, state.lastTick)) return 0;
   return potentialRate(state, b);
 }
 
@@ -814,7 +769,7 @@ export function priceForecast(state, b, mode) {
 export function townRatePerMin(state, now) {
   let sum = 0;
   for (const b of state.buildings) {
-    if (isBiz(b) && isBuilt(b, now) && b.stock > 0) sum += potentialRate(state, b);
+    if (isBiz(b) && isBuilt(b, now)) sum += potentialRate(state, b);
   }
   return sum;
 }
@@ -827,6 +782,73 @@ export function isWaterfront(state, x, y) {
 }
 
 /** Extra rent share (0..parkBoostMax) this home gets from parks nearby and from being by the water. */
+// ---- families (v48) ------------------------------------------------------------------
+// At the top of each hour, a home with two grown-ups and a free room may have a kid. Kids live
+// at home, pay no rent and don't need a job; they grow up after `growUpMs` with their parents'
+// skills (give or take one) and one parent's dream job, then work like anyone else.
+function runFamilies(state, now) {
+  if (!state.tenants.length) return;
+  const byHome = residentsByHome(state);
+  for (const home of state.buildings) {
+    if (!isHome(home) || !isBuilt(home, now)) continue;
+    const res = byHome.get(home.id) || [];
+    const adults = res.filter((t) => !t.kid);
+    if (adults.length < 2 || res.length >= defOf(home).capacity) continue;
+    if (rand(state) >= TUNING.familyChance) continue;
+    const [a, b] = adults;
+    const kid = makeApplicant(state);
+    for (const c of CATEGORIES) kid.skills[c] = Math.max(0, Math.min(9, Math.round(((a.skills[c] || 0) + (b.skills[c] || 0)) / 2) + randInt(state, 3) - 1));
+    Object.assign(kid, { homeId: home.id, jobId: null, trait: null, star: false, kid: true, bornAt: now, grownAt: now + TUNING.growUpMs, parents: [a.id, b.id], dream: rand(state) < 0.5 ? a.dream : b.dream });
+    delete kid.seen; delete kid.hint;
+    state.tenants.push(kid);
+    state.stats.kids = (state.stats.kids || 0) + 1;
+    post(state, now, a, 'resident', `Say hi to little ${kid.name}! 🍼`, 'good');
+    events.emit('born', { tenant: kid, home });
+  }
+  for (const t of state.tenants) {
+    if (!t.kid || t.grownAt > now) continue;
+    t.kid = false;
+    post(state, now, t, 'resident', `I'm all grown up! I'd love to work at the ${defOf({ type: t.dream }).name}.`, 'good');
+    events.emit('grownUp', { tenant: t });
+  }
+}
+
+// ---- neighbours (v48): where you build matters ------------------------------------------
+// A shop sells more with homes around it, with shops of its own kind beside it (a shopping
+// street) and with green space nearby. A home pays more rent with shops close by. All within
+// `nearShop` lots, never a penalty, shown on the building's sheet and in the build menu.
+const near = (a, x, y, r) => Math.max(Math.abs(a.x - x), Math.abs(a.y - y)) <= r;
+/** What a lot gives a shop of category `cat` (or a home when cat is 'home'): { pct, parts }. */
+export function spotBonus(state, x, y, cat, now = state.lastTick, selfId = null) {
+  const N = TUNING.neighbours;
+  let homes = 0, twins = 0, green = 0, shops = 0;
+  for (const o of state.buildings) {
+    if (o.id === selfId || !isBuilt(o, now) || !near(o, x, y, N.radius)) continue;
+    const d = defOf(o);
+    if (d.kind === 'home') homes++;
+    else if (d.kind === 'park' || d.rentBoost) green++;
+    else if (d.kind === 'biz') { shops++; if (catOf(o) === cat) twins++; }
+  }
+  const parts = [];
+  if (cat === 'home') {
+    if (shops) parts.push({ why: `${shops} shop${shops > 1 ? 's' : ''} nearby`, pct: Math.min(N.homeShopMax, shops * N.homeShop) });
+  } else {
+    if (homes) parts.push({ why: `${homes} home${homes > 1 ? 's' : ''} nearby`, pct: Math.min(N.homeMax, homes * N.home) });
+    if (twins) parts.push({ why: 'shopping street', pct: Math.min(N.twinMax, twins * N.twin) });
+    if (green) parts.push({ why: 'green space', pct: N.green });
+  }
+  const plan = 1 + UPGRADES.planning.per * upLevel(state, 'planning');
+  const kept = parts.filter((p) => p.pct > 0);
+  for (const p of kept) p.pct *= plan;
+  return { pct: kept.reduce((n, p) => n + p.pct, 0), parts: kept };
+}
+/** A built building's neighbour bonus (shops and homes; 0 for others). */
+export function neighbourBonus(state, b, now = state.lastTick) {
+  const d = defOf(b);
+  if (d.kind !== 'biz' && d.kind !== 'home') return { pct: 0, parts: [] };
+  return spotBonus(state, b.x, b.y, d.kind === 'home' ? 'home' : catOf(b), now, b.id);
+}
+
 export function homeBoost(state, home, now = state.lastTick) {
   let boost = 0;
   for (const b of state.buildings) {
@@ -836,12 +858,13 @@ export function homeBoost(state, home, now = state.lastTick) {
   }
   if (isWaterfront(state, home.x, home.y)) boost += TUNING.waterfrontBoost;
   // the bus network and bike lanes (City upgrades) come on top of the park cap, for every home
-  return Math.min(TUNING.parkBoostMax, boost) + UPGRADES.bus.per * upLevel(state, 'bus') + UPGRADES.bikes.per * upLevel(state, 'bikes')
+  return Math.min(TUNING.parkBoostMax, boost) + neighbourBonus(state, home, now).pct + UPGRADES.bus.per * upLevel(state, 'bus') + UPGRADES.bikes.per * upLevel(state, 'bikes')
     + BUILDINGS.grandpark.landmark.per * landmarkLevel(state, 'grandpark');
 }
 
 /** Rent share for one resident from traits: party animals pay more and their next-door neighbours less. */
 export function traitRent(state, t, home, parties = partyHomes(state)) {
+  if (t.kid) return 0;                     // kids pay no rent until they grow up
   let f = 1;
   if (t.trait === 'party') f += 0.3;
   if (t.trait === 'gogetter') f -= 0.1;
@@ -1077,77 +1100,6 @@ function sellSurplus(state, now) {
     coins += Math.floor(spare * prices[crop].price);
   }
   if (coins > 0) { gain(state, coins, 'trade'); events.emit('surplusSold', { qty, coins }); }
-}
-
-// ---- stock market ------------------------------------------------------------------
-
-function marketOf(state) {
-  if (!state.market) {
-    const prices = {}, zero = {};
-    for (const id of Object.keys(STOCKS)) { prices[id] = 100; zero[id] = 0; }
-    state.market = { prices, prev: { ...prices }, shares: { ...zero }, paid: { ...zero } };
-  }
-  return state.market;
-}
-export function hasExchange(state, now) {
-  return state.buildings.some((b) => b.type === 'exchange' && isBuilt(b, now));
-}
-/** How strong the town is in a stock's part of the economy: its share of shop income (0..1). */
-function sectorShare(state, id) {
-  const shops = builtBiz(state, state.lastTick);
-  const total = shops.reduce((n, b) => n + potentialRate(state, b), 0);
-  if (!total) return 1 / Object.keys(STOCKS).length;
-  return shops.filter((b) => STOCKS[id].cats.includes(catOf(b))).reduce((n, b) => n + potentialRate(state, b), 0) / total;
-}
-/** The top of the hour: every price takes a step (luck plus a lean towards your town's strengths). */
-function runMarket(state, now) {
-  if (!state.market && !hasExchange(state, now)) return;
-  const m = marketOf(state);
-  const n = Object.keys(STOCKS).length;
-  for (const id of Object.keys(STOCKS)) {
-    const lean = Math.max(-TUNING.stockLean / 2, Math.min(TUNING.stockLean / 2, TUNING.stockLean * (sectorShare(state, id) - 1 / n) * n / 2));
-    const step = (rand(state) - 0.5) * TUNING.stockSwing + lean;
-    m.prev[id] = m.prices[id];
-    m.prices[id] = Math.max(20, Math.min(500, Math.round(m.prices[id] * (1 + step) * 100) / 100));
-  }
-}
-/** The most you can have invested at once: an hour of the town's shop income. */
-export function stockCap(state, now) {
-  return Math.max(200, Math.round(townRatePerMin(state, now) * TUNING.stockCapMinutes));
-}
-/** Your shares: what each is worth now and what it cost you. */
-export function portfolio(state, now) {
-  const m = marketOf(state);
-  const rows = Object.keys(STOCKS).map((id) => ({ id, ...STOCKS[id], price: m.prices[id], prev: m.prev[id], shares: m.shares[id], value: Math.floor(m.shares[id] * m.prices[id]), paid: Math.round(m.paid[id]) }));
-  const invested = rows.reduce((a, r) => a + r.paid, 0);
-  const cap = stockCap(state, now);
-  return { rows, invested, cap, room: Math.max(0, cap - invested) };
-}
-/** Buy shares for up to `coins` (never past the cap). */
-export function buyStock(state, id, coins, now) {
-  if (!hasExchange(state, now)) return fail('Build a Stock Exchange first.');
-  if (!STOCKS[id]) return fail("That stock isn't traded here.");
-  const p = portfolio(state, now);
-  if (p.room < 1) return fail('You have invested as much as the market allows. Sell something first.');
-  const spend = Math.floor(Math.min(coins, p.room, state.coins));
-  if (spend < 1) return fail('You need some coins to invest.');
-  const m = marketOf(state);
-  state.coins -= spend;
-  m.shares[id] += spend / m.prices[id];
-  m.paid[id] += spend;
-  events.emit('spend', { amount: spend, reason: 'stocks' });
-  return { ok: true, reason: '', spent: spend };
-}
-/** Sell all your shares of one stock at this hour's price: more or less than you paid. */
-export function sellStock(state, id, now) {
-  const m = marketOf(state);
-  if (!STOCKS[id] || !(m.shares[id] > 0)) return fail("You don't own any of that.");
-  const coins = Math.floor(m.shares[id] * m.prices[id]);
-  const gainLoss = coins - Math.round(m.paid[id]);
-  m.shares[id] = 0; m.paid[id] = 0;
-  if (coins > 0) gain(state, coins, 'stocks');
-  events.emit('stockSold', { id, coins, gainLoss });
-  return { ok: true, reason: '', coins, gainLoss };
 }
 
 // ---- mayor level and prestige ---------------------------------------------------------
@@ -1540,10 +1492,11 @@ function teach(state) {
 // and nothing decays. Each resident is happy about the needs they personally have met.
 
 /** How many lots away a town building reaches (homes it serves, shops it looks after). */
-export function reachOf(b) {
-  return (defOf(b).reach ?? TUNING.reach) + ((b.level || 1) - 1);
+/** How many lots a building reaches. Pass the town so Outreach (an upgrade) counts. */
+export function reachOf(b, state = null) {
+  return (defOf(b).reach ?? TUNING.reach) + ((b.level || 1) - 1) + (state && defOf(b).provides ? upLevel(state, 'outreach') : 0);
 }
-const inReach = (b, x, y) => Math.max(Math.abs(b.x - x), Math.abs(b.y - y)) <= reachOf(b);
+const inReach = (state, b, x, y) => Math.max(Math.abs(b.x - x), Math.abs(b.y - y)) <= reachOf(b, state);
 const servesOf = (b) => Math.round(defOf(b).provides.serves * levelMult(b.level) * qualityOf(b) * favOf(b));
 
 /**
@@ -1558,8 +1511,8 @@ const servesOf = (b) => Math.round(defOf(b).provides.serves * levelMult(b.level)
 // nothing it depends on has changed (same time, same homes, jobs, skills and buildings).
 const moodCache = new WeakMap();
 function moodKey(state, now) {
-  let k = `${now}|${state.recipes?.length || 0}|`;
-  for (const t of state.tenants) k += `${t.id},${t.homeId},${t.jobId},${CATEGORIES.reduce((a, c) => a + (t.skills?.[c] || 0), 0)};`;
+  let k = `${now}|${state.recipes?.length || 0}|${upLevel(state, 'outreach')}|`;
+  for (const t of state.tenants) k += `${t.id},${t.homeId},${t.jobId},${t.kid ? 1 : 0},${CATEGORIES.reduce((a, c) => a + (t.skills?.[c] || 0), 0)};`;
   k += '|';
   for (const b of state.buildings) k += `${b.id},${b.type},${b.x},${b.y},${b.level || 1},${b.readyAt || 0};`;
   return k;
@@ -1586,14 +1539,14 @@ function computeMood(state, now) {
   const homes = new Map(state.buildings.map((b) => [b.id, b]));
   for (const n of needs) {
     if (n.id === 'jobs') {
-      for (const t of state.tenants) if (t.jobId != null) give(t, n.id);
+      for (const t of state.tenants) if (t.jobId != null || t.kid) give(t, n.id);   // kids don't need a job
     } else if (CATEGORIES.includes(n.id)) {
       state.tenants.slice(0, room[n.id] || 0).forEach((t) => give(t, n.id));
     } else {
       for (const b of state.buildings) {
         if (defOf(b).provides?.need !== n.id || !isBuilt(b, now)) continue;
         const near = state.tenants
-          .filter((t) => !met.get(t.id).has(n.id) && homes.has(t.homeId) && inReach(b, homes.get(t.homeId).x, homes.get(t.homeId).y))
+          .filter((t) => !met.get(t.id).has(n.id) && homes.has(t.homeId) && inReach(state, b, homes.get(t.homeId).x, homes.get(t.homeId).y))
           .map((t) => ({ t, d: Math.abs(homes.get(t.homeId).x - b.x) + Math.abs(homes.get(t.homeId).y - b.y) }))
           .sort((a, z) => a.d - z.d || a.t.id - z.t.id)
           .slice(0, servesOf(b));
@@ -1638,7 +1591,7 @@ export function residentMood(state, tenant, now, mood = townMood(state, now)) {
     else {
       const all = state.buildings.filter((b) => defOf(b).provides?.need === n.id && isBuilt(b, now));
       why = !all.length ? 'nothing in town yet'
-        : home && all.some((b) => inReach(b, home.x, home.y)) ? 'the nearest one is full' : 'too far from home';
+        : home && all.some((b) => inReach(state, b, home.x, home.y)) ? 'the nearest one is full' : 'too far from home';
     }
     missing.push({ id: n.id, name: n.name, icon: n.icon, why: n.id === 'jobs' ? why : `${n.name}: ${why}` });
   }
@@ -1682,7 +1635,7 @@ export function problemOf(state, buildingId) {
 
 function fixerFor(state, shop, kind, now) {
   const need = PROBLEMS[kind].fixer;
-  return state.buildings.find((b) => defOf(b).gov && defOf(b).provides?.need === need && isBuilt(b, now) && inReach(b, shop.x, shop.y)) || null;
+  return state.buildings.find((b) => defOf(b).gov && defOf(b).provides?.need === need && isBuilt(b, now) && inReach(state, b, shop.x, shop.y)) || null;
 }
 
 export function problemFee(state, now) {
@@ -1808,53 +1761,14 @@ export function bizStatus(state, b, now) {
   if (!isBuilt(b, now)) return 'building';
   if (!isBiz(b)) return 'open';
   if (workersOf(state, b.id).length === 0) return 'needs-workers';
-  if (!(b.stock > 0)) return 'out-of-stock';
   return 'open';
 }
 
-export function restockCostOf(b) {
-  const max = stockMaxOf(b);
-  return b.dreamStars ? 0 : Math.round(statsOf(b).restockCost * levelMult(b.level) * sizeOf(b) * Math.max(0, max - b.stock) / max);
-}
-
-export function soldOutShops(state, now) {
-  return state.buildings.filter((b) => isBiz(b) && isBuilt(b, now) && b.stock <= 0);
-}
-
-export function restockAll(state, now) {
-  const shops = soldOutShops(state, now);
-  for (const b of shops) restock(state, b.id, now);
-  return { ok: true, count: shops.length };
-}
-
-export function restock(state, buildingId, now) {
-  const b = buildingById(state, buildingId);
-  if (!b || !isBiz(b)) return fail("There's nothing to restock here.", { cost: 0 });
-  if (!isBuilt(b, now)) return fail('Still being built. It opens fully stocked!', { cost: 0 });
-  const max = stockMaxOf(b);
-  const missing = max - b.stock;
-  if (missing <= 0) return fail('The shelves are already full!', { cost: 0 });
-  const fullCost = restockCostOf(b);
-  let cost = fullCost;
-  let partial = false;
-  if (state.coins >= fullCost) {
-    b.stock = max;
-  } else {
-    // Never block the player: pay what they have and fill as much as that buys,
-    // but always at least a quarter of the shelf.
-    cost = Math.max(0, Math.floor(state.coins));
-    const bought = Math.floor((missing * cost) / fullCost);
-    const atLeast = Math.ceil(max * TUNING.restockMinFraction);
-    b.stock = Math.min(max, b.stock + Math.max(bought, atLeast));
-    partial = b.stock < max;
-  }
-  state.coins -= cost;
-  state.stats.restocks++;
-  if (cost > 0) events.emit('spend', { amount: cost, reason: 'restock' });
-  events.emit('restocked', { building: b, auto: false });
-  checkGoals(state, now);
-  return { ok: true, reason: '', cost, partial };
-}
+// Shops never run out since v48. These stay so old callers and saves keep working.
+export function restockCostOf() { return 0; }
+export function soldOutShops() { return []; }
+export function restockAll() { return { ok: true, count: 0 }; }
+export function restock() { return fail('Shops never run out now.', { cost: 0 }); }
 
 // ---- people ---------------------------------------------------------------
 
@@ -1907,6 +1821,7 @@ export function jobFit(state, tenant, b) {
 export function assignJob(state, tenantId, bizId, now) {
   const tenant = tenantById(state, tenantId);
   if (!tenant) return fail("We couldn't find that person.", { dream: false });
+  if (tenant.kid && bizId != null) return fail(`${tenant.name} is still a kid. They can work once they grow up.`, { dream: false });
   const old = buildingById(state, tenant.jobId);
 
   if (bizId == null) {
@@ -1977,12 +1892,27 @@ export function upLevel(state, id) {
 export function upgradeNextCost(state, id) {
   return UPGRADES[id] ? UPGRADES[id].costs[upLevel(state, id)] || 0 : 0;
 }
+/** The tree: '' if this node can be bought (the one above it has a level), else why not. */
+export function treeIssue(state, id) {
+  for (const br of TREE) {
+    const i = br.nodes.indexOf(id);
+    if (i <= 0) continue;
+    const above = br.nodes[i - 1];
+    const have = above === 'car' ? (state.car || 1) > 1 : upLevel(state, above) > 0;
+    if (!have) return `Buy ${above === 'car' ? 'a new car' : UPGRADES[above].name} first.`;
+  }
+  const u = UPGRADES[id];
+  if (u && u.unlockPop && population(state) < u.unlockPop) return `Opens at ${u.unlockPop} residents.`;
+  return '';
+}
+
 export function buyUpgrade(state, id, now) {
   const u = UPGRADES[id];
   if (!u) return fail("We don't know that upgrade.");
   const cost = upgradeNextCost(state, id);
   if (!cost) return fail(`${u.name} is fully upgraded.`);
-  if (u.unlockPop && population(state) < u.unlockPop) return fail(`${u.name} opens at ${u.unlockPop} residents.`);
+  const issue = treeIssue(state, id);
+  if (issue) return fail(issue);
   if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins.`);
   state.coins -= cost;
   state.upgrades = { ...(state.upgrades || {}), [id]: upLevel(state, id) + 1 };
@@ -2215,7 +2145,7 @@ function maybeVisitor(state, now) {
 export function visit(state, now, cat = null) {
   const v = makeApplicant(state);           // a whole person, so they can move in later
   cat = cat || pick(state, CATEGORIES.filter((c) => categoryUnlocked(state, c)).concat(CATEGORIES.filter((c) => categoryUnlocked(state, c) && shopsIn(state, c))));
-  const open = builtBiz(state, now).filter((b) => catOf(b) === cat && workersOf(state, b.id).length && (b.stock > 0 || b.dreamStars));
+  const open = builtBiz(state, now).filter((b) => catOf(b) === cat && workersOf(state, b.id).length);
   const shop = open.sort((a, b) => ratePerMin(state, b) - ratePerMin(state, a) || a.id - b.id)[0];
   state.stats.visitors++;
   if (!shop) {
@@ -2265,7 +2195,7 @@ export function residentBuy(state, now) {
   const home = buildingById(state, t.homeId);
   const hour = gameHour(now);
   const cats = hour >= 11 && hour < 13 ? ['food'] : hour >= 17 && hour < 22 ? ['creative', 'food', 'retail'] : ['retail', 'service', 'food'];
-  const open = builtBiz(state, now).filter((b) => cats.includes(catOf(b)) && workersOf(state, b.id).length && (b.stock > 0 || b.dreamStars) && b.id !== t.jobId);
+  const open = builtBiz(state, now).filter((b) => cats.includes(catOf(b)) && workersOf(state, b.id).length && b.id !== t.jobId);
   if (!home || !open.length) return null;
   const shop = open.sort((a, b) => (Math.abs(a.x - home.x) + Math.abs(a.y - home.y)) - (Math.abs(b.x - home.x) + Math.abs(b.y - home.y)) || a.id - b.id)[0];
   const amount = Math.max(1, Math.round(townRatePerMin(state, now) * TUNING.activeBoost * TUNING.residentSpendMinutes));
@@ -2527,7 +2457,7 @@ export function bestHire(state, bizId, now) {
   const cat = catOf(b);
   let best = null, bestScore = -Infinity;
   for (const t of state.tenants) {
-    if (t.jobId === b.id) continue;
+    if (t.jobId === b.id || t.kid) continue;
     const cur = buildingById(state, t.jobId);
     const here = t.dream === b.type ? 10 : (t.skills[cat] || 0);
     const now_ = cur ? (t.dream === cur.type ? 10 : (t.skills[catOf(cur)] || 0)) : -1;
@@ -2551,7 +2481,7 @@ export function jobSuggestions(state, now, max = 8) {
   for (let round = 0; round < max; round++) {
     let pick_ = null;
     for (const t of state.tenants) {
-      if (out.some((m) => m.tenant.id === t.id)) continue;
+      if (t.kid || out.some((m) => m.tenant.id === t.id)) continue;
       const cur = buildingById(state, where.get(t.id));
       const have = score(t, cur);
       if (have >= 10) continue;
@@ -2609,7 +2539,7 @@ export function jobSpots(state, now) {
   // the jobs only found here come first; taxi rides and parcels also turn up on their own
   const order = ['rush', 'odd', 'lost', 'courier', 'delivery', 'taxi'];
   for (const j of jobBoard(state, now).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))) {
-    if (out.length >= TUNING.jobSpots) break;
+    if (out.length >= TUNING.jobSpots - (state.vip ? 1 : 0)) break;   // a waiting VIP takes one of the bubbles
     if (!j.ok) continue;
     const list = (places[j.kind] || []).filter((b) => !taken.has(b.id)).sort((a, b) => a.id - b.id);
     if (!list.length) continue;
@@ -3052,11 +2982,10 @@ export function advance(state, now, { live = true, active = false } = {}) {
       const staff = Math.min(workersOf(state, b.id).length, TUNING.staffFactor.length - 1);
       const crop = defOf(b).crop;
       const growth = TUNING.cropPerHour * (staffOf(staff) / staffOf(1)) * levelMult(b.level) / 3600000;   // one farmer grows cropPerHour
-      shops.push({ b, crop, growth, rate: potentialRate(state, b), pay: (PRICE_MODES[b.price] || PRICE_MODES.normal).pay, sold: 0, restocked: false });
+      shops.push({ b, crop, growth, rate: potentialRate(state, b), pay: (PRICE_MODES[b.price] || PRICE_MODES.normal).pay, sold: 0 });
     }
     const farms = shops.filter((shop) => shop.crop && shop.growth > 0);
     const teachers = state.buildings.filter((b) => defOf(b).lessons > 0);
-    const sources = state.buildings.filter((b) => defOf(b).makes && MATERIALS[defOf(b).makes]);
     const knownRecipes = state.recipes.length;
     let lessonsBefore = 0;
     const countLesson = events.on('lesson', () => { lessonsBefore++; });
@@ -3091,22 +3020,12 @@ export function advance(state, now, { live = true, active = false } = {}) {
       // 2. sales
       for (const shop of shops) {
         const b = shop.b;
-        if (shop.rate <= 0 || !isBuilt(b, t) || (b.stock <= 0 && !b.dreamStars)) continue;
+        if (shop.rate <= 0 || !isBuilt(b, t)) continue;
+        // Shops never run out (v48): no stock, no restocking.
         const amount = (shop.rate / shop.pay * (end - t)) / 60000 + (b.carry || 0);   // items, not coins
-        let sold = Math.floor(amount + 1e-9);
+        const sold = Math.floor(amount + 1e-9);
         b.carry = Math.max(0, amount - sold);
-        if (sold >= b.stock && b.dreamStars) {
-          const max = stockMaxOf(b);
-          const refills = 1 + Math.floor((sold - b.stock) / max);
-          b.stock += refills * max;
-          state.stats.restocks += refills;
-          shop.restocked = true;
-        } else if (sold >= b.stock) {
-          sold = b.stock;
-          b.carry = 0;
-        }
         if (sold <= 0) continue;
-        b.stock -= sold;
         // coins for those items: the shop's price, plus the ad bonus while a campaign runs
         const exact = sold * shop.pay * boost * (active ? playExtras(state, b, t) : 1 + PERM_PERKS.away.per * permPerk(state, 'away')) * (t < (state.adUntil || 0) ? 1 + TUNING.adSalesBonus : 1) + (b.cc || 0);
         const got = Math.floor(exact + 1e-9);
@@ -3115,10 +3034,6 @@ export function advance(state, now, { live = true, active = false } = {}) {
         state.coins += got;
         state.stats.earned += got;
         res.coinsEarned += got;
-        if (b.stock === 0) {
-          res.ranOut.push(b.id);
-          events.emit('outOfStock', { building: b });
-        }
       }
 
       // 2b. staffed farms grow crops, which never run out or spoil
@@ -3126,12 +3041,6 @@ export function advance(state, now, { live = true, active = false } = {}) {
         const grown = rate * (end - t);
         state.crops[crop] = (state.crops[crop] || 0) + grown;
         state.goods[crop] = (state.goods[crop] || 0) + grown;
-      }
-      // 2b'. lumber yards, quarries and brickworks make materials (up to a cap)
-      for (const b of sources) {
-        if (!isBuilt(b, t)) continue;
-        const k = defOf(b).makes;
-        state.mats[k] = Math.min(TUNING.matCap, (state.mats[k] || 0) + TUNING.matPerHour * levelMult(b.level) * (end - t) / 3600000);
       }
       const recipesBefore = state.recipes.length;
       discoverRecipes(state);
@@ -3166,7 +3075,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
         payRent(end);
         runContracts(state, end);
         sellSurplus(state, end);
-        runMarket(state, end);
+        runFamilies(state, end);
         nextHour = (hourNumber(end) + 1) * HOUR_MS;
       }
 
@@ -3180,7 +3089,6 @@ export function advance(state, now, { live = true, active = false } = {}) {
     res.recipes = state.recipes.slice(knownRecipes);
     for (const shop of shops) {
       if (shop.sold > 0) events.emit('coins', { amount: shop.sold, buildingId: shop.b.id, reason: 'sales' });
-      if (shop.restocked) events.emit('restocked', { building: shop.b, auto: true });
     }
     if (res.rentPaid > 0) {
       events.emit('coins', { amount: res.rentPaid, buildingId: null, reason: 'rent' });

@@ -71,8 +71,11 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
     for (const p of config.PARCELS) { const info = sim.parcelInfo(s, p.id); if (info.canBuy && s.coins >= info.price * 1.2) { sim.buyLand(s, p.id, now); mark(`bought ${info.name} (${info.lots} lots) for ${info.price}`); } }
     const ups = s.buildings.filter((b) => sim.isBuilt(b, now) && sim.upgradeCost(s, b) > 0).sort((a, b) => sim.upgradeCost(s, a) - sim.upgradeCost(s, b));
     if (ups.length && s.coins >= sim.upgradeCost(s, ups[0]) * 3) sim.upgrade(s, ups[0].id, now);
-    // the Upgrades tab: the cheapest ladder step when it costs under a third of the bank; one Construction Yard
-    const tab = Object.keys(config.UPGRADES).map((id) => [id, sim.upgradeNextCost(s, id)]).filter(([, c]) => c > 0).sort((a, b) => a[1] - b[1])[0];
+    // a better car when it costs under a third of the bank (in the tree it opens Transport)
+    const car = sim.nextCar(s);
+    if (car && s.coins >= car.cost * 3) { sim.upgradeCar(s, now); mark(`car: ${car.name}`); }
+        // the Upgrades tab: the cheapest ladder step when it costs under a third of the bank; one Construction Yard
+    const tab = Object.keys(config.UPGRADES).map((id) => [id, sim.upgradeNextCost(s, id)]).filter(([id, c]) => c > 0 && !sim.treeIssue(s, id)).sort((a, b) => a[1] - b[1])[0];
     if (tab && s.coins >= tab[1] * 3) { sim.buyUpgrade(s, tab[0], now); mark(`upgrade ${tab[0]} to ${sim.upLevel(s, tab[0])}`); }
     if (!s.buildings.some((b) => b.type === 'yard') && sim.isUnlocked(s, 'yard') && s.coins >= sim.costOf(s, 'yard') * 3) tryBuild('yard');
     const wanted = sim.mostWanted(s, now);
@@ -157,7 +160,7 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
   const total = Object.values(income).reduce((a, b) => a + b, 0) || 1;
   console.log(`\n=== ${label} ===`);
   if (detail) console.log(marks.join('\n'));
-  console.log(`rebuilt homes ${rebuilds}`);
+  console.log(`rebuilt homes ${rebuilds}, kids born ${s.stats.kids || 0}, kids now ${s.tenants.filter((t) => t.kid).length}, avg level ${(s.buildings.reduce((n, b) => n + (b.level || 1), 0) / Math.max(1, s.buildings.length)).toFixed(2)}`);
   console.log(`population ${s.tenants.length}, happy ${sim.happiness(s, now)}%, IQ ${sim.townIQ(s)}, manual restocks ${manualRestocks}, problems ${problems} (${fixes} paid for)`);
   console.log('income mix: ' + Object.entries(income).map(([k, v]) => `${k} ${Math.round(v)} (${Math.round(100 * v / total)}%)`).join(', '));
   console.log(`goals done ${s.goalsDone.length}/${config.GOALS.length}, dream jobs ${s.stats.dreamJobs}, rides ${s.stats.rides}, types owned ${new Set(s.buildings.map((b) => b.type)).size}/${Object.keys(BUILDINGS).length}`);

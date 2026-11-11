@@ -25,7 +25,7 @@ covers running and publishing. This file holds the design decisions and the road
   "the penalties shouldn't be too big, they should more be to help guide you into creating
   a more robust and thriving city". So: small, clearly explained, always fixable by the
   player, and never able to wipe out progress or a save.
-- "I don't want chores." Restocking is one tap on the shop. If a mechanic becomes
+- "I don't want chores." Shops never run out (v48: stock and restocking were removed). If a mechanic becomes
   upkeep, redesign it.
 - Take a lot from Tiny Tower: tenants with skill ratings in five job categories, dream
   jobs, and the satisfaction of knowing "this is as good as I can get for this worker".
@@ -200,13 +200,13 @@ covers running and publishing. This file holds the design decisions and the road
   day each sends a care truck worth `careHours` (1) of its old shop income (`sendCare`, starting
   the day after you found the new town; one per day even after days away). Visiting old towns
   as a frozen map (option c) was offered and left for later.
-- Building materials (2026-11-11, the light version; made optional so nothing new is required,
+- (Removed in v48: migrate refunds them as coins.) Building materials (2026-11-11, the light version; made optional so nothing new is required,
   per Camden's "seamless additions"): Lumber Yard, Quarry, Brickworks (kind 'source', open at 12
   residents, no workers) make `matPerHour` (8, x level) wood / stone / bricks up to `matCap` 300
   (`state.mats`). Any upgrade to level 3 can be paid as "Upgrade with materials": 30% fewer coins
   plus 30 wood, 30 stone, 15 bricks (`materialUpgrade`, `upgradeWithMaterials`). The button only
   shows once you have some materials. The Trading Post imports 20 at a time at `MATERIALS[k].price`.
-- Stock market (2026-11-11, Camden approved the simple design): a Stock Exchange building
+- (Removed in v48: migrate refunds the building and shares as coins.) Stock market (2026-11-11, Camden approved the simple design): a Stock Exchange building
   (`exchange`, 5,000 coins, opens at 20 residents) whose sheet is the market. `STOCKS`: Farm Co
   (farming), Shop Ltd (retail, service), Fun Inc (creative, food). At the top of every hour
   (`runMarket`, offline too) each price steps by luck (+-8%) plus a lean of up to +-3% from that
@@ -244,7 +244,7 @@ covers running and publishing. This file holds the design decisions and the road
   catch-up stays exact.
 - Milestones are extra entries in `GOALS`; a building can need one via `unlockGoal`
   (Library: Town IQ 100, Fountain: 90% happy).
-- Upgrades: every building has levels 1-3 (`b.level`), each +50% rent / sales and stock /
+- Upgrades: every building has levels 1-5 since v48 (landmarks 1-3, `maxLevelOf`) (`b.level`), each +50% rent / sales and stock /
   reach. Upgraded buildings show gold stars on the roof; there is no redrawn art per level.
 - Happiness is per resident and worked out from the town as it is (nothing stored, nothing
   decays): the share of `NEEDS` that resident has (`townMood`, `residentMood` in sim). Jobs:
@@ -276,7 +276,7 @@ covers running and publishing. This file holds the design decisions and the road
 - Deliveries drive off by themselves too (Camden, 2026-11-10); the pin marks the parcel's home.
 - Bottom bar (2026-11-10): Feed, Upgrades, People, Menu. Camden removed the Build button (it only
   said "tap an empty lot"); building is tapping a lot, and the first goal says so.
-- Upgrades tab (bottom-bar button, replaces Jobs; badge = upgrades you can afford): the
+- Upgrades tab (since v48 drawn as a tree, see below; badge = upgrades you can afford): the
   car (`CARS`) plus `UPGRADES` ladders: Construction crew (-12% build time a level, 4 levels),
   Faster trucks (+25%), Interviews (newcomer ranges 1 narrower a level, exact at 3), Welcome
   center (arrivals -20%), Repair team (problem fee -20%, stations 20% faster), Marketing (ads
@@ -401,6 +401,39 @@ An audit (bot runs, a 130-resident town in the preview, timings) found, and this
   341 residents, happiness 57% (civic coverage, the overlay is the player's tool for it). Late
   keen towns are capped by newcomer arrivals, not lots or coins, so the bot never rebuilt.
 
+## The formative batch (2026-11-11, v48; Camden: "do the core 3 plus all 5 ... all at once")
+Camden asked for one universal restock button, Upgrade first on building sheets, an upgrade tree, and
+said big changes that reset what he has are fine if the game gets better. All of it:
+- No stock (his restock ask, taken further): shops sell forever, also while away. `restock`,
+  `restockAll`, `soldOutShops`, `restockCostOf` stay as no-ops for old callers. The sold-out
+  badge, tap-to-restock, stock bar and away-card restock are gone. Goal id 'restock' is now
+  "Build a shop next to homes"; the 'restocks' promise is gone (migrate drops an old daily).
+- Fewer systems: the Stock Exchange and materials (Lumber Yard, Quarry, Brickworks) are cut;
+  migrate refunds buildings (`paid`), shares (at the saved price) and materials (old import price).
+  Landmark stages cost coins only. VIPs: tapping one goes straight to picking a building (no sheet)
+  and a waiting VIP takes one of the `jobSpots` bubbles (one stream of map bubbles).
+- Neighbours (`spotBonus`, `neighbourBonus`, `TUNING.neighbours`, radius 2): shops +4% per home (to
+  +20%), +8% per same-kind shop (to +16%, "shopping street"), +10% green space; homes +3% per shop
+  (to +12%, added in `homeBoost`). Shown on the sheet, on each surprise-shop card and the Homes
+  heading of the build menu ("+N% here"), and in the move preview. Never a penalty.
+- Levels 1-5 (`TUNING.maxLevel` 5, `upgradeCost` [0,2,5,12,25]): levels 4 and 5 grow a floor each
+  (render `grownSprite`: wall with two windows under the roof, roof rises 5 px into the lot behind),
+  level 5 adds gold edges. No floors on towers, landmarks, tents, farms, parks or trees.
+- Families: at the top of each hour a home with two grown-ups and a free room has a `familyChance`
+  (12%) of a kid (`runFamilies`). Kids (`t.kid`, `grownAt`, `parents`) live at home, pay no rent,
+  don't need or take jobs, then grow up after `growUpMs` (6 h) with their parents' average skills
+  +-1 and one parent's dream. Goal family1. Bots that fill every room see almost none (keen 0,
+  casual 0-2 in three days): families need a player who leaves a room free.
+- Upgrade tree (`TREE` in config): five branches (Homes, Shops, Transport, Services, Building) from
+  the town hall; a node needs the one above bought (`treeIssue`). 'car' is the car ladder and opens
+  Transport. New nodes: Architects (upgrades -10%/level, replaces materials), Town planning
+  (neighbour bonuses +25%/level), Outreach (town buildings reach +1/level; `reachOf(b, state)`).
+  Tap a node for its detail panel; mayor and new-town perks use the same node look in purple/teal.
+- Upgrade first: every building sheet opens with the level row and Upgrade button.
+- Bot (v47 -> v48, the bot now also buys cars so Transport opens): keen 3 days 171 -> 188
+  residents, happy 75 -> 84%; casual 53-63 -> 67-73; one week 341 -> 362, happy 57 -> 69%. Shop income is about 1.6-2x (no restock cost, no sell-outs
+  while away, neighbours); pacing is still capped by newcomers, not coins.
+
 ## Camden's idea list (2026-11-10)
 
 Done from it: hourly rent and rent/hour display, 10x play boost, distance fares, any-tent rides,
@@ -460,7 +493,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` and `VERSION` in config.js together when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (73 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (69 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
@@ -535,4 +568,4 @@ finished town to reset.
 
 ### Explicitly rejected
 - Tap-to-collect rent coins. Rent auto-collects at midnight.
-- Restocking as a timer or mini-game. It is one tap.
+- Restocking as a timer or mini-game. (Since v48 there is no stock at all.)

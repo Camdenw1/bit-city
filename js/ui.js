@@ -118,7 +118,6 @@ export function createUI(root, api) {
     for (const c of CATEGORIES) { const s = (t.skills && t.skills[c]) || 0; if (s > v) { v = s; best = c; } }
     return { cat: best, value: Math.max(0, v) };
   };
-  const restockCostOf = (b) => call('restockCostOf', b) || 0;
   let wishBuild = null;
   let movingId = null;
   let vipSending = false;
@@ -132,6 +131,7 @@ export function createUI(root, api) {
   }
   /** Best open job that beats what the tenant has now, or null. */
   const betterJob = (t) => {
+    if (t.kid) return null;
     const list = call('bestJobs', S(), t.id, N()) || [];
     const cur = t.jobId != null ? byId(t.jobId) : null;
     const curFit = cur ? fit(t, cur) : null;
@@ -336,7 +336,7 @@ export function createUI(root, api) {
     setText(h.feedCount, unread > 9 ? '9+' : String(unread));
     if (h.feedCount.hidden === (unread > 0)) h.feedCount.hidden = unread === 0;
     // Upgrades: a count of upgrades you can afford right now.
-    const ups = Object.keys(config.UPGRADES || {}).filter((id) => { const c = call('upgradeNextCost', s, id); return c > 0 && c <= s.coins; }).length
+    const ups = Object.keys(config.UPGRADES || {}).filter((id) => { const c = call('upgradeNextCost', s, id); return c > 0 && c <= s.coins && !call('treeIssue', s, id); }).length
       + (call('nextCar', s) && call('nextCar', s).cost <= s.coins ? 1 : 0) + (call('perkPoints', s) || 0);
     setText(h.jobsCount, String(ups));
     if (h.jobsCount.hidden === (ups > 0)) h.jobsCount.hidden = ups === 0;
@@ -384,7 +384,7 @@ export function createUI(root, api) {
       if (api.renderer && api.renderer.setSelection) api.renderer.setSelection(tile);
       // a town building shows the area it serves while its sheet is open
       const b = tile && sheet && sheet.kind === 'building' ? byId(sheet.id) : null;
-      const reach = b && (def(b.type).provides || ['yard', 'transit'].includes(def(b.type).kind)) ? { x: b.x, y: b.y, r: call('reachOf', b) || 0 } : null;
+      const reach = b && (def(b.type).provides || ['yard', 'transit'].includes(def(b.type).kind)) ? { x: b.x, y: b.y, r: call('reachOf', b, S()) || 0 } : null;
       if (api.renderer && api.renderer.setReach) api.renderer.setReach(reach);
     } catch (e) { /* cosmetic */ }
   }
@@ -415,7 +415,7 @@ export function createUI(root, api) {
   const coinAmt = (n, s = 1) => `<span class="amt">${icon('coin', s, s === 1 ? 'i12' : '')}${formatCoins(n)}</span>`;
   const skillBadge = (cat, value, big) =>
     `<span class="skill${big ? ' big' : ''}" style="--c:${catColor(cat)}">${icon('cat_' + cat, 1, 'i12')}<b>${value}</b></span>`;
-  const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : d.kind === 'yard' ? { icon: 'hammer', name: 'Faster building' } : d.kind === 'exchange' ? { icon: 'coin', name: 'Stocks' } : d.kind === 'source' ? { icon: 'hammer', name: (config.MATERIALS || {})[d.makes]?.name || 'Materials' } : d.kind === 'landmark' ? { icon: 'star', name: 'Landmark' } : d.kind === 'transit' ? { icon: 'taxi', name: 'Transit' } : d.kind === 'gateway' ? { icon: 'person', name: 'Tourists' } : { icon: 'star', name: 'Town' });
+  const needOf = (d) => (config.NEEDS || []).find((n) => d.provides && n.id === d.provides.need) || (d.kind === 'trade' ? { icon: 'coin', name: 'Trade' } : d.kind === 'yard' ? { icon: 'hammer', name: 'Faster building' } : d.kind === 'landmark' ? { icon: 'star', name: 'Landmark' } : d.kind === 'transit' ? { icon: 'taxi', name: 'Transit' } : d.kind === 'gateway' ? { icon: 'person', name: 'Tourists' } : { icon: 'star', name: 'Town' });
   const cropName = (crop) => ((config.CROPS || {})[crop] || crop).toLowerCase();
 
   /** Everything the Trading Post does: contracts, materials, trucks and the barn. */
@@ -448,38 +448,8 @@ export function createUI(root, api) {
     }).join('');
     const contracts = `<h3 class="sec">Contracts · ${signed} of ${slots}</h3>${contractRows}
       <p class="note">Collected every hour, even while you're away. Each delivery builds ♥.</p>`;
-    const mats = config.MATERIALS || {};
-    const matRows = Object.keys(mats).map((k) => `<button class="btn btn-small btn-quiet" data-act="buy-mat" data-k="${k}" data-qty="20">${mats[k].emoji} ${Math.floor((s.mats || {})[k] || 0)} · import 20 for ${formatCoins(20 * mats[k].price)}</button>`).join('');
-    const matBlock = `<h3 class="sec">Building materials</h3><div class="row wrap">${matRows}</div><p class="note">Materials take 30% off upgrades.</p>`;
-    return `${contracts}${matBlock}<h3 class="sec">Trucks</h3>${trucks}
+    return `${contracts}<h3 class="sec">Trucks</h3>${trucks}
       <h3 class="sec">Your barn</h3>${rows}<p class="note">Farms fill it. Spare crops sell by themselves every hour.</p>`;
-  }
-  /** A second upgrade button that pays partly in materials, when you have them. */
-  function matUpgrade(s, b) {
-    const need = call('materialUpgrade', s, b);
-    if (!need || !need.wood) return '';
-    const mats = config.MATERIALS || {};
-    const have = call('hasMaterials', s, need);
-    const list = Object.keys(mats).map((k) => `${need[k]}${mats[k].emoji}`).join(' ');
-    if (!have && !Object.values(s.mats || {}).some((v) => v > 0)) return '';      // never shown before you have any materials
-    return `<button class="btn btn-small ${have && need.coins <= s.coins ? 'btn-go' : 'btn-quiet'} btn-wide" data-act="upgrade-mats" data-id="${b.id}">Upgrade with materials · ${formatCoins(need.coins)} ${icon('coin', 1, 'i12')} + ${list}</button>`;
-  }
-  /** The Stock Exchange: three stocks, a cap on investing, buy a quarter of it or sell all. */
-  function marketPanel(s, now) {
-    const p = call('portfolio', s, now);
-    if (!p) return '';
-    const step = Math.max(1, Math.floor(p.cap / 4));
-    const rows = p.rows.map((r) => {
-      const ch = r.prev ? Math.round((r.price / r.prev - 1) * 1000) / 10 : 0;
-      const gl = r.value - r.paid;
-      return `<div class="trade-row" data-key="st-${r.id}"><div class="trade-head"><b>${icon(r.icon, 1, 'i12')}${esc(r.name)} · ${r.price.toFixed(2)}</b>
-          <span class="${ch >= 0 ? 'up' : 'down'}">${ch >= 0 ? '▲' : '▼'} ${Math.abs(ch)}% this hour</span>
-          ${r.shares > 0 ? `<span>Yours: worth ${formatCoins(r.value)} · paid ${formatCoins(r.paid)} · <b class="${gl >= 0 ? 'up' : 'down'}">${gl >= 0 ? '+' : ''}${formatCoins(gl)}</b></span>` : ''}</div>
-        <div class="row"><button class="btn btn-small ${p.room > 0 && s.coins >= 1 ? 'btn-coin' : 'btn-quiet'}" data-act="stock-buy" data-id="${r.id}" data-amt="${step}">Buy ${formatCoins(Math.min(step, p.room))}</button>
-          ${r.shares > 0 ? `<button class="btn btn-small btn-quiet" data-act="stock-sell" data-id="${r.id}">Sell all · ${formatCoins(r.value)}</button>` : ''}</div></div>`;
-    }).join('');
-    return `<h3 class="sec">Stocks · invested ${formatCoins(p.invested)} of ${formatCoins(p.cap)}</h3>${rows}
-      <p class="note">Prices move every hour. You can lose coins.</p>`;
   }
   const dreamTag = (text = 'Dream job') => `<span class="tag tag-dream">${icon('star', 1, 'i12')}${text}</span>`;
   const empty = (iconId, text) => `<div class="empty">${icon(iconId, 4)}<p>${text}</p></div>`;
@@ -534,7 +504,9 @@ export function createUI(root, api) {
     const dreamDef = def(t.dream);
     const tm = home ? moodOf(t) : { score: 100, missing: [] };
     let foot;
-    if (perfect) {
+    if (t.kid) {
+      foot = `<div class="p-foot dream">${icon('heart', 2)}<span><b>Kid</b> · grows up in ${formatDuration(Math.max(60000, t.grownAt - N()))}, then dreams of the ${esc(dreamDef.name)}</span></div>`;
+    } else if (perfect) {
       foot = `<div class="p-foot perfect">${icon('star', 2)}<span><b>Perfect fit!</b> Dream job at the ${esc(bName(job))}</span></div>`;
     } else if (better) {
       foot = `<div class="p-foot hint">${buildingArt(better.building, 1, 'mini')}<span>${better.dream ? '<b>Dream job open!</b> ' : 'Best job: '}` +
@@ -643,6 +615,9 @@ export function createUI(root, api) {
     /* --- 2. Build --- */
     build(d) {
       const s = S();
+      // what this lot's neighbours add (v48): shown on each shop card and the Homes heading
+      const spotPct = (cat) => cat === 'gov' ? 0 : Math.round(((call('spotBonus', s, d.x, d.y, cat) || {}).pct || 0) * 100);
+      const spotTag = (cat) => spotPct(cat) > 0 ? `<span class="card-note hood">+${spotPct(cat)}% here</span>` : '';
       const order = (config.BUILD_ORDER || Object.keys(BUILDINGS)).filter((id) => BUILDINGS[id]);
       const pop = call('population', s) || 0;
       const card = (id) => {
@@ -673,10 +648,10 @@ export function createUI(root, api) {
         return `<button class="card${style}" data-act="build-category" data-cat="${cat}" data-key="category-${cat}">
           ${bld('mystery_' + cat, 3, locked ? 'shadowed' : '')}<b class="card-name">${esc(d.name)}</b>
           ${locked ? `<span class="card-note">Unlocks at ${d.unlockAt} residents</span>`
-            : `<span class="price">${icon('coin', 1, 'i12')}${formatCoins(cost)}</span>`}</button>`;
+            : `${spotTag(cat)}<span class="price">${icon('coin', 1, 'i12')}${formatCoins(cost)}</span>`}</button>`;
       };
       const homes = order.filter((id) => BUILDINGS[id].kind === 'home' && !(id === 'tent' && pop >= (config.TUNING?.tentRetirePop ?? 20)));   // tents retire
-      const town = order.filter((id) => !BUILDINGS[id].gov && ['park', 'trade', 'yard', 'exchange', 'source', 'transit', 'gateway'].includes(BUILDINGS[id].kind));
+      const town = order.filter((id) => !BUILDINGS[id].gov && ['park', 'trade', 'yard', 'transit', 'gateway'].includes(BUILDINGS[id].kind));
       const unlocked = (id) => call('isUnlocked', s, id) && !(BUILDINGS[id].kind === 'landmark' && s.buildings.some((b) => b.type === id));
       const openCat = (cat) => call('categoryUnlocked', s, cat);
       const landmarks = order.filter((id) => BUILDINGS[id].kind === 'landmark');
@@ -691,7 +666,7 @@ export function createUI(root, api) {
         [...CATEGORIES, 'gov'].filter((cat) => !openCat(cat)).map(mystery).join('');
       return {
         title: 'Build',
-        html: `<h3 class="sec">Homes</h3><div class="grid">${homes.filter(unlocked).map(card).join('')}</div>` +
+        html: `<h3 class="sec">Homes${spotPct('home') > 0 ? ` · +${spotPct('home')}% rent here` : ''}</h3><div class="grid">${homes.filter(unlocked).map(card).join('')}</div>` +
               `<h3 class="sec">Surprise shops</h3><div class="grid">${CATEGORIES.filter(openCat).map(mystery).join('')}</div>` +
               (openCat('gov') || town.some(unlocked) ? `<h3 class="sec">Town</h3><div class="grid">${openCat('gov') ? mystery('gov') : ''}${town.filter(unlocked).map(card).join('')}</div>` : '') +
               (landmarks.some(unlocked) ? `<h3 class="sec">Landmarks</h3><div class="grid">${landmarks.filter(unlocked).map(card).join('')}</div>` : '') +
@@ -706,7 +681,7 @@ export function createUI(root, api) {
       const cost = call('buildingWorkFee', b, 'move').toLocaleString('en-US');
       return {
         title: `Move ${esc(bName(b))}`,
-        html: `<div class="hero">${buildingArt(b, 3)}<p class="lead">Move here for ${cost} coins?</p></div>
+        html: `<div class="hero">${buildingArt(b, 3)}<p class="lead">Move here for ${cost} coins?${(() => { const k = def(b.type).kind; if (k !== 'biz' && k !== 'home') return ''; const p = Math.round(((call('spotBonus', S(), d.tile.x, d.tile.y, k === 'home' ? 'home' : categoryOf(b), N(), b.id) || {}).pct || 0) * 100); return `<br><small>Neighbours here: +${p}% ${k === 'home' ? 'rent' : 'sales'}</small>`; })()}</p></div>
           ${check.ok ? '<button class="btn btn-coin btn-wide" data-act="move-confirm">Confirm move</button>'
             : `<p class="note">${esc(check.reason)}</p>`}`,
       };
@@ -727,16 +702,17 @@ export function createUI(root, api) {
             ${canRemove ? '<button class="link" data-act="demolish-ask">Demolish</button>' : ''}</div>`);
 
       // level stars and the upgrade button, shared by every kind of building
-      const level = b.level || 1; const maxLevel = config.TUNING?.maxLevel ?? 3;
+      const level = b.level || 1; const maxLevel = call('maxLevelOf', b) || 3;
       const upCost = call('upgradeCost', s, b) || 0;
-      const gives = c.kind === 'home' ? 'rent' : c.kind === 'biz' ? 'sales and stock' : 'reach';
+      const gives = c.kind === 'home' ? 'rent' : c.kind === 'biz' ? 'sales' : 'reach';
       const upPct = Math.round((config.TUNING?.levelBonus ?? 0.5) * 100);
-      const upgradeBlock = `<div class="up-row"><span class="up-level">${icon('star', 1, 'i12').repeat(level)} Level ${level}</span>${level >= maxLevel
+      const upgradeBlock = `<div class="up-top"><div class="up-row"><span class="up-level">${icon('star', 1, 'i12').repeat(level)} Level ${level}</span>${level >= maxLevel
         ? '<span class="tag tag-ok">Fully upgraded</span>'
         : `<button class="btn btn-small ${upCost > s.coins ? 'btn-quiet' : 'btn-coin'}" data-act="upgrade" data-id="${b.id}">Upgrade · ${formatCoins(upCost)} ${icon('coin', 1, 'i12')}</button>`}</div>
-        ${level >= maxLevel ? '' : matUpgrade(s, b)}
-        ${level >= maxLevel ? '' : `<p class="note up-note">Level ${level + 1}: ${c.kind === 'trade' ? 'one more truck and contract' : `+${upPct}% ${gives}${c.kind === 'biz' && level + 1 === (config.TUNING?.slotAtLevel ?? 3) ? ' and one more job' : ''}`}</p>`}`;
+        ${level >= maxLevel ? '' : `<p class="note up-note">Level ${level + 1}: ${c.kind === 'trade' ? 'one more truck and contract' : `+${upPct}% ${gives}${c.kind === 'biz' && level + 1 === (config.TUNING?.slotAtLevel ?? 3) ? ' and one more job' : ''}${level + 1 >= 4 && c.kind !== 'landmark' ? ', and it grows a floor' : ''}`}</p>`}</div>`;
 
+      const hood = call('neighbourBonus', s, b, now);
+      const hoodLine = hood && hood.pct > 0 ? `<p class="note">${icon('heart', 1, 'i12')}Neighbours +${Math.round(hood.pct * 100)}% ${c.kind === 'home' ? 'rent' : 'sales'}: ${esc(hood.parts.map((p) => p.why).join(', '))}</p>` : '';
       if (!built(b)) {
         const total = Math.max(1, (c.buildSecs || 1) * 1000);
         const left = Math.max(0, b.readyAt - now);
@@ -758,19 +734,19 @@ export function createUI(root, api) {
         for (let i = 0; i < free; i++) beds.push(`<div class="slot-empty" data-key="bed${i}">${icon('key', 2)}<span>Room for a friend</span></div>`);
         return {
           title: esc(name),
-          html: `<div class="hero">${buildingArt(b, 4)}<div class="hero-info">
+          html: `${upgradeBlock}<div class="hero">${buildingArt(b, 4)}<div class="hero-info">
               <div class="facts">
                 <span class="fact">${icon('person', 2)}<b>${res.length}/${c.capacity}</b></span>
                 <span class="fact">${icon('coin', 2)}<b>+${formatCoins(Math.round(res.length * (c.rentPerTenant || 0) * (config.levelMult ? config.levelMult(b.level) : 1) * (1 + (call('homeBoost', s, b) || 0))))}</b><small>rent/day</small></span>
               </div>
               <p class="note">${icon('coin', 1, 'i12')}${formatCoins(c.rentPerTenant || 0)} per resident each day, paid a little every hour</p>
-              ${(call('homeBoost', s, b) || 0) > 0 ? `<p class="note">${icon('cat_farming', 1, 'i12')}+${Math.round(call('homeBoost', s, b) * 100)}% from ${call('isWaterfront', s, b.x, b.y) ? 'the waterfront and parks' : 'parks'} nearby</p>` : ''}</div></div>
+              ${(call('homeBoost', s, b) || 0) > 0 ? `<p class="note">${icon('cat_farming', 1, 'i12')}+${Math.round(call('homeBoost', s, b) * 100)}% from ${call('isWaterfront', s, b.x, b.y) ? 'the waterfront and parks' : 'parks'} nearby</p>` : ''}${hoodLine}</div></div>
             ${free > 0 ? `<button class="btn btn-go btn-wide" data-act="open-applicants" data-id="${b.id}">${icon('key', 2)} Move someone in</button>` : ''}
             <div class="list">${res.map((t) => personRow(t) + (moveOutAsk === t.id
               ? `<div class="confirm" data-key="mo${t.id}"><span>Ask ${esc(t.name)} to move out? It's free, but newcomers will take twice as long for 10 minutes.</span>
                   <div class="row"><button class="btn btn-quiet" data-act="move-out-no">Keep them</button><button class="btn btn-warn" data-act="move-out-yes" data-t="${t.id}">Move out</button></div></div>`
               : `<button class="link" data-act="move-out-ask" data-t="${t.id}" data-key="mo${t.id}">Ask ${esc(t.name)} to move out</button>`)).join('')}${beds.join('')}</div>
-            ${upgradeBlock}${rebuildBlock(b)}${buildingActions(res.length === 0)}`,
+            ${rebuildBlock(b)}${buildingActions(res.length === 0)}`,
         };
       }
 
@@ -779,23 +755,17 @@ export function createUI(root, api) {
       if (c.kind !== 'biz') {
         const lines = [];
         if (c.provides) {
-          const reach = call('reachOf', b) || 0;
+          const reach = call('reachOf', b, S()) || 0;
           lines.push(`${icon(needOf(c).icon, 1, 'i12')}${esc(needOf(c).name)} for homes within ${reach} lots · serving ${mood()?.served.get(b.id) || 0} now`);
           const fixes = Object.values(config.PROBLEMS || {}).some((p) => p.fixer === c.provides.need);
           if (c.gov && fixes) lines.push(`${icon('star', 1, 'i12')}Fixes shop problems within ${reach} lots for free`);
         }
         if (c.fav) lines.push(`${icon('heart', 1, 'i12')}A mayor's favourite: ${c.provides ? 'serves' : 'does'} ${favPct}% more`);
-        if (c.kind === 'source') {
-          const mk = (config.MATERIALS || {})[c.makes] || {};
-          lines.push(`${esc(mk.emoji || '')} Makes ${Math.round((config.TUNING?.matPerHour ?? 8) * (config.levelMult ? config.levelMult(b.level) : 1))} ${esc((mk.name || '').toLowerCase())} an hour · you have ${Math.floor((s.mats || {})[c.makes] || 0)}/${config.TUNING?.matCap ?? 300}`);
-          lines.push('Materials take 30% off the coins of any upgrade. Look for "Upgrade with materials".');
-        }
         if (c.kind === 'landmark') {
           lines.push(`${icon('star', 1, 'i12')}Stage ${b.level || 1} of 3: ${esc(c.landmark.says(b.level || 1))}`);
-          const need = call('landmarkNeeds', s, b);
-          if (need && need.wood) lines.push(`Stage ${(b.level || 1) + 1}: ${esc(c.landmark.says((b.level || 1) + 1))}, needs ${need.wood}🪵 ${need.stone}🪨 ${need.bricks}🧱`);
+          if ((b.level || 1) < 3) lines.push(`Stage ${(b.level || 1) + 1}: ${esc(c.landmark.says((b.level || 1) + 1))}`);
         }
-        if (c.kind === 'yard') lines.push(`${icon('hammer', 1, 'i12')}Anything built within ${call('reachOf', b) || 0} lots goes up twice as fast`);
+        if (c.kind === 'yard') lines.push(`${icon('hammer', 1, 'i12')}Anything built within ${call('reachOf', b, S()) || 0} lots goes up twice as fast`);
         if (c.lessons) lines.push(`${icon('star', 1, 'i12')}Teaches ${c.lessons} skill ${c.lessons === 1 ? 'point' : 'points'} an hour`);
         if (c.rentBoost) {
           const near = s.buildings.filter((h) => def(h.type).kind === 'home' && Math.max(Math.abs(h.x - b.x), Math.abs(h.y - b.y)) <= (config.TUNING?.parkRadius ?? 2)).length;
@@ -803,9 +773,9 @@ export function createUI(root, api) {
         }
         return {
           title: esc(name),
-          html: `<div class="hero">${buildingArt(b, 4)}<div class="hero-info">
+          html: `${upgradeBlock}<div class="hero">${buildingArt(b, 4)}<div class="hero-info">
               <p class="lead">${esc(c.blurb || '')}</p>${lines.map((l) => `<p class="note">${l}</p>`).join('')}</div></div>
-            ${c.kind === 'exchange' ? marketPanel(s, now) : upgradeBlock}${c.kind === 'trade' ? tradePanel(s, now) : ''}${buildingActions(true)}`,
+            ${c.kind === 'trade' ? tradePanel(s, now) : ''}${buildingActions(true)}`,
         };
       }
 
@@ -828,15 +798,9 @@ export function createUI(root, api) {
                <p class="note">A ${(config.PROBLEMS || {})[prob.kind]?.fixer === 'health' ? 'clinic' : 'police or fire station'} within reach would fix this for free.</p>`}</div>`;
       const rate = (call('ratePerMin', s, b) || 0) * 60;
       const workers = workersOf(b.id);
-      const stockMax = call('stockMaxOf', b) || c.stockMax || 1;
-      const pct = Math.max(0, Math.min(100, Math.round(((b.stock || 0) / stockMax) * 100)));
-      const full = (b.stock || 0) >= stockMax - 0.5;
-      const cost = restockCostOf(b);
-      const selfStock = workers.some((t) => t.dream === b.type);
       const chip = {
         open: `<span class="chip chip-open">Open</span>`,
         'needs-workers': `<span class="chip chip-wait">Needs a worker</span>`,
-        'out-of-stock': `<span class="chip chip-wait">${icon('box', 1, 'i12')}Sold out</span>`,
         building: `<span class="chip chip-wait">Building</span>`,
       }[status] || '';
       const slots = [];
@@ -861,24 +825,22 @@ export function createUI(root, api) {
       }
       return {
         title: esc(name),
-        html: `<div class="hero">${buildingArt(b, 4)}<div class="hero-info">
+        html: `${upgradeBlock}<div class="hero">${buildingArt(b, 4)}<div class="hero-info">
             <div class="facts">${chip}
               <span class="fact">${icon('coin', 2)}<b>+${formatCoins(Math.round(rate * PLAY_BOOST))}</b><small>/h${PLAY_BOOST > 1 ? ' while you play' : ''}</small></span></div>
-            <div class="stock"><span class="stock-label">${icon('box', 1, 'i12')}Stock</span>
-              <div class="meter meter-stock${pct === 0 ? ' is-empty' : ''}"><i style="width:${pct}%"></i></div></div>
-            ${selfStock ? `<p class="note">${icon('star', 1, 'i12')}Restocks itself — dream worker!</p>` : ''}${menu}${grown}
+            ${hoodLine}${menu}${grown}
             ${c.fav ? `<p class="note">${icon('heart', 1, 'i12')}A mayor's favourite: sells ${favPct}% more</p>` : ''}
             ${b.criticUntil > now ? `<p class="note">${icon('star', 1, 'i12')}Rave review: sells ${Math.round((config.TUNING?.criticBoost ?? 0.5) * 100)}% more for ${formatDuration(b.criticUntil - now)}</p>` : ''}
             ${b.buzzUntil > now ? `<p class="note">${icon('heart', 1, 'i12')}Celebrity buzz: sells double for ${formatDuration(b.buzzUntil - now)}</p>` : ''}
           </div></div>
-          ${trouble}${full ? '' : `<button class="btn btn-coin btn-wide" data-act="restock" data-id="${b.id}">${icon('box', 2)} Restock ${coinAmt(Math.min(cost, Math.max(0, Math.floor(s.coins))), 2)}</button>`}
+          ${trouble}
           <h3 class="sec">${icon('cat_' + cat, 1, 'i12')} ${CAT_LABEL[cat] || ''} jobs · ${workers.length} of ${slotsOf(b)}</h3>
           ${team ? `<div class="team" data-key="team"><div class="team-head"><b>Team</b><span class="team-stars">${'★'.repeat(team.stars)}${'☆'.repeat(3 - team.stars)}</span><span class="team-pct">${Math.round(team.pct * 100)}%</span></div>
             <div class="meter meter-team"><i style="width:${Math.round(team.pct * 100)}%"></i></div>
             <p class="note">${team.serves ? `Keeps ${team.serves} residents happy with ${esc((CAT_LABEL[cat] || '').toLowerCase())}. ` : ''}${esc(team.tip || 'The best team this shop can have!')}</p></div>` : ''}
           ${hireBest ? `<button class="btn btn-go btn-wide" data-act="hire-pick" data-id="${b.id}" data-t="${hireBest.id}">${icon('briefcase', 2)} Hire best: ${esc(hireBest.name)} ${skillBadge(cat, (hireBest.skills && hireBest.skills[cat]) || 0)}</button>` : ''}
           <div class="list">${slots.join('')}</div>
-          ${upgradeBlock}${buildingActions(true)}`,
+          ${buildingActions(true)}`,
       };
     },
 
@@ -926,7 +888,7 @@ export function createUI(root, api) {
       const b = byId(d.id);
       if (!b) return null;
       const cat = categoryOf(b);
-      const rows = s.tenants.filter((t) => t.jobId !== b.id).map((t) => ({ t, f: fit(t, b), busy: t.jobId != null }));
+      const rows = s.tenants.filter((t) => t.jobId !== b.id && !t.kid).map((t) => ({ t, f: fit(t, b), busy: t.jobId != null }));
       rows.sort((a, z) => (a.busy - z.busy) || (z.f.dream - a.f.dream) || (z.f.skill - a.f.skill) || String(a.t.name).localeCompare(String(z.t.name)));
       const row = ({ t, f, busy }) => {
         const job = busy ? byId(t.jobId) : null;
@@ -1048,41 +1010,60 @@ export function createUI(root, api) {
     /* --- Upgrades: the car and short ladders that make the town run better --- */
     upgrades(d) {
       const s = S();
-      const car = call('carOf', s) || { name: 'Taxi', speed: 1, pay: 1 }; const next = call('nextCar', s);
-      const carRow = `<div class="up-card" data-key="car"><div class="up-head">${icon('taxi', 2)}<b>${esc(car.name)}</b>
-          ${next ? `<button class="btn btn-small ${next.cost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="upgrade-car">${esc(next.name)} · ${formatCoins(next.cost)} ${icon('coin', 1, 'i12')}</button>` : '<span class="tag tag-ok">Best car</span>'}</div>
-        <p class="note">${next ? `Next: ${Math.round((next.speed / car.speed - 1) * 100)}% faster and fares +${Math.round((next.pay / car.pay - 1) * 100)}%.` : 'The fastest car in town.'} Hold GAS while driving for up to +${Math.round((config.TUNING?.gasBonus ?? 0.5) * 100)}%.</p></div>`;
-      // City and Operations ladders; the cheapest one you can buy right now gets a "best value" tag
       const pop = s.tenants.length;
-      const open = (u) => !u.unlockPop || pop >= u.unlockPop;
-      const buyable = Object.entries(config.UPGRADES || {}).filter(([id, u]) => open(u) && (call('upgradeNextCost', s, id) || 0) > 0 && (call('upgradeNextCost', s, id) || 0) <= s.coins);
-      const best = buyable.sort((a, z) => (call('upgradeNextCost', s, a[0]) || 0) - (call('upgradeNextCost', s, z[0]) || 0))[0]?.[0];
-      const rowsFor = (group) => Object.entries(config.UPGRADES || {}).filter(([, u]) => (u.group || 'ops') === group).map(([id, u]) => {
-        const lvl = call('upLevel', s, id) || 0; const max = u.costs.length; const cost = call('upgradeNextCost', s, id) || 0;
-        const locked = !open(u);
-        return `<div class="up-card${locked ? ' is-locked' : ''}" data-key="u-${id}"><div class="up-head">${icon(u.icon, 2)}<b>${esc(u.name)}${id === best ? ' <span class="tag tag-ok">Best value</span>' : ''}</b><span class="up-pips">${'●'.repeat(lvl)}${'○'.repeat(max - lvl)}</span>
-            ${locked ? `<span class="tag">${u.unlockPop} residents</span>` : cost ? `<button class="btn btn-small ${cost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="buy-upgrade" data-id="${id}">${formatCoins(cost)} ${icon('coin', 1, 'i12')}</button>` : '<span class="tag tag-ok">Max</span>'}</div>
-          <p class="note">${lvl ? `Now: ${esc(u.says(lvl))}.` : locked ? `Opens at ${u.unlockPop} residents.` : 'Not bought yet.'}${cost ? ` Next: ${esc(u.says(lvl + 1))}.` : ''}</p></div>`;
-      }).join('');
-      const rows = `<p class="note">For the whole town; nothing takes a lot.</p>${rowsFor('city')}<h3 class="sec">Operations</h3>${rowsFor('ops')}`;
+      const sel = d.node || null;
+      // ---- one node of any tree: { key, icon, name, lvl, max, cost, costText, can, buyAct, buyData, issue, now, next, color } ----
+      const car = call('carOf', s) || { name: 'Taxi', speed: 1, pay: 1 }; const nextCar = call('nextCar', s);
+      const carLvl = (s.car || 1) - 1, carMax = (config.CARS || []).length - 1;
+      const nodeOf = (key) => {
+        if (key === 'car') return { key, icon: 'taxi', name: 'Car', lvl: carLvl, max: carMax, cost: nextCar ? nextCar.cost : 0, can: !!nextCar && nextCar.cost <= s.coins,
+          buy: 'data-act="upgrade-car"', issue: '', now: `${car.name}`, next: nextCar ? `${nextCar.name}: ${Math.round((nextCar.speed / car.speed - 1) * 100)}% faster, fares +${Math.round((nextCar.pay / car.pay - 1) * 100)}%` : '' };
+        const u = (config.UPGRADES || {})[key];
+        const lvl = call('upLevel', s, key) || 0; const cost = call('upgradeNextCost', s, key) || 0;
+        const issue = cost ? call('treeIssue', s, key) || '' : '';
+        return { key, icon: u.icon, name: u.name, lvl, max: u.costs.length, cost, can: !issue && cost > 0 && cost <= s.coins,
+          buy: `data-act="buy-upgrade" data-id="${key}"`, issue, now: lvl ? u.says(lvl) : '', next: cost ? u.says(lvl + 1) : '' };
+      };
+      const nodeBtn = (n, color, kind = 'tree') => {
+        const st = n.lvl >= n.max ? 'is-max' : n.issue ? 'is-locked' : n.can ? 'is-ready' : 'is-open';
+        return `<button class="tnode ${st}${sel === n.key ? ' is-sel' : ''}" style="--c:${color}" data-act="tree-pick" data-k="${n.key}" data-key="tn-${n.key}">
+          <span class="tnode-dot">${n.issue && !n.lvl ? '🔒' : icon(n.icon || 'star', 2)}</span>
+          <span class="tnode-pips">${'●'.repeat(Math.min(n.lvl, 6))}${'○'.repeat(Math.max(0, Math.min(n.max, 6) - Math.min(n.lvl, 6)))}</span>
+          <span class="tnode-name">${esc(n.name)}</span></button>`;
+      };
+      const tree = config.TREE || [];
+      const cols = tree.map((br) => `<div class="tree-col" style="--c:${br.color}"><span class="tree-branch">${esc(br.name)}</span>
+          ${br.nodes.map((k) => nodeBtn(nodeOf(k), br.color)).join('<i class="tree-link"></i>')}</div>`).join('');
+      // the detail panel for the picked node (or the cheapest one you can buy now)
+      const all = tree.flatMap((br) => br.nodes.map((k) => ({ n: nodeOf(k), color: br.color })));
+      const pickKey = sel || (all.filter((x) => x.n.can).sort((a, z) => a.n.cost - z.n.cost)[0] || all.find((x) => !x.n.issue && x.n.cost) || {}).n?.key;
+      const perkNode = (k, p, rank, buyAct, costText, can, color) => ({ key: `${buyAct}:${k}`, icon: p.icon || 'star', name: p.name, lvl: rank, max: p.max, cost: 0, costText, can,
+        buy: `data-act="${buyAct}" data-k="${k}"`, issue: '', now: rank ? p.says(rank) : '', next: rank < p.max ? p.says(rank + 1) : '', color });
+      const ml = call('mayorLevel', s) || { level: 0, xp: 0, next: 5, from: 0 }; const pts = call('perkPoints', s) || 0;
+      const lg = s.legacy || { points: 0, perks: {}, towns: 1 };
+      const townNodes = Object.entries(config.TOWN_PERKS || {}).map(([k, p]) => perkNode(k, p, call('townPerk', s, k) || 0, 'buy-town-perk', '1 point', pts > 0, '#9b6bd1'));
+      const permNodes = Object.entries(config.PERM_PERKS || {}).map(([k, p]) => perkNode(k, p, call('permPerk', s, k) || 0, 'buy-perm-perk', `${p.cost} ${p.cost === 1 ? 'point' : 'points'}`, lg.points >= p.cost, '#2aa6a0'));
+      const picked = [...all.map((x) => ({ ...x.n, color: x.color })), ...townNodes, ...permNodes].find((n) => n.key === pickKey);
+      const where = !picked ? '' : picked.key.startsWith('buy-town-perk') ? 'town' : picked.key.startsWith('buy-perm-perk') ? 'perm' : 'tree';
+      const detail = picked ? `<div class="tree-detail" style="--c:${picked.color}" data-key="td">
+          <div class="up-head">${icon(picked.icon || 'star', 2)}<b>${esc(picked.name)}</b><span class="up-pips">${'●'.repeat(picked.lvl)}${'○'.repeat(Math.max(0, picked.max - picked.lvl))}</span>
+            ${picked.lvl >= picked.max ? '<span class="tag tag-ok">Max</span>'
+              : picked.issue ? '<span class="tag">🔒 Locked</span>'
+              : `<button class="btn btn-small ${picked.can ? 'btn-coin' : 'btn-quiet'}" ${picked.buy}>${picked.costText ? esc(picked.costText) : `${formatCoins(picked.cost)} ${icon('coin', 1, 'i12')}`}</button>`}</div>
+          ${picked.issue && picked.lvl < picked.max ? `<p class="note"><b>${esc(picked.issue)}</b></p>` : ''}
+          <p class="note">${picked.now ? `Now: ${esc(picked.now)}.` : 'Not bought yet.'}${picked.next ? ` Next: ${esc(picked.next)}.` : ''}</p></div>` : '';
       const adOn = call('adActive', s, N()); const adCost = call('adCost', s, N()) || 0;
       const adRow = `<div class="up-card" data-key="ad"><div class="up-head">${icon('star', 2)}<b>Run an ad</b>
           ${adOn ? `<span class="tag tag-ok">${formatDuration(Math.max(0, (s.adUntil || 0) - N()))} left</span>`
             : `<button class="btn btn-small ${adCost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="run-ad">${formatCoins(adCost)} ${icon('coin', 1, 'i12')}</button>`}</div>
         <p class="note">+${Math.round((config.TUNING?.adSalesBonus ?? 0.25) * 100)}% sales and faster newcomers for ${formatDuration(call('adLengthMs', s) || 7200000)}.</p></div>`;
-      // mayor level: perk points for this town's perks
-      const ml = call('mayorLevel', s) || { level: 0, xp: 0, next: 5, from: 0 }; const pts = call('perkPoints', s) || 0;
-      const perkRow = (k, p, rank, buy, costText, can) => `<div class="up-card" data-key="${buy}-${k}"><div class="up-head"><b>${esc(p.name)}</b><span class="up-pips">${'●'.repeat(rank)}${'○'.repeat(p.max - rank)}</span>
-          ${rank >= p.max ? '<span class="tag tag-ok">Max</span>' : `<button class="btn btn-small ${can ? 'btn-go' : 'btn-quiet'}" data-act="${buy}" data-k="${k}">${costText}</button>`}</div>
-        <p class="note">${rank ? `Now: ${esc(p.says(rank))}.` : ''}${rank < p.max ? ` Next: ${esc(p.says(rank + 1))}.` : ''}</p></div>`;
-      const townRows = Object.entries(config.TOWN_PERKS || {}).map(([k, p]) => perkRow(k, p, call('townPerk', s, k) || 0, 'buy-town-perk', '1 point', pts > 0)).join('');
+      const treeHtml = `<div class="tree"><div class="tree-root">${icon('star', 2)}<b>${esc(s.townName || 'Town hall')}</b></div><div class="tree-cols">${cols}</div></div>`;
       const mayor = `<h3 class="sec">Mayor level ${ml.level} · ${pts} perk ${pts === 1 ? 'point' : 'points'}</h3>
         <div class="meter meter-team"><i style="width:${Math.round(((ml.xp - ml.from) / Math.max(1, ml.next - ml.from)) * 100)}%"></i></div>
-        <p class="note">${ml.xp}/${ml.next} XP from goals, VIPs and festivals.</p>${townRows}`;
+        <p class="note">${ml.xp}/${ml.next} XP from goals, VIPs and festivals.</p><div class="perk-row">${townNodes.map((n) => nodeBtn(n, n.color)).join('')}</div>${where === 'town' ? detail : ''}`;
       // prestige: found a new town, keep points and permanent perks
-      const lg = s.legacy || { points: 0, perks: {}, towns: 1 };
       const earn = call('prestigePoints', s) || 0; const why = call('prestigeIssue', s);
-      const permRows = Object.entries(config.PERM_PERKS || {}).map(([k, p]) => perkRow(k, p, call('permPerk', s, k) || 0, 'buy-perm-perk', `${p.cost} ${p.cost === 1 ? 'point' : 'points'}`, lg.points >= p.cost)).join('');
+      const permRows = `<div class="perk-row">${permNodes.map((n) => nodeBtn(n, n.color)).join('')}</div>${where === 'perm' ? detail : ''}`;
       const found = d.confirmTown
         ? `<div class="confirm"><span>Found a new town? You'll start fresh on new land with ${earn} new prestige ${earn === 1 ? 'point' : 'points'}. You keep your prestige points, permanent perks and collection book.</span>
             <div class="row"><button class="btn btn-quiet" data-act="town-no">Not yet</button><button class="btn btn-warn" data-act="town-yes">Found a new town</button></div></div>`
@@ -1092,8 +1073,7 @@ export function createUI(root, api) {
         <p class="note">Start over with points for perks you keep. Everything you've built and saved counts. Your old town becomes a sister town.</p>${found}
         ${(lg.oldTowns || []).length ? `<h3 class="sec">Sister towns</h3>${lg.oldTowns.map((t) => `<div class="want-row plain" data-key="sis-${esc(t.name)}">${icon('heart', 2)}<div><b>${esc(t.name)}</b><span>${t.pop} residents · sends ${formatCoins(Math.round(t.income * (config.TUNING?.careHours ?? 1)))} coins every day</span></div></div>`).join('')}` : ''}
         ${permRows}`;
-      return { title: 'Upgrades', html: `<h3 class="sec">Your car</h3>${carRow}<h3 class="sec">Advertising</h3>${adRow}<h3 class="sec">City</h3>${rows}${mayor}${prestige}
-` };
+      return { title: 'Upgrades', html: `${adRow}${treeHtml}${where === 'tree' ? detail : ''}${mayor}${prestige}` };
     },
 
     /* --- A job played inside a sheet: Lunch Rush and Odd Jobs --- */
@@ -1143,7 +1123,7 @@ export function createUI(root, api) {
       const services = s.buildings.filter((b) => def(b.type).provides && def(b.type).gov).map((b) => {
         const c = def(b.type);
         return `<button class="want-row wish-button plain" data-act="goto-building" data-id="${b.id}" data-key="g${b.id}">${buildingArt(b, 1, 'mini')}
-          <span class="wish-copy"><b>${esc(bName(b))}</b><span>${esc(needOf(c).name)} · serving ${m?.served.get(b.id) || 0} · reach ${call('reachOf', b) || 0} lots</span></span><span aria-hidden="true">›</span></button>`;
+          <span class="wish-copy"><b>${esc(bName(b))}</b><span>${esc(needOf(c).name)} · serving ${m?.served.get(b.id) || 0} · reach ${call('reachOf', b, S()) || 0} lots</span></span><span aria-hidden="true">›</span></button>`;
       }).join('');
       return {
         title: "Mayor's desk",
@@ -1158,22 +1138,14 @@ export function createUI(root, api) {
     away(d) {
       const s = S(); const sum = d.summary || {};
       const finished = (sum.finished || []).map(byId).filter(Boolean);
-      const soldOut = call('soldOutShops', s, N()) || [];
-      const total = soldOut.reduce((a, b) => a + restockCostOf(b), 0);
       const rows = [];
       if (sum.coinsEarned > 0) rows.push(`<div class="away-row">${icon('coin', 3)}<span>Shops earned</span><b>+${formatCoins(sum.coinsEarned)}</b></div>`);
       if (sum.rentPaid > 0) rows.push(`<div class="away-row">${icon('key', 3)}<span>Rent collected</span><b>+${formatCoins(sum.rentPaid)}</b></div>`);
       if (finished.length) rows.push(`<div class="away-row">${icon('hammer', 3)}<span>Finished building</span><span class="sprites">${finished.slice(0, 5).map((b) => buildingArt(b, 1, 'mini')).join('')}${finished.length > 5 ? `<b>+${finished.length - 5}</b>` : ''}</span></div>`);
-      if (soldOut.length) {
-        rows.push(`<div class="away-row">${icon('box', 3)}<span>${soldOut.length} sold out</span><span class="sprites">${soldOut.slice(0, 5).map((b) => buildingArt(b, 1, 'mini')).join('')}${soldOut.length > 5 ? `<b>+${soldOut.length - 5}</b>` : ''}</span></div>`);
-      } else if (d.hadSoldOut) {
-        rows.push(`<div class="away-row">${icon('box', 3)}<span>All restocked ✓</span></div>`);
-      }
       return {
         title: 'While you were away',
         html: `<p class="lead center">Your town kept busy for <b>${formatDuration(sum.elapsedMs || 0)}</b></p>
           <div class="away">${rows.join('') || `<div class="away-row">${icon('heart', 3)}<span>Everyone missed you!</span></div>`}</div>
-          ${soldOut.length ? `<button class="btn btn-coin btn-wide" data-act="restock-all">${icon('box', 2)} Restock all ${coinAmt(Math.min(total, Math.max(0, Math.floor(s.coins))), 2)}</button>` : ''}
           <button class="btn btn-go btn-wide" data-act="close">Nice!</button>`,
       };
     },
@@ -1199,7 +1171,6 @@ export function createUI(root, api) {
             ${stat('key', 'rent', formatCoins(st.rentCollected || 0))}
             ${stat('taxi', 'rides', formatCoins(st.rides || 0))}
             ${stat('star', 'dream jobs', formatCoins(st.dreamJobs || 0))}
-            ${stat('box', 'restocks', formatCoins(st.restocks || 0))}
             ${stat('person', 'residents', s.tenants.length)}
           </div>
           ${d.reset === 2
@@ -1419,7 +1390,13 @@ export function createUI(root, api) {
     else if (r && r.reason) toast(r.reason);
     return true;
   }
-  function openVip() { if (S().vip) openSheet({ kind: 'vip' }); }
+  // v48: one stream of map bubbles. Tapping a VIP goes straight to choosing their building.
+  function openVip() {
+    const v = S().vip; if (!v) return;
+    const vd = (config.VIPS || {})[v.kind] || {};
+    vipSending = true; movingId = null; closeSheet(); refreshHUD();
+    toast(`⭐ ${v.name} the ${vd.name || 'VIP'}: ${vd.ask || 'tap a building'}.`);
+  }
   function pickMoveLot(x, y) {
     if (movingId == null) return false;
     // tapping a building (or any taken spot) means you've moved on: leave move mode and act normally
@@ -1444,8 +1421,7 @@ export function createUI(root, api) {
   function showAway(summary) {
     if (!summary) return;
     if (summary.elapsedMs != null && summary.elapsedMs < 120000) return;
-    const hadSoldOut = !!call('soldOutShops', S(), N())?.length;
-    openSheet({ kind: 'away', summary, hadSoldOut });
+    openSheet({ kind: 'away', summary });
   }
 
   /* ----- actions (event delegation) ----- */
@@ -1501,16 +1477,13 @@ export function createUI(root, api) {
     'buy-town-perk': (el) => { const r = act('buyTownPerk', el.dataset.k); if (r && r.ok === false && r.reason) toast(r.reason); },
     'buy-perm-perk': (el) => { const r = act('buyPermPerk', el.dataset.k); if (r && r.ok === false && r.reason) toast(r.reason); },
     'town-ask': () => { sheet.confirmTown = true; renderSheet(); },
+    'tree-pick': (el) => { sheet.node = el.dataset.k; renderSheet(); },
     'town-no': () => { sheet.confirmTown = false; renderSheet(); },
     'town-yes': () => {
       const r = api.foundNewTown();
       if (r && r.ok) { closeSheet(); toast(`Welcome to your new town! +${r.earned} prestige points to spend in Upgrades.`); }
       else if (r && r.reason) toast(r.reason);
     },
-    'upgrade-mats': (el) => { const r = act('upgradeWithMaterials', Number(el.dataset.id)); if (r && r.ok === false && r.reason) toast(r.reason); },
-    'buy-mat': (el) => { const r = act('buyMaterial', el.dataset.k, Number(el.dataset.qty)); toast(r && r.ok ? `Imported ${r.qty} ${((config.MATERIALS || {})[el.dataset.k]?.name || '').toLowerCase()}` : (r && r.reason) || ''); },
-    'stock-buy': (el) => { const r = act('buyStock', el.dataset.id, Number(el.dataset.amt)); toast(r && r.ok ? `Bought ${formatCoins(r.spent)} of ${(config.STOCKS || {})[el.dataset.id]?.name}` : (r && r.reason) || ''); },
-    'stock-sell': (el) => { const r = act('sellStock', el.dataset.id); if (r && r.ok) toast(`Sold for ${formatCoins(r.coins)} · ${r.gainLoss >= 0 ? 'a gain of ' + formatCoins(r.gainLoss) : 'a loss of ' + formatCoins(-r.gainLoss)}`); },
     'contract-sign': (el) => { const r = act('signContract', el.dataset.town); toast(r && r.ok ? `Signed with ${el.dataset.town}! Their truck comes every hour.` : (r && r.reason) || ''); },
     'contract-cancel': (el) => { const r = act('cancelContract', el.dataset.town); if (r && r.ok) toast(`Contract with ${el.dataset.town} ended.`); },
     'vip-send': () => { vipSending = true; movingId = null; closeSheet(); refreshHUD(); },
@@ -1595,15 +1568,6 @@ export function createUI(root, api) {
       if ((S().gems || 0) < 1) { toast('1 gem needed — goals and dream jobs give gems!'); return; }
       const r = act('hurry', Number(el.dataset.id));
       if (r && r.ok !== false) toast('All done!');
-    },
-    restock: (el) => {
-      const r = act('restock', Number(el.dataset.id));
-      if (r.ok) toast(r.partial ? 'Shelves topped up!' : 'Shelves are full!');
-    },
-    'restock-all': () => {
-      if (!sheet || sheet.kind !== 'away') return;
-      const r = act('restockAll');
-      if (r.ok) toast(r.count ? 'Every sold-out shop has stock again!' : 'No shops are sold out.');
     },
     'buy-land': (el) => {
       const r = act('buyLand', el.dataset.id);

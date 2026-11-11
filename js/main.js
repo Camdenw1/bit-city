@@ -175,6 +175,15 @@ sim.events.on('residentBuy', ({ tenant, building, amount }) => {
   renderer.sendWalker(tenant.id, building);          // you see them walk over and pop in
   if (amount >= popFloor()) renderer.floatText(building.x, building.y, `+${formatCoins(amount)}`, COIN);
 });
+sim.events.on('born', ({ tenant, home }) => {
+  if (quiet) return;
+  renderer.burst(home.x, home.y, 'hearts');
+  ui.toast(`🍼 A kid was born: say hi to ${tenant.name}!`);
+});
+sim.events.on('grownUp', ({ tenant }) => {
+  if (quiet) return;
+  ui.toast(`🎓 ${tenant.name} grew up and is ready for a job!`);
+});
 sim.events.on('vipArrive', ({ vip }) => {
   if (quiet) return;
   audio.play('goal');
@@ -348,12 +357,6 @@ renderer.onTap(({ x, y, building, parcel, activity, kind }) => {
 
   if (!building) { audio.play('tap'); ui.openLot(x, y); return; }
 
-  // One tap on an out-of-stock shop refills it. No menu, no chore.
-  const def = config.BUILDINGS[building.type];
-  if (def?.kind === 'biz' && sim.bizStatus(state, building, now) === 'out-of-stock') {
-    const res = act('restock', building.id);
-    if (res?.ok) { if (res.cost > 0) renderer.floatText(building.x, building.y, `-${Math.round(res.cost)}`, '#fff6e0'); return; }
-  }
   audio.play('tap');
   ui.openBuilding(building);
 });

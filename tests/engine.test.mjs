@@ -7,6 +7,10 @@ import * as sim from '../js/sim.js';
 import { buildingSpriteId } from '../js/sprites.js';
 
 const { BUILDINGS, GOALS, CATEGORIES, TUNING } = config;
+// Neighbour bonuses (v48) are switched off for the older tests, which check exact numbers;
+// the v48 test switches them back on.
+const HOOD = { ...TUNING.neighbours };
+for (const k of Object.keys(TUNING.neighbours)) if (k !== 'radius') TUNING.neighbours[k] = 0;
 const goalCoins = (id) => GOALS.find((g) => g.id === id).reward.coins || 0;
 const allGoalsDone = (s) => { s.goalsDone = GOALS.map((g) => g.id); };
 const T0 = new Date(2026, 5, 15, 12, 0, 0).getTime(); // local noon
@@ -100,7 +104,7 @@ test('config: shape, roads, every type complete, balance targets', () => {
   assert.equal(config.isRoad(3, 0), true); assert.equal(config.isRoad(0, 2), true); assert.equal(config.isRoad(0, 0), false);
   assert.equal(lots().length, 90);
   const ids = Object.keys(BUILDINGS);
-  assert.equal(ids.length, 69);
+  assert.equal(ids.length, 65);   // v48 dropped the Stock Exchange, Lumber Yard, Quarry and Brickworks
   assert.equal(ids.filter((id) => BUILDINGS[id].kind === 'biz').length, 43);
   assert.deepEqual([...config.BUILD_ORDER].sort(), [...ids].sort());
   for (const id of ids) {
@@ -140,7 +144,7 @@ test('newGame: shape and JSON round trip', () => {
   assert.equal(s.v, 1); assert.equal(s.createdAt, T0); assert.equal(s.lastTick, T0);
   assert.equal(s.lastRentHour, Math.floor(T0 / HOUR)); assert.equal(s.rentCarry, 0);
   assert.equal(s.coins, 250); assert.equal(s.gems, 2);
-  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0, rebuilds: 0 });
+  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0, rebuilds: 0, kids: 0 });
   assert.deepEqual(s.buildings, []); assert.deepEqual(s.tenants, []);
   assert.equal(s.applicants.length, 3);
   assert.equal(s.ride, null); assert.deepEqual(s.goalsDone, []); assert.deepEqual(s.settings, { sound: true });
@@ -568,133 +572,37 @@ test('rate formula: baseRate * staff * skill * dream', () => {
   assert.ok(Math.abs(sim.townRatePerMin(s, T0) - sim.ratePerMin(s, diner)) < 1e-9);
   assert.equal(sim.bizStatus(s, diner, T0), 'open');
   diner.stock = 0;
-  assert.equal(sim.ratePerMin(s, diner), 0, 'out of stock');
-  assert.equal(sim.townRatePerMin(s, T0), 0);
-  assert.equal(sim.bizStatus(s, diner, T0), 'out-of-stock');
+  assert.ok(sim.ratePerMin(s, diner) > 0, 'shops never run out (v48)');
   const { building: site } = sim.build(s, 'market', 9, 13, T0);
   assert.equal(sim.ratePerMin(s, site), 0, 'unbuilt');
   assert.equal(sim.rentPerDay(s), 2 * BUILDINGS.cabin.rentPerTenant);
 });
 
-test('sales deplete stock, pay coins, and stop at zero', () => {
+test('shops never run out (v48): sales pay coins without end, and tiny ticks add up the same', () => {
   const s = fresh();
   const tent = put(s, 'tent', T0);
   const diner = put(s, 'diner', T0);
   const a = person(s, tent, T0, { skill: 9 });
   sim.assignJob(s, a.id, diner.id, T0);
   allGoalsDone(s);
-  const max = BUILDINGS.diner.stockMax;
   s.daily = { day: S.localDay(T0), paid: true, tasks: [] };   // keep today's promises out of the coin maths
   const perMin = BUILDINGS.diner.baseRate * TUNING.staffFactor[1] * (1 + 9 / TUNING.skillAvgDivisor);
   const sold100 = Math.floor(perMin * 100 + 1e-9);
   const coins0 = s.coins;
-  let log = record(() => {
-    const r = sim.advance(s, T0 + 100 * MIN);
-    assert.equal(r.coinsEarned, sold100); assert.deepEqual(r.ranOut, []);
-  });
-  assert.equal(diner.stock, max - sold100); assert.equal(s.coins, coins0 + sold100 + s.stats.rentCollected); assert.ok(Number.isInteger(s.coins));
+  const log = record(() => { assert.equal(sim.advance(s, T0 + 100 * MIN).coinsEarned, sold100); });
+  assert.equal(s.coins, coins0 + sold100 + s.stats.rentCollected); assert.ok(Number.isInteger(s.coins));
   assert.deepEqual(log.filter((e) => e.type === 'coins' && e.reason === 'sales'), [{ type: 'coins', amount: sold100, buildingId: diner.id, reason: 'sales' }]);
-
-  // many tiny live ticks add up to the same thing (no coins lost to rounding)
   const s2 = JSON.parse(JSON.stringify(s));
   for (let i = 1; i <= 600; i++) sim.advance(s2, T0 + 100 * MIN + i * 1000);
   sim.advance(s, T0 + 110 * MIN);
-  assert.equal(s2.coins, s.coins); assert.equal(s2.buildings[1].stock, diner.stock);
-  assert.ok(Number.isInteger(s2.coins) && Number.isInteger(s2.buildings[1].stock));
-
-  log = record(() => {
-    const r = sim.advance(s, T0 + 10 * HOUR);
-    assert.deepEqual(r.ranOut, [diner.id]);
-  });
-  assert.equal(diner.stock, 0); assert.equal(diner.stock + (s.coins - coins0 - s.stats.rentCollected), max, 'coins + stock is conserved');
-  assert.equal(log.filter((e) => e.type === 'outOfStock').length, 1);
-  assert.equal(sim.bizStatus(s, diner, T0 + 10 * HOUR), 'out-of-stock');
-  const r = sim.advance(s, T0 + 20 * HOUR);
-  assert.equal(r.coinsEarned, 0); assert.deepEqual(r.ranOut, []); assert.equal(diner.stock, 0);
-  assert.equal(s.stats.rentCollected, Math.floor((BUILDINGS.tent.rentPerTenant + sim.rentBonusPerDay(s, T0)) * 20 / 24 + 1e-6), '20 hours of rent');
-  assert.equal(s.stats.earned, max + s.stats.rentCollected + goalCoins('tent') + goalCoins('movein') + goalCoins('diner') + goalCoins('hire'));
+  assert.equal(s2.coins, s.coins);
+  // a whole day later it still sells, and nothing ever asks for a restock
+  const r = sim.advance(s, T0 + 30 * HOUR);
+  assert.ok(r.coinsEarned > perMin * 60 * 19, 'still selling after 20 hours');
+  assert.equal(sim.bizStatus(s, diner, T0 + 30 * HOUR), 'open');
+  assert.deepEqual(sim.soldOutShops(s, T0), []);
+  assert.equal(sim.restock(s, diner.id, T0).ok, false);
 });
-
-test('a dream-job worker restocks for free', () => {
-  const s = fresh();
-  const tent = put(s, 'tent', T0);
-  const diner = put(s, 'diner', T0);
-  const a = person(s, tent, T0, { skill: 9, dream: 'diner' });
-  sim.assignJob(s, a.id, diner.id, T0);
-  assert.ok(s.goalsDone.includes('restock'), 'a dream worker satisfies the tutorial without a paid refill');
-  allGoalsDone(s);
-  const coins0 = s.coins;
-  const log = record(() => {
-    const r = sim.advance(s, T0 + 12 * HOUR - 1000);
-    assert.deepEqual(r.ranOut, []);
-    assert.ok(r.coinsEarned > BUILDINGS.diner.stockMax, 'kept selling past one full stock');
-    assert.equal(s.coins, coins0 + r.coinsEarned + r.rentPaid, 'restocking cost nothing');
-  });
-  assert.ok(diner.stock > 0);
-  assert.equal(log.filter((e) => e.type === 'outOfStock').length, 0);
-  assert.deepEqual(log.filter((e) => e.type === 'restocked').map((e) => [e.building.id, e.auto]), [[diner.id, true]]);
-});
-
-test('restock: pro-rated cost, already full, and never blocks a poor player', () => {
-  const s = fresh();
-  const diner = put(s, 'diner', T0);
-  allGoalsDone(s);
-  const { stockMax, restockCost } = BUILDINGS.diner;
-  const full = sim.restock(s, diner.id, T0);
-  assert.equal(full.ok, false); assert.equal(full.cost, 0); assert.match(full.reason, /full/);
-
-  diner.stock = 0; s.coins = 1000;
-  let log = record(() => assert.deepEqual(sim.restock(s, diner.id, T0), { ok: true, reason: '', cost: restockCost, partial: false }));
-  assert.equal(diner.stock, stockMax); assert.equal(s.coins, 1000 - restockCost); assert.equal(s.stats.restocks, 1);
-  assert.ok(log.some((e) => e.type === 'restocked' && e.auto === false && e.building === diner));
-  assert.ok(log.some((e) => e.type === 'spend' && e.amount === restockCost && e.reason === 'restock'));
-
-  diner.stock = stockMax / 2;
-  assert.equal(sim.restock(s, diner.id, T0).cost, Math.round(restockCost / 2));
-  assert.equal(diner.stock, stockMax);
-
-  // broke: free top-up of at least 25%
-  diner.stock = 0; s.coins = 0;
-  let r = sim.restock(s, diner.id, T0);
-  assert.equal(r.ok, true); assert.equal(r.cost, 0); assert.equal(r.partial, true);
-  assert.ok(diner.stock >= stockMax * 0.25 && diner.stock < stockMax); assert.equal(s.coins, 0);
-  // some coins: pays what they have, gets what that buys
-  diner.stock = 0; s.coins = Math.floor(restockCost * 0.6);
-  r = sim.restock(s, diner.id, T0);
-  assert.equal(r.ok, true); assert.equal(r.cost, Math.floor(restockCost * 0.6)); assert.equal(s.coins, 0);
-  assert.ok(Math.abs(diner.stock - stockMax * 0.6) <= stockMax * 0.02);
-  // nearly full and broke: just fills up
-  diner.stock = stockMax - 20; s.coins = 0;
-  r = sim.restock(s, diner.id, T0);
-  assert.equal(r.ok, true); assert.equal(diner.stock, stockMax); assert.ok(s.coins >= 0);
-
-  assert.equal(sim.restock(s, 999, T0).ok, false);
-  const tent = put(s, 'tent', T0);
-  assert.equal(sim.restock(s, tent.id, T0).ok, false);
-});
-
-test('batch restock covers previously empty shops and charges the current tier price', () => {
-  const s = fresh();
-  const tent = put(s, 'tent', T0);
-  const diner = put(s, 'diner', T0);
-  const bakery = put(s, 'bakery', T0);
-  const market = put(s, 'market', T0);
-  const worker = person(s, tent, T0, { dream: 'diner' });
-  sim.assignJob(s, worker.id, diner.id, T0);
-  allGoalsDone(s);
-  diner.stock = bakery.stock = 0;
-  const summary = sim.advance(s, T0 + HOUR, { live: false });
-  assert.deepEqual(summary.ranOut, [], 'the bakery was already empty');
-  assert.ok(diner.stock > 0, 'a dream worker restarts an empty shop');
-  assert.deepEqual(sim.soldOutShops(s, s.lastTick), [bakery]);
-  const before = s.coins;
-  assert.equal(sim.restockAll(s, s.lastTick).count, 1);
-  assert.equal(bakery.stock, sim.stockMaxOf(bakery));
-  assert.equal(before - s.coins, Math.round(sim.statsOf(bakery).restockCost * TUNING.staffFactor[BUILDINGS.bakery.slots] / TUNING.staffFactor[2]));
-  assert.equal(market.stock, sim.stockMaxOf(market));
-  assert.equal(sim.restockAll(s, s.lastTick).count, 0);
-});
-
 // ---- offline ----------------------------------------------------------------
 
 function smallTown() {
@@ -767,8 +675,9 @@ test('three days offline: sane totals, exactly 72 hours of rent, fast', () => {
   assert.ok(ms < 300, `took ${ms.toFixed(1)} ms`);
   assert.equal(res.elapsedMs, 3 * DAY);
   assert.equal(res.rentHours, 72); assert.equal(res.rentPaid, 3 * nightly);
-  assert.equal(res.coinsEarned, sim.stockMaxOf(diner) + sim.stockMaxOf(market), 'each shop sold exactly one full stock');
-  assert.deepEqual([...res.ranOut].sort(), [diner.id, market.id].sort());
+  const expect = (sim.ratePerMin(s, diner) + sim.ratePerMin(s, market)) * 60 * 72;
+  assert.ok(Math.abs(res.coinsEarned - expect) <= expect * 0.02 + 2, `shops sold all three days (${res.coinsEarned} vs ${Math.round(expect)})`);
+  assert.deepEqual(res.ranOut, []);
   assert.equal(s.coins, coins0 + res.coinsEarned + res.rentPaid);
   assert.equal(s.stats.earned, earned0 + res.coinsEarned + res.rentPaid);
   assert.equal(s.stats.rentCollected, 3 * nightly);
@@ -1060,7 +969,9 @@ test('goals: complete automatically, pay once, in any order; nextGoal walks the 
   assert.deepEqual(s.goalsDone, ['tent', 'diner', 'movein', 'hire']);
   sim.advance(s, T0 + 20 * MIN);
   const gems = s.gems;
-  assert.ok(sim.restock(s, sim.tileAt(s, 2, 0).id, T0 + 20 * MIN).ok);
+  // the old restock goal is now "build a shop next to homes": the diner at (2,0) has the tents nearby
+  Object.assign(TUNING.neighbours, HOOD);
+  try { sim.advance(s, T0 + 20 * MIN + 1000); } finally { for (const k of Object.keys(TUNING.neighbours)) if (k !== 'radius') TUNING.neighbours[k] = 0; }
   assert.ok(s.goalsDone.includes('restock'));
   assert.equal(s.gems, gems);
   assert.equal(sim.nextGoal(s).id, 'ride');
@@ -1351,18 +1262,14 @@ test('land: parcels, prices, terrain lots, waterfront; upgrades: cost, effect, c
   assert.match(sim.upgrade(s, diner.id, T0).reason, /more coins/);
   s.coins = 1e9;
   for (const b of [tent, diner, tree]) assert.equal(sim.upgrade(s, b.id, T0).ok, true);
-  assert.equal(diner.level, 2); assert.equal(diner.stock, sim.stockMaxOf(diner));
-  assert.equal(sim.stockMaxOf(diner), Math.round(BUILDINGS.diner.stockMax * (1 + TUNING.levelBonus)));
+  assert.equal(diner.level, 2);
   assert.ok(Math.abs(sim.ratePerMin(s, diner) - rate1 * (1 + TUNING.levelBonus)) < 1e-9);
   assert.ok(sim.homeBoost(s, tent) > boost1);
   assert.ok(sim.rentPerDay(s) > rent1 * (1 + TUNING.levelBonus) - 1);
   assert.equal(diner.paid, BUILDINGS.diner.cost + BUILDINGS.diner.cost * TUNING.upgradeCost[1], 'investment includes the upgrade');
-  assert.equal(sim.upgrade(s, diner.id, T0).ok, true); assert.equal(diner.level, 3);
+  for (let l = 3; l <= TUNING.maxLevel; l++) { assert.equal(sim.upgrade(s, diner.id, T0).ok, true); assert.equal(diner.level, l); }
   assert.equal(sim.upgradeCost(s, diner), 0); assert.equal(sim.upgrade(s, diner.id, T0).ok, false);
-  // restocking a bigger shop fills the bigger shelf
-  diner.stock = 0;
-  assert.equal(sim.restock(s, diner.id, T0).ok, true); assert.equal(diner.stock, sim.stockMaxOf(diner));
-  assert.equal(S.migrate(JSON.parse(JSON.stringify(s))).buildings.find((b) => b.id === diner.id).level, 3);
+  assert.equal(S.migrate(JSON.parse(JSON.stringify(s))).buildings.find((b) => b.id === diner.id).level, TUNING.maxLevel);
 });
 
 test('trade, orders, ads, shop pricing and milestone unlocks', () => {
@@ -1425,18 +1332,6 @@ test('trade, orders, ads, shop pricing and milestone unlocks', () => {
   const diner = put(s, 'diner', now);
   sim.assignJob(s, b.id, diner.id, now);
   const base = sim.ratePerMin(s, diner);
-  for (const mode of ['high', 'low']) {
-    const m = config.PRICE_MODES[mode];
-    assert.equal(sim.setPrice(s, diner.id, mode, now).ok, true);
-    assert.ok(Math.abs(sim.ratePerMin(s, diner) - base * m.speed * m.pay) < 1e-9);
-    farm.stock = 0;   // only the diner sells in this check
-    diner.stock = sim.stockMaxOf(diner); diner.carry = 0; diner.cc = 0;
-    const stock0 = diner.stock;
-    const r = sim.advance(s, s.lastTick + 60 * MIN);
-    const items = stock0 - diner.stock;
-    assert.ok(Math.abs(items - base * m.speed * 60) <= 1, `${mode} items ${items}`);
-    assert.ok(Math.abs(r.coinsEarned - items * m.pay) <= 1, `${mode} coins ${r.coinsEarned}`);
-  }
   sim.setPrice(s, diner.id, 'normal', s.lastTick);
   assert.equal(sim.setPrice(s, diner.id, 'silly', s.lastTick).ok, false);
 
@@ -1445,11 +1340,9 @@ test('trade, orders, ads, shop pricing and milestone unlocks', () => {
   assert.equal(sim.adCost(s, t1), TUNING.adMinCost);
   assert.equal(sim.runAd(s, t1).ok, true); assert.equal(sim.runAd(s, t1).ok, false);
   assert.equal(sim.adActive(s, t1 + TUNING.adMs - 1), true); assert.equal(sim.adActive(s, t1 + TUNING.adMs), false);
-  farm.stock = 0;
-  diner.stock = sim.stockMaxOf(diner); diner.carry = 0; diner.cc = 0;
-  const stock1 = diner.stock;
+  const plainHour = sim.townRatePerMin(s, t1) * 60;
   const boosted = sim.advance(s, t1 + 60 * MIN);
-  assert.ok(Math.abs(boosted.coinsEarned - (stock1 - diner.stock) * (1 + TUNING.adSalesBonus)) <= 1);
+  assert.ok(Math.abs(boosted.coinsEarned - plainHour * (1 + TUNING.adSalesBonus)) <= plainHour * 0.02 + 2, `ad hour ${boosted.coinsEarned} vs ${plainHour}`);
 
   // milestone unlocks: the Fountain needs enough residents AND the happiness milestone
   const big = fresh();
@@ -1821,11 +1714,13 @@ test('upgrades and the Construction Yard', () => {
   assert.ok(Math.abs(sim.buildFactor(s, yard.x, yard.y, T0) - (1 - config.UPGRADES.crew.per) * TUNING.yardFactor) < 1e-9);
   // ladders end, and cost what they say
   s.coins = 0;
+  s.car = 2; s.upgrades = { ...s.upgrades, roads: 1 };     // the tree: trucks sit under roads, under the car
   assert.match(sim.buyUpgrade(s, 'trucks', T0).reason, /more coins/);
   s.coins = 1e7;
   for (let i = 0; i < config.UPGRADES.trucks.costs.length; i++) assert.ok(sim.buyUpgrade(s, 'trucks', T0).ok);
   assert.match(sim.buyUpgrade(s, 'trucks', T0).reason, /fully/);
-  // interviews narrow newcomers' skill ranges to exact at the top level
+  // interviews narrow newcomers' skill ranges to exact at the top level (under bike lanes and the welcome center)
+  s.upgrades = { ...s.upgrades, bikes: 1, welcome: 1 };
   for (let i = 0; i < 3; i++) sim.buyUpgrade(s, 'interview', T0);
   const a = S.makeApplicant(s);
   assert.ok(CATEGORIES.every((c) => a.seen[c][0] === a.skills[c] && a.seen[c][1] === a.skills[c]));
@@ -2041,55 +1936,6 @@ test('a taxi job bubble starts the ride at the building you tapped', () => {
   assert.ok(r.ok); assert.equal(s.ride.fromId, home.id);
 });
 
-test('stock market: hourly prices, a cap on investing, and you can lose coins', () => {
-  const { s } = smallTown();
-  allGoalsDone(s);
-  const now = s.lastTick;
-  assert.match(sim.buyStock(s, 'farm', 100, now).reason, /Stock Exchange/);
-  put(s, 'exchange', now);
-  const cap = sim.stockCap(s, now);
-  const r = sim.buyStock(s, 'farm', 1e9, now);
-  assert.ok(r.ok); assert.equal(r.spent, Math.min(cap, Math.floor(s.coins + r.spent)));
-  assert.match(sim.buyStock(s, 'shop', 100, now).reason, /as much as/);
-  // prices move each hour; selling pays today's value, which can be under what you paid
-  let low = Infinity, high = 0;
-  for (let h = 1; h <= 48; h++) { sim.advance(s, (Math.floor(now / HOUR) + h) * HOUR + 1, { live: false }); low = Math.min(low, s.market.prices.farm); high = Math.max(high, s.market.prices.farm); }
-  assert.ok(high > low, 'prices change');
-  assert.ok(low >= 20 && high <= 500);
-  const p = sim.portfolio(s, s.lastTick);
-  const sold = sim.sellStock(s, 'farm', s.lastTick);
-  assert.ok(sold.ok); assert.equal(sold.coins, p.rows[0].value); assert.equal(sold.gainLoss, sold.coins - p.rows[0].paid);
-  assert.match(sim.sellStock(s, 'farm', s.lastTick).reason, /don't own/);
-  const old = JSON.parse(JSON.stringify(s)); old.market = { prices: { farm: -3 } };
-  const m = S.migrate(old); assert.equal(m.market.prices.farm, 100); assert.equal(m.market.shares.shop, 0);
-});
-
-test('materials: sources make them, they cut upgrade coins, imports fill gaps, never required', () => {
-  const { s, diner } = smallTown();
-  allGoalsDone(s);
-  const now = s.lastTick;
-  put(s, 'lumber', now); put(s, 'quarry', now); put(s, 'brickworks', now);
-  sim.advance(s, now + 2 * HOUR, { live: false });
-  assert.ok(Math.abs(s.mats.wood - 2 * TUNING.matPerHour) < 1e-6);
-  sim.advance(s, s.lastTick + 100 * HOUR, { live: false });
-  assert.equal(s.mats.stone, TUNING.matCap, 'stores have a cap');
-  // level 2 needs no materials; level 3 uses some and costs fewer coins
-  assert.ok(sim.upgrade(s, diner.id, s.lastTick).ok);
-  const need = sim.materialUpgrade(s, diner);
-  assert.ok(need.wood > 0 && need.coins < sim.upgradeCost(s, diner));
-  const coins = s.coins, wood = s.mats.wood;
-  assert.ok(sim.upgradeWithMaterials(s, diner.id, s.lastTick).ok);
-  assert.equal(diner.level, 3); assert.equal(coins - s.coins, need.coins); assert.ok(Math.abs(wood - s.mats.wood - need.wood) < 1e-9);
-  // imports at the Trading Post
-  s.mats.bricks = 0;
-  assert.match(sim.buyMaterial(s, 'bricks', 10, s.lastTick).reason, /Trading Post/);
-  put(s, 'trade', s.lastTick);
-  const r = sim.buyMaterial(s, 'bricks', 10, s.lastTick);
-  assert.ok(r.ok); assert.equal(s.mats.bricks, 10); assert.equal(r.cost, 10 * config.MATERIALS.bricks.price);
-  const old = JSON.parse(JSON.stringify(s)); delete old.mats;
-  assert.deepEqual(S.migrate(old).mats, { wood: 0, stone: 0, bricks: 0 });
-});
-
 test('mayor level gives town perks; a new town keeps prestige points, perks and the collection', () => {
   const { s, diner } = smallTown();
   allGoalsDone(s);
@@ -2162,12 +2008,13 @@ test('city infrastructure: bought for the whole town, no lots; old transit build
   s.coins = 1e7;
   const home = s.buildings.find((b) => config.BUILDINGS[b.type].kind === 'home');
   for (let i = s.tenants.length; i < 12; i++) s.tenants.push({ ...s.tenants[0], id: 410000 + i, homeId: null, jobId: null });
+  s.car = 2; s.upgrades = { trucks: 1, marketing: 1, pedestrian: 1 };   // the tree: what each node needs first
   // bus network: rent for every home and more visitors; opens with population
   const before = sim.homeBoost(s, home, now), v0 = sim.visitorsMult(s, now);
   assert.ok(sim.buyUpgrade(s, 'bus', now).ok);
   assert.ok(Math.abs(sim.homeBoost(s, home, now) - before - config.UPGRADES.bus.per) < 1e-9);
   assert.ok(sim.visitorsMult(s, now) > v0);
-  assert.match(sim.buyUpgrade(s, 'airport', now).reason, /residents/);
+  assert.match(sim.buyUpgrade(s, 'airport', now).reason, /first|residents/);
   // station: a 4th Welcome spot; trade network and port: more contracts
   for (let i = s.tenants.length; i < 60; i++) s.tenants.push({ ...s.tenants[0], id: 400000 + i, homeId: null, jobId: null });
   const spots = sim.maxApplicants(s);
@@ -2293,7 +2140,7 @@ test('the parade loop goes round the town and returns to its start', () => {
   assert.ok(r.every((t) => sim.isRoadAt(s, t.x, t.y)));
 });
 
-test('landmarks: one of each, stages need materials, and they lift the whole town', () => {
+test('landmarks: one of each, three stages for coins only, and they lift the whole town', () => {
   const { s, diner } = smallTown();
   allGoalsDone(s);
   const now = s.lastTick;
@@ -2301,19 +2148,16 @@ test('landmarks: one of each, stages need materials, and they lift the whole tow
   const sky = put(s, 'skyscraper', now);
   assert.match(sim.canBuild(s, 'skyscraper', ...freeLot(s)).reason || '', /already/);
   const rate = sim.ratePerMin(s, diner);
-  // stage 2 needs materials
-  s.mats = { wood: 0, stone: 0, bricks: 0 };
-  assert.match(sim.upgrade(s, sky.id, now).reason, /wood/);
-  s.mats = { wood: 300, stone: 300, bricks: 300 };
   assert.ok(sim.upgrade(s, sky.id, now).ok);
-  assert.equal(s.mats.wood, 300 - TUNING.landmarkMats[2]);
+  assert.ok(sim.upgrade(s, sky.id, now).ok);
+  assert.equal(sim.upgrade(s, sky.id, now).ok, false, 'a landmark stops at stage 3');
+  assert.equal(sim.maxLevelOf(sky), 3);
   assert.ok(sim.ratePerMin(s, diner) > rate, 'the skyscraper lifts shop sales');
   const park = put(s, 'grandpark', now);
   const home = s.buildings.find((b) => config.BUILDINGS[b.type].kind === 'home');
   assert.ok(sim.homeBoost(s, home, now) >= config.BUILDINGS.grandpark.landmark.per - 1e-9);
   assert.ok(park);
 });
-
 test('v47: rebuild a home in place, welcome everyone, savings count for a new town, mood cache stays fresh', () => {
   const s = fresh();
   const tent = put(s, 'tent', T0);
@@ -2348,4 +2192,69 @@ test('v47: rebuild a home in place, welcome everyone, savings count for a new to
   const diner = put(s3, 'diner', T0);
   sim.assignJob(s3, p.id, diner.id, T0);
   assert.ok(sim.happiness(s3, T0) > before);
+});
+
+test('v48: neighbours, families, the upgrade tree, five levels, and old market and materials saves refunded', () => {
+  // neighbours: a shop sells more with homes, a twin and green space close by; homes like shops nearby
+  Object.assign(TUNING.neighbours, HOOD);
+  try {
+    const s = fresh();
+    const tent = put(s, 'tent', T0);
+    const diner = put(s, 'diner', T0);
+    const near = sim.neighbourBonus(s, diner, T0);
+    assert.ok(near.pct > 0 && near.parts.some((p) => /home/.test(p.why)));
+    assert.ok(sim.neighbourBonus(s, tent, T0).parts.some((p) => /shop/.test(p.why)));
+    assert.ok(sim.spotBonus(s, diner.x, diner.y, 'food', T0, diner.id).pct === near.pct);
+    const a = person(s, tent, T0, { skill: 5 });
+    sim.assignJob(s, a.id, diner.id, T0);
+    const r0 = sim.ratePerMin(s, diner);
+    s.upgrades = { marketing: 1, pedestrian: 1, trade: 1, port: 1, bikes: 1, welcome: 1, interview: 1 };
+    for (let i = s.tenants.length; i < 12; i++) s.tenants.push({ ...s.tenants[0], id: 500000 + i, homeId: null, jobId: null });
+    s.coins = 1e7;
+    assert.ok(sim.buyUpgrade(s, 'planning', T0).ok);
+    assert.ok(sim.ratePerMin(s, diner) > r0, 'town planning makes neighbour bonuses bigger');
+  } finally { for (const k of Object.keys(TUNING.neighbours)) if (k !== 'radius') TUNING.neighbours[k] = 0; }
+
+  // the tree: a node needs the one above it
+  const t = fresh();
+  t.coins = 1e7;
+  assert.match(sim.buyUpgrade(t, 'roads', T0).reason, /car/);
+  assert.match(sim.treeIssue(t, 'architects'), /Construction crew/);
+  assert.ok(sim.buyUpgrade(t, 'crew', T0).ok); assert.ok(sim.buyUpgrade(t, 'architects', T0).ok);
+  const shop = put(t, 'diner', T0);
+  assert.equal(sim.upgradeCost(t, shop), Math.round(BUILDINGS.diner.cost * TUNING.upgradeCost[1] * (1 - config.UPGRADES.architects.per)));
+  for (const br of config.TREE) for (const k of br.nodes) assert.ok(k === 'car' || config.UPGRADES[k], `${k} is a real upgrade`);
+
+  // families: two grown-ups and a free room; the kid pays no rent, can't work, then grows up
+  const f = fresh();
+  const house = put(f, 'house', T0);
+  person(f, house, T0); person(f, house, T0);
+  allGoalsDone(f);
+  const rent0 = sim.rentPerDay(f);
+  for (let h = 1; h <= 60 && !f.tenants.some((x) => x.kid); h++) sim.advance(f, T0 + h * HOUR);
+  const kid = f.tenants.find((x) => x.kid);
+  assert.ok(kid, 'a kid is born within a couple of days');
+  assert.equal(kid.homeId, house.id); assert.equal(f.stats.kids, 1);
+  assert.equal(sim.rentPerDay(f), rent0, 'kids pay no rent');
+  const work = put(f, 'diner', f.lastTick);
+  assert.equal(sim.assignJob(f, kid.id, work.id, f.lastTick).ok, false);
+  assert.ok(!sim.unemployed(f).includes(kid));
+  const back = S.migrate(JSON.parse(JSON.stringify(f)));
+  assert.ok(back.tenants.find((x) => x.id === kid.id).kid, 'a kid survives saving');
+  sim.advance(f, kid.grownAt + HOUR);
+  assert.equal(kid.kid, false, 'grown up');
+  assert.ok(sim.assignJob(f, kid.id, work.id, f.lastTick).ok);
+  assert.ok(f.goalsDone.includes('family1'));
+
+  // an old save with a stock exchange, shares, a quarry and materials gets it all back as coins
+  const old = JSON.parse(JSON.stringify(fresh()));
+  old.coins = 100;
+  old.buildings.push({ id: 900010, type: 'exchange', x: 0, y: 0, readyAt: 0, paid: 5000, level: 1 }, { id: 900011, type: 'quarry', x: 1, y: 0, readyAt: 0, paid: 1200, level: 2 });
+  old.market = { prices: { farm: 120 }, prev: {}, shares: { farm: 10 }, paid: { farm: 1000 } };
+  old.mats = { wood: 10, stone: 0, bricks: 0 };
+  old.daily = { day: 'x', paid: false, tasks: [{ kind: 'restocks', need: 2, base: 0 }] };
+  const m = S.migrate(old);
+  assert.equal(m.coins, 100 + 5000 + 1200 + 1200 + 120);
+  assert.ok(!m.buildings.some((b) => ['exchange', 'quarry'].includes(b.type)));
+  assert.equal(m.market, undefined); assert.equal(m.mats, undefined); assert.equal(m.daily, null);
 });

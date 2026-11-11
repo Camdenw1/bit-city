@@ -431,7 +431,6 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     const cfg = BUILDINGS[b.type];
     if (!cfg) return null;
     if (cfg.kind === 'biz') {
-      if (safe(() => bizStatus(f.state, b, f.now), null) === 'out-of-stock') return 'box';
       if (safe(() => problemOf(f.state, b.id), null)) return 'trouble';
       if (f.anyUnemployed) {
         const slots = cfg.slots ?? 2;
@@ -929,6 +928,49 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
 
   // ---------- map pieces ----------
 
+  // Levels 4 and 5 (v48) grow the building a floor each: the slice of wall under the roof is
+  // repeated and the roof rises into the lot behind, like the towers do.
+  const FLOOR_AT = 6, FLOOR_H = 5;
+  const grownCache = new Map();
+  // only real buildings grow floors: not towers, landmarks, tents, farms (fields) or parks and trees
+  const floorsOf = (b) => {
+    const d = BUILDINGS[b.type];
+    if (!d || TALL[b.type] || b.type === 'tent' || d.crop || ['landmark', 'park'].includes(d.kind) || d.rentBoost) return 0;
+    return Math.max(0, (b.level || 1) - 3);
+  };
+  function grownSprite(id, floors) {
+    const key = id + '/' + floors;
+    let c = grownCache.get(key);
+    if (c) return c;
+    const src = getSprite(id);
+    c = document.createElement('canvas');
+    c.width = src.width; c.height = src.height + floors * FLOOR_H;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.drawImage(src, 0, 0, src.width, FLOOR_AT, 0, 0, src.width, FLOOR_AT);                       // roof
+    // each new floor: the outline of the wall under the roof, filled with plain wall and two windows
+    // (repeating the slice itself would repeat a shop's picture)
+    const px = src.getContext('2d').getImageData(0, FLOOR_AT, src.width, 1).data;
+    const at = (x) => `rgba(${px[x * 4]},${px[x * 4 + 1]},${px[x * 4 + 2]},${px[x * 4 + 3] / 255})`;
+    let l = 0; while (l < src.width && px[l * 4 + 3] === 0) l++;               // the wall's left and right edges
+    let r = src.width - 1; while (r > l && px[r * 4 + 3] === 0) r--;
+    const wall = at(Math.min(r, l + 2));
+    for (let i = 0; i < floors; i++) {
+      const y = FLOOR_AT + i * FLOOR_H;
+      g.fillStyle = at(l); g.fillRect(l, y, 1, FLOOR_H);
+      g.fillStyle = at(r); g.fillRect(r, y, 1, FLOOR_H);
+      g.fillStyle = wall; g.fillRect(l + 1, y, r - l - 1, FLOOR_H);
+      for (const wx of [l + 3, r - 5]) {
+        g.fillStyle = '#3b2f4a'; g.fillRect(wx, y + 1, 3, 3);
+        g.fillStyle = '#9fd3f0'; g.fillRect(wx + 1, y + 2, 1, 1);
+      }
+      g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(l + 1, y + FLOOR_H - 1, r - l - 1, 1);   // a faint floor line
+    }
+    g.drawImage(src, 0, FLOOR_AT, src.width, src.height - FLOOR_AT, 0, FLOOR_AT + floors * FLOOR_H, src.width, src.height - FLOOR_AT);
+    grownCache.set(key, c);
+    return c;
+  }
+
   function drawBuilding(b, f) {
     const top = b.y * TILE - OVERLAP;
     if (f.built.get(b)) {
@@ -936,6 +978,9 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       if (tall) {                                            // towers rise into the lot behind
         const spr = getSprite(tall);
         blit(spr, b.x * TILE, b.y * TILE + TILE - spr.height);
+      } else if (floorsOf(b)) {
+        const spr = grownSprite(buildingSpriteId(b), floorsOf(b));
+        blit(spr, b.x * TILE, top + TILE - spr.height);
       } else blit(getSprite(buildingSpriteId(b)), b.x * TILE, top);
       const lv = b.level || 1, x0 = b.x * TILE;
       const kind = BUILDINGS[b.type]?.kind;
@@ -953,8 +998,10 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         rect(x0 + 2, top + 14, 1, 1, '#e85d8a'); rect(x0 + 13, top + 14, 1, 1, '#f2c14e');
       }
       if (lv >= 3 && !tall) {
-        rect(x0 + 1, top + 1, 14, 1, '#f2c14e');
-        if (shop) { rect(x0 + 14, top - 1, 1, 3, '#3b2f4a'); rect(x0 + 12, top - 1, 2, 1, '#e85d8a'); }
+        const up = top - floorsOf(b) * FLOOR_H;               // the roof line, raised by any new floors
+        rect(x0 + 1, up + 1, 14, 1, '#f2c14e');
+        if (shop) { rect(x0 + 14, up - 1, 1, 3, '#3b2f4a'); rect(x0 + 12, up - 1, 2, 1, lv >= 5 ? '#f2c14e' : '#e85d8a'); }
+        if (lv >= 5 && floorsOf(b)) { rect(x0 + 1, up + FLOOR_AT, 1, floorsOf(b) * FLOOR_H, '#f2c14e'); rect(x0 + 14, up + FLOOR_AT, 1, floorsOf(b) * FLOOR_H, '#f2c14e'); }
       }
       return;
     }
@@ -1010,7 +1057,11 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
       if (hash2(p.x + Math.floor(seed * 97), Math.floor(p.y / 3) * 7 + Math.floor(p.x / 4)) < 0.18) continue;
-      rect(b.x * TILE + p.x, top + p.y, 1, 1, (p.x + p.y) % 2 ? '#ffd97a' : '#ffe9a6');
+      const col = (p.x + p.y) % 2 ? '#ffd97a' : '#ffe9a6';
+      const fl = floorsOf(b);
+      if (!fl || p.y >= FLOOR_AT + FLOOR_H) rect(b.x * TILE + p.x, top + p.y, 1, 1, col);
+      else if (p.y < FLOOR_AT) rect(b.x * TILE + p.x, top + p.y - fl * FLOOR_H, 1, 1, col);
+      else rect(b.x * TILE + p.x, top + p.y, 1, 1, col);
     }
     ctx.globalAlpha = 1;
   }
@@ -1332,10 +1383,6 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         }
         if (icon === 'trouble') {             // a shop problem: same corner as sold out, tap the shop to see it
           blit(getSprite('hint_trouble'), b.x * TILE, b.y * TILE + bobOf(b, rt));
-          continue;
-        }
-        if (icon === 'box') {                 // sold out: a bigger badge on the other corner, one tap restocks
-          blit(getSprite('hint_stock'), b.x * TILE, b.y * TILE + bobOf(b, rt));
           continue;
         }
         blit(bubble, b.x * TILE + (TILE - bubble.width) / 2, by);

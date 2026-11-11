@@ -694,8 +694,6 @@ for (const d of Object.values(BUILDINGS)) {
 }
 BUILD.trade = () => shop('trade', 'trade');
 BUILD.yard = () => shop('yard', 'yard');
-BUILD.exchange = () => shop('exchange', 'exchange');
-for (const id of ['lumber', 'quarry', 'brickworks']) BUILD[id] = () => shop(id, 'source');
 BUILD.busstop = () => shop('busstop', 'transit');
 for (const id of ['station', 'port', 'airport']) BUILD[id] = () => shop(id, 'gateway');
 for (const cat of Object.keys(CAT_STYLE)) SHOP_SPRITES.push([`mystery_${cat}`, () => shop('mystery', cat)]);

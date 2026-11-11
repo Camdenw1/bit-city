@@ -1,7 +1,7 @@
 // Mini Mayor — state: new game, save/load (with backup copy), export/import, local day.
 // Pure: the only platform access is localStorage inside save()/load(), always guarded.
 
-import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats, TRAITS, HINTS, UPGRADES, VIPS, STOCKS, MATERIALS, TOWN_PERKS, PERM_PERKS, TOWN_NAME_PARTS } from './config.js';
+import { BUILDINGS, CARS, CATEGORIES, FIRST_NAMES, GOALS, PARCELS, PROBLEMS, QUALITY, RECIPES, TUNING, levelMult, shopStats, TRAITS, HINTS, UPGRADES, VIPS, PROMISES, TOWN_PERKS, PERM_PERKS, TOWN_NAME_PARTS } from './config.js';
 
 export const SAVE_KEY = 'bitcity.save.v1';
 const EXPORT_PREFIX = 'BITCITY1:';
@@ -128,7 +128,7 @@ export function newGame(now) {
     coins: TUNING.startCoins,
     gems: TUNING.startGems,
     nextId: 1,
-    stats: { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0, rebuilds: 0 },
+    stats: { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0, rebuilds: 0, kids: 0 },
     buildings: [],
     tenants: [],
     applicants: [],
@@ -142,7 +142,6 @@ export function newGame(now) {
     seen: { types: [], traits: [], vips: [], pages: [] },   // collection book: what you've had in town, pages paid
     festivalUntil: 0,                  // a festival runs until then
     festivalReadyAt: 0,                // the next festival can start from then
-    mats: { wood: 0, stone: 0, bricks: 0 },   // building materials in store
     mayor: { xp: 0, spent: {} },       // mayor XP and the town perks bought with mayor levels (reset on prestige)
     legacy: { points: 0, perks: {}, towns: 1, oldTowns: [] },   // prestige: points, permanent perks, towns founded, sister towns (kept for good)
     lastCareDay: null,
@@ -152,7 +151,6 @@ export function newGame(now) {
     ribbons: [],
     daily: null,                       // today's promises: { day, tasks: [{ kind, need, base }], paid }                       // new buildings waiting for a ribbon cutting: { id, until }                       // the highest city tier announced                      // the last season seen (for the season-change toast)
     rivalSeen: {},                     // rival town -> the last population milestone posted                 // the local day the sister towns' care packages last came
-    market: null,                      // stock market: { prices, prev, shares, paid } (made when first needed)
     vip: null,                         // a VIP waiting on the entry road: { kind, name, look, arrivedAt, leaveAt }
     nextVipAt: now + TUNING.vipGapMaxMs,
     nextPostAt: now + TUNING.postGapMs,
@@ -226,6 +224,9 @@ function fixPerson(p) {
   if (!isNum(p.homeId)) p.homeId = null;
   if (!isNum(p.jobId)) p.jobId = null;
   p.dreamDone = !!p.dreamDone;
+  // families (v48): a kid has kid, bornAt, grownAt and parents
+  if (p.kid && isNum(p.grownAt) && isNum(p.homeId)) { p.kid = true; p.jobId = null; if (!isNum(p.bornAt)) p.bornAt = p.grownAt - TUNING.growUpMs; if (!Array.isArray(p.parents)) p.parents = []; }
+  else { delete p.kid; delete p.grownAt; delete p.bornAt; delete p.parents; }
   // newcomers and traits (2026-11-10): older people have no trait and fully known skills
   p.star = !!p.star;
   p.trait = TRAITS[p.trait] ? p.trait : null;
@@ -264,7 +265,7 @@ export function migrate(state) {
     state.gems = isNum(state.gems) ? Math.max(0, Math.floor(state.gems)) : 0;
     const st = state.stats && typeof state.stats === 'object' ? state.stats : {};
     state.stats = {};
-    for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks', 'visitors', 'vips', 'festivals', 'moveIns', 'jobsDone', 'rebuilds']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
+    for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks', 'visitors', 'vips', 'festivals', 'moveIns', 'jobsDone', 'rebuilds', 'kids']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
 
     // City infrastructure no longer takes lots (2026-11-11): placed bus stops, stations, ports and
     // airports become City levels (none lost) and their lots are freed
@@ -277,6 +278,19 @@ export function migrate(state) {
         for (const t of ['station', 'port', 'airport']) if (n(t)) up[t] = Math.max(up[t] || 0, 1);
         state.buildings = state.buildings.filter((b) => !old.includes(b));
       }
+    }
+    // v48 cut the stock market and building materials: everything you had in them comes back as
+    // coins (the buildings at what you paid, shares at this hour's price, materials at import price)
+    {
+      const gone = state.buildings.filter((b) => b && ['exchange', 'lumber', 'quarry', 'brickworks'].includes(b.type));
+      let back = gone.reduce((n, b) => n + (isNum(b.paid) ? b.paid : 0), 0);
+      const m = state.market;
+      if (m && typeof m === 'object' && m.shares && m.prices) for (const id of Object.keys(m.shares)) if (isNum(m.shares[id]) && isNum(m.prices[id])) back += m.shares[id] * m.prices[id];
+      const price = { wood: 12, stone: 16, bricks: 24 };
+      if (state.mats && typeof state.mats === 'object') for (const k of Object.keys(price)) if (isNum(state.mats[k])) back += Math.max(0, state.mats[k]) * price[k];
+      if (back > 0) state.coins += Math.floor(back);
+      state.buildings = state.buildings.filter((b) => !gone.includes(b));
+      delete state.market; delete state.mats;
     }
     state.buildings = state.buildings.filter(
       (b) => b && typeof b === 'object' && isNum(b.id) && BUILDINGS[b.type] && isNum(b.x) && isNum(b.y)
@@ -344,25 +358,10 @@ export function migrate(state) {
     if (typeof state.season !== 'string') state.season = null;
     if (!isNum(state.tierSeen)) state.tierSeen = 0;
     if (typeof state.townName !== 'string' || !state.townName.trim()) state.townName = townNameFromSeed(state.worldSeed);
-    if (!state.daily || typeof state.daily !== 'object' || !Array.isArray(state.daily.tasks)) state.daily = null;
+    if (!state.daily || typeof state.daily !== 'object' || !Array.isArray(state.daily.tasks) || state.daily.tasks.some((t) => !t || !PROMISES[t.kind])) state.daily = null;
     state.ribbons = (Array.isArray(state.ribbons) ? state.ribbons : []).filter((r) => r && isNum(r.id) && isNum(r.until));
     if (!state.rivalSeen || typeof state.rivalSeen !== 'object') state.rivalSeen = {};
     for (const k of Object.keys(PERM_PERKS)) { const r = (legacy.perks || {})[k]; if (isNum(r) && r > 0) state.legacy.perks[k] = Math.min(PERM_PERKS[k].max, Math.round(r)); }
-    // building materials (2026-11-11)
-    const mats = state.mats && typeof state.mats === 'object' ? state.mats : {};
-    state.mats = {};
-    for (const k of Object.keys(MATERIALS)) state.mats[k] = isNum(mats[k]) ? Math.max(0, Math.min(TUNING.matCap, mats[k])) : 0;
-    // stock market (2026-11-11)
-    if (state.market && typeof state.market === 'object') {
-      const m = state.market;
-      for (const k of ['prices', 'prev', 'shares', 'paid']) if (!m[k] || typeof m[k] !== 'object') m[k] = {};
-      for (const id of Object.keys(STOCKS)) {
-        m.prices[id] = isNum(m.prices[id]) && m.prices[id] > 0 ? m.prices[id] : 100;
-        m.prev[id] = isNum(m.prev[id]) && m.prev[id] > 0 ? m.prev[id] : m.prices[id];
-        m.shares[id] = isNum(m.shares[id]) && m.shares[id] > 0 ? m.shares[id] : 0;
-        m.paid[id] = isNum(m.paid[id]) && m.paid[id] > 0 ? m.paid[id] : 0;
-      }
-    } else state.market = null;
     // VIPs (2026-11-10)
     if (!isNum(state.nextVipAt)) state.nextVipAt = state.lastTick + TUNING.vipGapMaxMs;
     if (!state.vip || typeof state.vip !== 'object' || !VIPS[state.vip.kind] || !isNum(state.vip.leaveAt)) state.vip = null;

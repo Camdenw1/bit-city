@@ -1,6 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
-export const VERSION = 47;           // shown in Menu; keep in step with CACHE in sw.js
+export const VERSION = 48;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;
@@ -88,7 +88,6 @@ export const TUNING = {
   teamStars: [0.4, 0.7, 0.95],   // team meter share for 1, 2 and 3 stars
   slotAtLevel: 3,                // a shop at this level gets one more job
   dreamBonus: 0.25,              // dream factor = 1 + 0.25 * dreamStars
-  restockMinFraction: 0.25,      // a restock always fills at least this much of the shelf
   rideFirstDelayMs: 20000,       // first ride can appear this long after a new game
   deliveryUnlockPop: 6,
   deliveryChance: 0.25,
@@ -136,14 +135,19 @@ export const TUNING = {
   nearRadius: 2,                 // a building that needs mountains, woods or water must be this close to some
   cropPerHour: 10,               // crops one farmer grows per real hour (more farmers: in step with staffFactor)
   recipeBonus: 0.1,              // extra sales for every food shop, per recipe the town knows
+  // v48 neighbours: within `radius` lots. Shops: +home per home (to homeMax), +twin per shop of
+  // the same kind (to twinMax), +green once for a park or tree. Homes: +homeShop per shop.
+  neighbours: { radius: 2, home: 0.04, homeMax: 0.2, twin: 0.08, twinMax: 0.16, green: 0.1, homeShop: 0.03, homeShopMax: 0.12 },
+  familyChance: 0.12,            // v48 families: chance an hour that a home with two adults and a free room has a kid
+  growUpMs: 6 * 3600000,         // kids grow up into workers after this long
   parkRadius: 2,                 // parks boost homes this many lots away (2 reaches across a road)
   parkBoostMax: 0.5,             // most extra rent one home can get from parks
   landBasePrice: 20000,          // the first extra parcel; each one after costs x landGrowth
   landGrowth: 2,
   waterfrontBoost: 0.1,          // extra rent for a home next to water
-  maxLevel: 3,
+  maxLevel: 5,                   // v48: five levels, each drawn taller
   levelBonus: 0.5,               // each level above 1 adds this much rent / sales / stock / reach
-  upgradeCost: [0, 2, 5],        // x the building's base price to go from level 1 -> 2, and 2 -> 3
+  upgradeCost: [0, 2, 5, 12, 25], // x the building's base price to go from level 1 -> 2, 2 -> 3 ...
   importMarkup: 2.5,             // importing a crop costs this x its usual price (always more than selling pays)
   festivalUnlockPop: 10,         // festivals: from this many residents...
   festivalHappy: 85,             // ...when the town is this happy, a bubble on the town square starts one
@@ -153,16 +157,8 @@ export const TUNING = {
   nightMarketFrom: 19,           // the night market: game hours 19-23, food and fun shops sell 25% more
   nightMarketTo: 23,
   nightMarketBoost: 0.25,
-  stockCapMinutes: 60,           // the most you can have invested: an hour of the town's shop income
-  stockSwing: 0.16,              // an hour's price change is luck in +-8%...
-  stockLean: 0.06,               // ...plus up to +-3% from how strong your town is in that part
-  matPerHour: 8,                 // a source building makes this many materials an hour (x level)
-  matCap: 300,                   // the most of each material you can store
-  matDiscount: 0.3,              // paying an upgrade with materials takes this much off the coins
-  matPerLevel: [0, 0, 12, 30],   // wood and stone an upgrade to level 2 / 3 uses (bricks: half)
   seasonDays: 2,                 // each season lasts this many real days
   promiseRewardMinutes: 20,      // keeping all three promises pays this many minutes of play income, + 3 gems
-  landmarkMats: [0, 0, 80, 200],  // wood and stone a landmark's stage 2 / 3 needs (bricks: half); not optional
   ribbonMs: 60000,               // a new building's ribbon waits this long to be cut
   ribbonMinutes: 0.5,            // cutting it pays this many minutes of the town's play income
   tentRetirePop: 20,             // from this many residents, Tents are no longer built (Camden)
@@ -290,16 +286,6 @@ export const PERM_PERKS = {
   away:   { name: 'Night shift',     per: 0.1,  max: 5, cost: 2, says: (r) => `shops earn +${Math.round(r * 10)}% while you're away` },
 };
 
-// ---- Building materials (the light version Camden approved) -----------------------
-// Three source buildings make them by themselves (no workers). They are never required: any
-// upgrade can instead be paid partly in materials, `matDiscount` off the coins. The Trading
-// Post imports any you're short of. `price` is the import price per unit.
-export const MATERIALS = {
-  wood:   { name: 'Wood',   emoji: '🪵', source: 'lumber',     price: 12 },
-  stone:  { name: 'Stone',  emoji: '🪨', source: 'quarry',     price: 16 },
-  bricks: { name: 'Bricks', emoji: '🧱', source: 'brickworks', price: 24 },
-};
-
 // ---- Seasons --------------------------------------------------------------------------
 // Each lasts `seasonDays` real (local) days. Small effects only: crop growth, visitors, contract pay.
 export const SEASONS = [
@@ -313,7 +299,6 @@ export const SEASONS = [
 // Three a day from this list; `stat` is the counter that counts towards it, `need` how many.
 export const PROMISES = {
   rides:     { stat: 'rides',     need: 3,  text: (n) => `Give ${n} rides` },
-  restocks:  { stat: 'restocks',  need: 2,  text: (n) => `Restock ${n} shops` },
   moveIns:   { stat: 'moveIns',   need: 2,  text: (n) => `Welcome ${n} newcomers` },
   jobsDone:  { stat: 'jobsDone',  need: 2,  text: (n) => `Finish ${n} town jobs` },
   visitors:  { stat: 'visitors',  need: 8,  text: (n) => `Welcome ${n} visitors`, pop: 6 },
@@ -349,15 +334,6 @@ export const RIVALS = [
   { town: 'Willow Creek', start: 20, cap: 230, days: 5 },
 ];
 
-// ---- Stock market (the Stock Exchange building) ----------------------------------
-// Prices move at the top of every hour: some luck, plus a lean towards the parts of your town
-// that are strong (a town full of farms lifts Farm Co). You can lose coins; how much you can
-// have invested is capped at `stockCapMinutes` of the town's shop income, so it stays mild.
-export const STOCKS = {
-  farm: { name: 'Farm Co',  icon: 'cat_farming',  cats: ['farming'] },
-  shop: { name: 'Shop Ltd', icon: 'cat_retail',   cats: ['retail', 'service'] },
-  fun:  { name: 'Fun Inc',  icon: 'cat_creative', cats: ['creative', 'food'] },
-};
 
 // ---- Upgrades (the Upgrades tab) ---------------------------------------------
 // Each is a short ladder paid in coins. `per` is how much one level changes things.
@@ -392,8 +368,26 @@ export const UPGRADES = {
   repair:    { group: 'ops', name: 'Repair team',       icon: 'star',   per: 0.2,  costs: [2000, 10000, 50000],
                says: (l) => `Shop problems cost ${Math.round(l * 20)}% less and stations fix them ${Math.round(l * 20)}% faster` },
   marketing: { group: 'ops', name: 'Marketing',         icon: 'coin',   per: 0.5,  costs: [1500, 9000, 45000],
-               says: (l) => `Ads (see "Run an ad" above) last ${l * 30} minutes longer` },
+               says: (l) => `Ads last ${l * 30} minutes longer` },
+  // v48, with the tree: these replace building materials and help big towns stay happy
+  architects: { group: 'ops', name: 'Architects',       icon: 'hammer', per: 0.1,  costs: [4000, 20000, 90000],
+               says: (l) => `Building upgrades cost ${l * 10}% less` },
+  planning:  { group: 'city', name: 'Town planning',    icon: 'heart',  per: 0.25, unlockPop: 10, costs: [6000, 30000],
+               says: (l) => `Neighbour bonuses are ${l * 25}% bigger` },
+  outreach:  { group: 'city', name: 'Outreach',         icon: 'person', per: 1,    unlockPop: 20, costs: [8000, 40000],
+               says: (l) => `Clinics, schools, police and parks reach ${l} more ${l === 1 ? 'lot' : 'lots'}` },
 };
+
+// ---- The upgrade tree (v48, Camden: "a tree like visual") ---------------------------------
+// Five branches from the town hall. Each node needs the one above it bought (level 1+) and its
+// own `unlockPop`. 'car' is the car ladder (CARS); everything else is an UPGRADES id.
+export const TREE = [
+  { id: 'homes',     name: 'Homes',     color: '#5bb450', nodes: ['bikes', 'welcome', 'interview', 'planning'] },
+  { id: 'shops',     name: 'Shops',     color: '#d9574a', nodes: ['marketing', 'pedestrian', 'trade', 'port'] },
+  { id: 'transport', name: 'Transport', color: '#f2a93b', nodes: ['car', 'roads', 'trucks', 'bus', 'station', 'airport'] },
+  { id: 'services',  name: 'Services',  color: '#4a90d9', nodes: ['repair', 'outreach'] },
+  { id: 'build',     name: 'Building',  color: '#9b6bd1', nodes: ['crew', 'architects'] },
+];
 
 // ---- Traits -------------------------------------------------------------------
 // Most people have none. Each trait has a clear upside and downside, so there are no
@@ -532,10 +526,6 @@ export const BUILDINGS = {
 BUILDINGS.university = town('university', 'University', 'civic', 1500, 600, 20, { gov: true, fav: true, provides: { need: 'education', serves: 30 }, lessons: 3 }, 'Big ideas, late nights and a very good library.');
 BUILDINGS.track = town('track', 'Running Track', 'park', 2000, 300, 10, { fav: true, provides: { need: 'beauty', serves: 8 }, rentBoost: 0.1 }, 'Laps before breakfast. Nearby homes pay more rent.');
 BUILDINGS.trail = town('trail', 'Hiking Trail', 'park', 2500, 300, 12, { fav: true, near: ['forest', 'mountain'], provides: { need: 'beauty', serves: 12 }, rentBoost: 0.15 }, 'A path up into the hills. Nearby homes pay more rent.');
-BUILDINGS.exchange = town('exchange', 'Stock Exchange', 'exchange', 5000, 240, 20, {}, 'Buy and sell shares in the town\'s businesses. Prices change every hour.');
-BUILDINGS.lumber = town('lumber', 'Lumber Yard', 'source', 900, 90, 12, { makes: 'wood' }, 'Saws and stacks of planks. Makes wood all day.');
-BUILDINGS.quarry = town('quarry', 'Quarry', 'source', 1200, 90, 12, { makes: 'stone' }, 'Hard hats and big rocks. Makes stone all day.');
-BUILDINGS.brickworks = town('brickworks', 'Brickworks', 'source', 1800, 120, 12, { makes: 'bricks' }, 'A warm kiln baking bricks all day.');
 // Landmarks: one of each, the end game. Stages 2 and 3 need building materials as well as coins.
 BUILDINGS.cityhall = town('cityhall', 'City Hall', 'landmark', 50000, 1800, 30, { landmark: { per: 0.25, says: (l) => `+${l * 25}% mayor XP and +${l * 10}% goal coins` } }, 'Where the mayor works. Big plans start here.');
 BUILDINGS.grandpark = town('grandpark', 'Grand Park', 'landmark', 80000, 1800, 40, { landmark: { per: 0.05, says: (l) => `+${l * 5}% rent for every home` } }, 'Lawns, a lake and a bandstand. Everyone wants to live near it.');
@@ -602,7 +592,7 @@ export const GOALS = [
   { id: 'movein',  text: 'Move someone into a home',              reward: { coins: 30 } },
   { id: 'diner',   text: 'Open a Food shop',                      reward: { coins: 40 } },
   { id: 'hire',    text: 'Give a resident a job',                 reward: { coins: 40 } },
-  { id: 'restock', text: 'Restock a shop or hire a dream worker', reward: { coins: 30 } },
+  { id: 'restock', text: 'Build a shop next to homes (it sells more)', reward: { coins: 30 } },   // id kept for saves
   { id: 'ride',    text: 'Give a resident a ride',                reward: { coins: 50, gems: 1 } },
   { id: 'pop4',    text: 'Reach 4 residents',                     reward: { coins: 50 } },
   { id: 'dream',   text: 'Put someone in their dream job',        reward: { coins: 50, gems: 1 } },
@@ -628,6 +618,7 @@ export const GOALS = [
   { id: 'festival1', text: 'Throw a festival',                    reward: { coins: 3000, gems: 3 } },
   { id: 'land1',   text: 'Buy more land',                         reward: { coins: 2000, gems: 3 } },
   { id: 'pop30',   text: 'Reach 30 residents',                    reward: { coins: 3000, gems: 3 } },
+  { id: 'family1', text: 'Start a family (two people in a home with room)', reward: { coins: 3000, gems: 3 } },
   { id: 'dream10', text: 'Put 10 residents in their dream jobs',  reward: { coins: 4000, gems: 3 } },
   { id: 'vip5',    text: 'Host 5 VIPs',                           reward: { coins: 5000, gems: 4 } },
   { id: 'contract3', text: 'Hold 3 contracts at once',            reward: { coins: 6000, gems: 4 } },
