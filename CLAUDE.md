@@ -126,6 +126,19 @@ covers running and publishing. This file holds the design decisions and the road
 - Goal progress (2026-11-10): goals with a number show it on the goal chip ("12/30", `goalProgress`
   in sim). Camden likes goals as the guide through the game. The recipe goal now says it means
   growing 30 veggies at 10 an hour per farmer; he had staffed a farm and thought it was broken.
+- Goals (2026-11-10): 40 now (17 added for teams, stars, VIPs, contracts, upgrades, the Yard,
+  visitors, friendship, festivals, dream jobs, 100/150 residents, the collection book, all land).
+  The goal chip opens the Goals page (scrolled to the next one); Menu also lists it. Goals finish
+  by themselves. A keen bot clears 35/40 in three days (it never sends VIPs or throws festivals).
+- Collection book (Menu): Buildings (land-bound types excluded), Residents (traits + star), VIPs,
+  Recipes. It fills itself (`noteSeen` in `checkGoals`, `state.seen`); a finished page pays
+  `collectionGems` (5) once, with a toast. No buttons to press.
+- Festivals: from 10 residents at 85%+ happy, a heart bubble on the town square
+  (`festivalSpot`: the plaza, or the entry road's town end) starts one with a tap: 30 min of +50%
+  sales and visitors twice as often, bunting on the square, then a 6 h rest. Free.
+- Night market: game hours 19-23, food and fun shops pay 25% more per sale, with a toast. Like
+  festivals it only applies while you play (`playExtras` in the sales step), so offline
+  catch-up stays exact.
 - Milestones are extra entries in `GOALS`; a building can need one via `unlockGoal`
   (Library: Town IQ 100, Fountain: 90% happy).
 - Upgrades: every building has levels 1-3 (`b.level`), each +50% rent / sales and stock /
@@ -283,8 +296,11 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - VIPs like Tiny Tower, and he sends them: tap the VIP, then tap the building (Builder, Big
   Spender, Critic, Celebrity, Inspector, Recruiter).
 - Mission payouts made comparable (done). Taps fixed again (done).
-- Added to the list: more goals plus a Goals page, festivals at high happiness, a collection book.
-  Not chosen: daily gift and streak.
+- Added to the list: more goals plus a Goals page, festivals at high happiness, a collection book
+  (all three done). Not chosen: daily gift and streak.
+- Then he said yes to all five of Claude's ideas (bus line, seasons, mayor level, rival towns,
+  night market) with one rule: "make sure when we add things we aren't over complicating things
+  for the user. it comes in seamless additions." Night market is done.
 
 ## How a session usually goes (what Camden expects)
 
@@ -311,7 +327,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (58 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (60 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

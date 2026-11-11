@@ -168,6 +168,15 @@ sim.events.on('vipUsed', ({ building }) => {
   renderer.burst(building.x, building.y, 'stars');
   audio.play('dream');
 });
+sim.events.on('festival', () => {
+  if (quiet) return;
+  ui.toast('🎉 Festival! For 30 minutes every shop sells 50% more and visitors come twice as often.');
+});
+sim.events.on('pageDone', ({ page }) => {
+  if (quiet) return;
+  audio.play('dream');
+  ui.toast(`Collection book: the ${page.name} page is complete! +${config.TUNING.collectionGems} gems`);
+});
 sim.events.on('friendUp', ({ town, level }) => {
   if (quiet) return;
   audio.play('goal');
@@ -244,6 +253,7 @@ renderer.onTap(({ x, y, building, parcel, activity, kind }) => {
   if (parcel) { if (state.ride?.state !== 'choosing') { audio.play('tap'); ui.openLand(parcel); } return; }
   if (activity === 'newcomers') { audio.play('tap'); ui.openNewcomers(); return; }
   if (activity === 'vip') { audio.play('tap'); ui.openVip(); return; }
+  if (activity === 'festival') { const r = act('startFestival'); if (r?.ok) { audio.play('dream'); renderer.burst(x, y, 'stars'); } else if (r?.reason) ui.toast(r.reason); return; }
   if (activity === 'job' && building) { audio.play('tap'); ui.startJob(kind, building.id); return; }
   const now = getNow();
   const ride = state.ride;

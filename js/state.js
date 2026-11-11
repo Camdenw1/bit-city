@@ -120,7 +120,7 @@ export function newGame(now) {
     coins: TUNING.startCoins,
     gems: TUNING.startGems,
     nextId: 1,
-    stats: { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0 },
+    stats: { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0 },
     buildings: [],
     tenants: [],
     applicants: [],
@@ -131,6 +131,9 @@ export function newGame(now) {
     nextShopAt: now + TUNING.residentShopGapMs,  // residents' own shopping, also only while you play
     contracts: [],                     // standing hourly deliveries: { id, town, crop, signedAt, done, missed }
     friends: {},                       // town -> deliveries made (friendship)
+    seen: { types: [], traits: [], vips: [], pages: [] },   // collection book: what you've had in town, pages paid
+    festivalUntil: 0,                  // a festival runs until then
+    festivalReadyAt: 0,                // the next festival can start from then
     vip: null,                         // a VIP waiting on the entry road: { kind, name, look, arrivedAt, leaveAt }
     nextVipAt: now + TUNING.vipGapMaxMs,
     nextPostAt: now + TUNING.postGapMs,
@@ -241,7 +244,7 @@ export function migrate(state) {
     state.gems = isNum(state.gems) ? Math.max(0, Math.floor(state.gems)) : 0;
     const st = state.stats && typeof state.stats === 'object' ? state.stats : {};
     state.stats = {};
-    for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks', 'visitors', 'vips']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
+    for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks', 'visitors', 'vips', 'festivals']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
 
     state.buildings = state.buildings.filter(
       (b) => b && typeof b === 'object' && isNum(b.id) && BUILDINGS[b.type] && isNum(b.x) && isNum(b.y)
@@ -290,6 +293,14 @@ export function migrate(state) {
     state.contracts = (Array.isArray(state.contracts) ? state.contracts : []).filter((c) => c && isNum(c.id) && typeof c.town === 'string' && typeof c.crop === 'string');
     for (const c of state.contracts) { c.done = isNum(c.done) ? c.done : 0; c.missed = isNum(c.missed) ? c.missed : 0; }
     if (!state.friends || typeof state.friends !== 'object') state.friends = {};
+    // collection book (2026-11-10): starts from what the town has now
+    const seen = state.seen && typeof state.seen === 'object' ? state.seen : {};
+    state.seen = {};
+    for (const k of ['types', 'traits', 'vips', 'pages']) state.seen[k] = Array.isArray(seen[k]) ? [...new Set(seen[k].filter((x) => typeof x === 'string'))] : [];
+    // festivals (2026-11-10)
+    if (!isNum(state.festivalUntil)) state.festivalUntil = 0;
+    if (!isNum(state.festivalReadyAt)) state.festivalReadyAt = 0;
+    if (!isNum(state.stats.festivals)) state.stats.festivals = 0;
     // VIPs (2026-11-10)
     if (!isNum(state.nextVipAt)) state.nextVipAt = state.lastTick + TUNING.vipGapMaxMs;
     if (!state.vip || typeof state.vip !== 'object' || !VIPS[state.vip.kind] || !isNum(state.vip.leaveAt)) state.vip = null;

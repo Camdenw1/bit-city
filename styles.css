@@ -1042,3 +1042,15 @@ body { position: fixed; inset: 0; }
 .post p { margin: 2px 0 0; font-size: 14px; line-height: 1.35; }
 .post-bad p { color: #a63d44; }
 .hearts { color: #e85d8a; font-size: 12px; letter-spacing: 1px; }
+
+/* ---------- goals and collection ---------- */
+.goal-row { display: flex; align-items: center; gap: 8px; padding: 7px 4px; border-bottom: 1px dashed rgba(59, 47, 74, 0.2); font-size: 14px; }
+.goal-row.is-done { opacity: 0.55; }
+.goal-row.is-next { background: #fff4c8; border-radius: 10px; }
+.goal-mark { width: 16px; text-align: center; font-weight: bold; color: #3d8848; }
+.goal-copy { flex: 1; min-width: 0; }
+.goal-reward { white-space: nowrap; font-size: 12px; }
+.coll { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
+.coll-item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border: 2px solid var(--ink); border-radius: 10px; background: #fffbee; text-align: center; }
+.coll-item small { font-size: 11px; line-height: 1.1; }
+.coll-item.is-missing { opacity: 0.45; }

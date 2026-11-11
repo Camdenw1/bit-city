@@ -121,7 +121,8 @@ export function createUI(root, api) {
   const restockCostOf = (b) => call('restockCostOf', b) || 0;
   let wishBuild = null;
   let movingId = null;
-  let vipSending = false;   // after "Send", the next building tapped is where the VIP goes
+  let vipSending = false;
+  let nightWas = null;      // was the night market open at the last refresh? (null = not checked yet)   // after "Send", the next building tapped is where the VIP goes
   let moveOutAsk = null;   // tenant id waiting for a yes on "Ask to move out"
   /** On move-in you learn the real skills and any trait. */
   function revealToast(t) {
@@ -287,6 +288,7 @@ export function createUI(root, api) {
       h.goal.hidden = false;
     } else if (goal) {
       const rw = goal.reward || {};
+      h.goal.dataset.act = 'nav-goals';                     // the chip opens the full list of goals
       const gp = call('goalProgress', s, goal, now);
       const html = `${icon('star', 1, 'i12')}<span class="goal-text">${esc(goal.text)}${gp ? ` <b class="goal-prog">${formatCoins(gp.have)}/${formatCoins(gp.need)}</b>` : ''}</span>` +
         `<span class="goal-reward">${rw.coins ? `+${formatCoins(rw.coins)}${icon('coin', 1, 'i12')}` : ''}${rw.gems ? `+${rw.gems}${icon('gem', 1, 'i12')}` : ''}</span>`;
@@ -304,6 +306,10 @@ export function createUI(root, api) {
     for (const t of s.tenants) { if (betterJob(t)) { nudge = true; break; } }
     if (h.peopleDot.hidden === nudge) h.peopleDot.hidden = !nudge;
 
+    // the night market: a toast when it opens (game hours 19-23)
+    const nm = !!call('nightMarket', s, now);
+    if (nightWas === false && nm) toast('🌙 The night market is open: food and fun shops sell 25% more until 11pm.');
+    nightWas = nm;
     // Feed: how many posts you haven't read
     const unread = call('unreadPosts', s) || 0;
     setText(h.feedCount, unread > 9 ? '9+' : String(unread));
@@ -933,6 +939,30 @@ export function createUI(root, api) {
       return { title: 'Jobs', html: `<p class="note">Jobs pay more as your town grows. Each one rests a little after you do it.</p>${rows}${carRow}` };
     },
 
+    /* --- Goals: the guide through the game --- */
+    goals() {
+      const s = S(); const now = N(); const done = new Set(s.goalsDone || []);
+      const next = call('nextGoal', s);
+      const rows = (config.GOALS || []).map((g) => {
+        const isDone = done.has(g.id); const isNext = next && next.id === g.id;
+        const gp = isDone ? null : call('goalProgress', s, g, now);
+        const rw = g.reward || {};
+        return `<div class="goal-row${isDone ? ' is-done' : ''}${isNext ? ' is-next' : ''}" data-key="g-${g.id}">
+          <span class="goal-mark">${isDone ? '✓' : isNext ? '★' : '·'}</span>
+          <span class="goal-copy">${esc(g.text)}${gp ? ` <b>${formatCoins(gp.have)}/${formatCoins(gp.need)}</b>` : ''}</span>
+          <span class="goal-reward">${rw.coins ? `${formatCoins(rw.coins)}${icon('coin', 1, 'i12')}` : ''}${rw.gems ? ` ${rw.gems}${icon('gem', 1, 'i12')}` : ''}</span></div>`;
+      }).join('');
+      return { title: `Goals · ${done.size}/${(config.GOALS || []).length}`, html: `<p class="note">Goals finish by themselves when you get there, and pay out right away.</p>${rows}` };
+    },
+
+    /* --- The collection book --- */
+    collection() {
+      const s = S(); const pages = call('collectionPages', s) || [];
+      const html = pages.map((p) => `<h3 class="sec">${esc(p.name)} · ${p.have}/${p.total}${p.done ? ' ✓' : ''}</h3>
+        <div class="coll">${p.entries.map((e) => `<span class="coll-item${e.found ? '' : ' is-missing'}" data-key="c-${p.id}-${e.id}">${p.id === 'buildings' ? bld(e.id, 2, e.found ? '' : 'shadowed') : icon(p.id === 'vips' ? ((config.VIPS || {})[e.id]?.icon || 'star') : p.id === 'recipes' ? 'cat_food' : 'person', 2)}<small>${e.found ? esc(e.name) : '???'}</small></span>`).join('')}</div>`).join('');
+      return { title: 'Collection book', html: `<p class="note">Everything your town has had. Finish a page for ${config.TUNING?.collectionGems ?? 5} gems.</p>${html}` };
+    },
+
     /* --- A VIP waiting on the entry road --- */
     vip() {
       const s = S(); const v = s.vip;
@@ -1070,6 +1100,8 @@ export function createUI(root, api) {
         title: 'Menu',
         html: `<button class="menu-row" data-act="toggle-sound" role="switch" aria-checked="${soundOn}">
             <span>Sound</span><i class="switch${soundOn ? ' on' : ''}"><i></i></i></button>
+          <button class="menu-row" data-act="nav-goals"><span>Goals</span><b class="chev">${(s.goalsDone || []).length}/${(config.GOALS || []).length} ›</b></button>
+          <button class="menu-row" data-act="nav-collection"><span>Collection book</span><b class="chev">${(call('collectionPages', s) || []).filter((p) => p.done).length}/${(call('collectionPages', s) || []).length} pages ›</b></button>
           <button class="menu-row" data-act="open-backup"><span>Back up my town</span><b class="chev">›</b></button>
           <button class="menu-row" data-act="open-restore"><span>Restore a backup</span><b class="chev">›</b></button>
           <h3 class="sec">My town · day ${days}</h3>
@@ -1395,6 +1427,8 @@ export function createUI(root, api) {
       if (r.ok) { toast(`Job done! +${formatCoins(r.pay)} coins`); closeSheet(); }
     },
     'nav-town': () => { wishBuild = null; openSheet({ kind: 'town' }); refreshHUD(); },
+    'nav-goals': () => { openSheet({ kind: 'goals' }); setTimeout(() => { try { els.body.querySelector('.is-next')?.scrollIntoView({ block: 'center' }); } catch (e) { /* cosmetic */ } }, 60); },
+    'nav-collection': () => openSheet({ kind: 'collection' }),
     'follow-wish': (el) => {
       const wish = call('mostWanted', S(), N())?.find((w) => w.id === el.dataset.id);
       if (!wish) return;

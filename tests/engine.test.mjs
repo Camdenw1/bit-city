@@ -140,7 +140,7 @@ test('newGame: shape and JSON round trip', () => {
   assert.equal(s.v, 1); assert.equal(s.createdAt, T0); assert.equal(s.lastTick, T0);
   assert.equal(s.lastRentHour, Math.floor(T0 / HOUR)); assert.equal(s.rentCarry, 0);
   assert.equal(s.coins, 250); assert.equal(s.gems, 2);
-  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0 });
+  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0 });
   assert.deepEqual(s.buildings, []); assert.deepEqual(s.tenants, []);
   assert.equal(s.applicants.length, 3);
   assert.equal(s.ride, null); assert.deepEqual(s.goalsDone, []); assert.deepEqual(s.settings, { sound: true });
@@ -1981,4 +1981,49 @@ test('contracts: sign once, hourly pickups pay well and build friendship, short 
   assert.ok(sim.cancelContract(s, town).ok);
   const old = JSON.parse(JSON.stringify(s)); delete old.contracts; delete old.friends;
   const m = S.migrate(old); assert.deepEqual(m.contracts, []); assert.deepEqual(m.friends, {});
+});
+
+test('collection book fills itself and pays a finished page once; new goals finish', () => {
+  const { s } = smallTown();
+  allGoalsDone(s);
+  let pages = sim.collectionPages(s);
+  assert.deepEqual(pages.map((p) => p.id), ['buildings', 'people', 'vips', 'recipes']);
+  assert.ok(pages[0].have >= 3, 'buildings in town count straight away');
+  // finish the VIPs page by hosting each kind
+  const gems = s.gems;
+  for (const kind of Object.keys(config.VIPS)) { s.vip = { kind, name: 'Vi', look: {}, arrivedAt: s.lastTick, leaveAt: s.lastTick + 1e9 }; s.seen.vips.push(kind); }
+  s.vip = null;
+  sim.advance(s, s.lastTick + 1000);
+  pages = sim.collectionPages(s);
+  assert.equal(pages.find((p) => p.id === 'vips').done, true);
+  assert.equal(s.gems, gems + TUNING.collectionGems, 'paid once');
+  sim.advance(s, s.lastTick + 1000);
+  assert.equal(s.gems, gems + TUNING.collectionGems, 'not paid twice');
+  // older saves get a book built from what they have
+  const old = JSON.parse(JSON.stringify(s)); delete old.seen;
+  assert.deepEqual(S.migrate(old).seen.vips, []);
+  // every goal has a test that can run
+  for (const g of config.GOALS) assert.equal(typeof sim.goalProgress(s, g, s.lastTick) === 'object', true, g.id);
+});
+
+test('festivals start from a happy town square and boost play; the night market lifts food and fun', () => {
+  const { s, diner } = smallTown();
+  allGoalsDone(s);
+  const now = s.lastTick;
+  assert.match(sim.festivalIssue(s, now), /residents/);
+  for (let i = s.tenants.length; i < TUNING.festivalUnlockPop; i++) person(s, put(s, 'tent', now), now);
+  const happy = sim.happiness(s, now);
+  if (happy < TUNING.festivalHappy) assert.match(sim.festivalIssue(s, now), /happy/);
+  else {
+    assert.ok(sim.startFestival(s, now).ok);
+    assert.equal(s.stats.festivals, 1);
+    assert.match(sim.startFestival(s, now).reason, /on/);
+    assert.ok(s.festivalReadyAt >= s.festivalUntil + TUNING.festivalCooldownMs);
+  }
+  assert.ok(sim.festivalSpot(s));
+  // the night market: game hours 19-23
+  const day = Math.floor(now / config.DAY_LENGTH_MS) * config.DAY_LENGTH_MS;
+  assert.equal(sim.nightMarket(s, day + config.DAY_LENGTH_MS * 20 / 24), true);
+  assert.equal(sim.nightMarket(s, day + config.DAY_LENGTH_MS * 12 / 24), false);
+  assert.ok(diner);
 });

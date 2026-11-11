@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick } from './state.js';
 
@@ -289,6 +289,23 @@ const GOAL_TESTS = {
   recipes: (s) => s.recipes.length >= RECIPES.length,
   pop60: (s) => s.tenants.length >= 60,
   land4: (s) => s.land.length >= 5,
+  team3: (s, now) => builtBiz(s, now).some((b) => teamPct(s, b) >= TUNING.teamStars[2] - 1e-9),
+  star: (s) => s.tenants.some((t) => t.star),
+  vip1: (s) => (s.stats.vips || 0) >= 1,
+  contract1: (s) => (s.contracts || []).length > 0 || Object.keys(s.friends || {}).length > 0,
+  upgrade3: (s) => Object.values(s.upgrades || {}).reduce((a, b) => a + b, 0) >= 3,
+  yard: (s) => s.buildings.some((b) => b.type === 'yard'),
+  visitors50: (s) => (s.stats.visitors || 0) >= 50,
+  friend1: (s) => NEIGHBOURS.some((t) => friendLevel(s, t) >= 1),
+  festival1: (s) => (s.stats.festivals || 0) >= 1,
+  dream10: (s) => s.stats.dreamJobs >= 10,
+  vip5: (s) => (s.stats.vips || 0) >= 5,
+  contract3: (s) => (s.contracts || []).length >= 3,
+  friend3: (s) => NEIGHBOURS.some((t) => friendLevel(s, t) >= 3),
+  pop100: (s) => s.tenants.length >= 100,
+  collect1: (s) => collectionPages(s).some((p) => p.done),
+  land8: (s) => s.land.length >= PARCELS.length,
+  pop150: (s) => s.tenants.length >= 150,
 };
 
 /** How far along a goal is, for goals with a number to reach: { have, need }, or null. */
@@ -309,8 +326,53 @@ export function goalProgress(state, goal, now = state.lastTick) {
     case 'happy90': return n(happiness(state, now), 90);
     case 'land1': return n(state.land.length - 1, 1);
     case 'land4': return n(state.land.length - 1, 4);
+    case 'land8': return n(state.land.length - 1, PARCELS.length - 1);
+    case 'pop100': return n(pop, 100);
+    case 'pop150': return n(pop, 150);
+    case 'visitors50': return n(state.stats.visitors || 0, 50);
+    case 'dream10': return n(state.stats.dreamJobs, 10);
+    case 'vip5': return n(state.stats.vips || 0, 5);
+    case 'contract3': return n((state.contracts || []).length, 3);
+    case 'upgrade3': return n(Object.values(state.upgrades || {}).reduce((a, b) => a + b, 0), 3);
     default: return null;
   }
+}
+
+// ---- the collection book ----------------------------------------------------------
+// Everything you have had in town, page by page. Pages fill in by themselves as you play, and a
+// finished page pays TUNING.collectionGems once. Land-bound buildings don't count towards the
+// Buildings page, since a town may never get the land they need.
+
+const TRAIT_ENTRIES = () => [...Object.keys(TRAITS), 'star'];
+function noteSeen(state) {
+  if (!state.seen) return;
+  const sn = state.seen;
+  for (const b of state.buildings) if (!sn.types.includes(b.type)) sn.types.push(b.type);
+  for (const t of state.tenants) {
+    if (t.trait && !sn.traits.includes(t.trait)) sn.traits.push(t.trait);
+    if (t.star && !sn.traits.includes('star')) sn.traits.push('star');
+  }
+  for (const p of collectionPages(state)) {
+    if (!p.done || sn.pages.includes(p.id)) continue;
+    sn.pages.push(p.id);
+    gainGems(state, TUNING.collectionGems);
+    events.emit('pageDone', { page: p });
+  }
+}
+/** The collection book: [{ id, name, entries: [{ id, name, found }], have, total, done }]. */
+export function collectionPages(state) {
+  const sn = state.seen || { types: [], traits: [], vips: [] };
+  const page = (id, name, list) => {
+    const have = list.filter((e) => e.found).length;
+    return { id, name, entries: list, have, total: list.length, done: list.length > 0 && have === list.length };
+  };
+  const types = Object.values(BUILDINGS).filter((d) => !d.near);
+  return [
+    page('buildings', 'Buildings', types.map((d) => ({ id: d.id, name: d.name, found: sn.types.includes(d.id) }))),
+    page('people', 'Residents', TRAIT_ENTRIES().map((k) => ({ id: k, name: k === 'star' ? 'Star' : TRAITS[k].name, found: sn.traits.includes(k) }))),
+    page('vips', 'VIPs', Object.keys(VIPS).map((k) => ({ id: k, name: VIPS[k].name, found: (sn.vips || []).includes(k) }))),
+    page('recipes', 'Recipes', RECIPES.map((r) => ({ id: r.id, name: r.name, found: state.recipes.includes(r.id) }))),
+  ];
 }
 
 export function nextGoal(state) {
@@ -332,6 +394,7 @@ function gainGems(state, amount) {
 
 /** Completes every goal whose condition is true and pays it out straight away. */
 function checkGoals(state, now) {
+  noteSeen(state);
   if (state.goalsDone.length >= GOALS.length) return;
   for (const goal of GOALS) {
     if (state.goalsDone.includes(goal.id)) continue;
@@ -1576,7 +1639,7 @@ export function readFeed(state) {
 
 function maybeVisitor(state, now) {
   if (now < state.nextVisitAt) return;
-  state.nextVisitAt = now + TUNING.visitorGapMinMs + randInt(state, TUNING.visitorGapMaxMs - TUNING.visitorGapMinMs + 1);
+  state.nextVisitAt = now + Math.round((TUNING.visitorGapMinMs + randInt(state, TUNING.visitorGapMaxMs - TUNING.visitorGapMinMs + 1)) / (state.festivalUntil > now ? 2 : 1));
   if (population(state) < TUNING.visitorUnlockPop) return;
   visit(state, now);
 }
@@ -1661,6 +1724,45 @@ function vipBoost(state, b) {
   const t = state.lastTick;
   return (b.criticUntil > t ? 1 + TUNING.criticBoost : 1) * (b.buzzUntil > t ? 2 : 1);
 }
+/** Extra pay per sale while you play: the night market (food and fun) and a festival (everything). */
+function playExtras(state, b, t) {
+  const night = nightMarket(state, t) && ['food', 'creative'].includes(catOf(b)) ? 1 + TUNING.nightMarketBoost : 1;
+  return night * (state.festivalUntil > t ? 1 + TUNING.festivalBoost : 1);
+}
+
+// ---- festivals and the night market ----------------------------------------------
+/** Is the night market on? Game hours nightMarketFrom..nightMarketTo. */
+export function nightMarket(state, now) {
+  const h = gameHour(now);
+  return h >= TUNING.nightMarketFrom && h < TUNING.nightMarketTo;
+}
+/** Where the festival bubble sits: the town square, or the entry road's town end. */
+export function festivalSpot(state) {
+  const home = PARCELS[0];
+  for (let y = home.y0; y <= home.y1; y++) for (let x = home.x0; x <= home.x1; x++) if (isPlazaAt(state, x, y)) return { x, y };
+  const e = entryRoute(state);
+  return e ? e.tiles.at(-1) : null;
+}
+/** Can a festival start now? '' if yes, else why not. */
+export function festivalIssue(state, now) {
+  if (state.festivalUntil > now) return 'The festival is on!';
+  if (population(state) < TUNING.festivalUnlockPop) return `Festivals start at ${TUNING.festivalUnlockPop} residents.`;
+  if (now < state.festivalReadyAt) return 'The town is still tidying up after the last festival.';
+  if (happiness(state, now) < TUNING.festivalHappy) return `Festivals need a ${TUNING.festivalHappy}% happy town.`;
+  return '';
+}
+export function startFestival(state, now) {
+  const issue = festivalIssue(state, now);
+  if (issue) return fail(issue);
+  state.festivalUntil = now + TUNING.festivalMs;
+  state.festivalReadyAt = state.festivalUntil + TUNING.festivalCooldownMs;
+  state.stats.festivals++;
+  const t = state.tenants[randInt(state, state.tenants.length)];
+  if (t) post(state, now, t, 'resident', 'Best. Festival. Ever. 🎉', 'good');
+  events.emit('festival', { until: state.festivalUntil });
+  checkGoals(state, now);
+  return { ok: true, reason: '', until: state.festivalUntil };
+}
 
 /** Where the VIP waits: on the entry road, one step further out than the newcomers. */
 export function vipSpot(state) {
@@ -1731,6 +1833,7 @@ export function sendVip(state, buildingId, now) {
   }
   state.vip = null;
   state.stats.vips++;
+  if (!state.seen.vips.includes(v.kind)) state.seen.vips.push(v.kind);
   post(state, now, v, 'visitor', text, 'good');
   events.emit('vipUsed', { vip: v, building: b });
   checkGoals(state, now);
@@ -1744,6 +1847,14 @@ export function sendVip(state, buildingId, now) {
 
 function skillFactor(avg) {
   return 1 + avg / TUNING.skillAvgDivisor;
+}
+
+/** How close a shop's team is to the best it could have (0..1). Cheap: no hiring tips. */
+export function teamPct(state, b) {
+  const ws = workersOf(state, b.id);
+  if (!ws.length) return 0;
+  const avg = ws.reduce((n, t) => n + (t.skills[catOf(b)] || 0), 0) / ws.length;
+  return Math.max(0, Math.min(1, (staffOf(ws.length) * skillFactor(avg)) / (staffOf(slotsOf(b)) * skillFactor(9))));
 }
 
 /** Residents a staffed shop keeps happy: needServes for two average workers, more for a bigger, better team. */
@@ -2379,7 +2490,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
         if (sold <= 0) continue;
         b.stock -= sold;
         // coins for those items: the shop's price, plus the ad bonus while a campaign runs
-        const exact = sold * shop.pay * boost * (t < (state.adUntil || 0) ? 1 + TUNING.adSalesBonus : 1) + (b.cc || 0);
+        const exact = sold * shop.pay * boost * (active ? playExtras(state, b, t) : 1) * (t < (state.adUntil || 0) ? 1 + TUNING.adSalesBonus : 1) + (b.cc || 0);
         const got = Math.floor(exact + 1e-9);
         b.cc = exact - got;
         shop.sold += got;

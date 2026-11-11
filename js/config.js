@@ -144,6 +144,15 @@ export const TUNING = {
   levelBonus: 0.5,               // each level above 1 adds this much rent / sales / stock / reach
   upgradeCost: [0, 2, 5],        // x the building's base price to go from level 1 -> 2, and 2 -> 3
   importMarkup: 2.5,             // importing a crop costs this x its usual price (always more than selling pays)
+  festivalUnlockPop: 10,         // festivals: from this many residents...
+  festivalHappy: 85,             // ...when the town is this happy, a bubble on the town square starts one
+  festivalMs: 30 * 60000,        // a festival lasts this long: sales +50%, visitors twice as often
+  festivalBoost: 0.5,
+  festivalCooldownMs: 6 * 3600000, // the next one is ready this long after the last ended
+  nightMarketFrom: 19,           // the night market: game hours 19-23, food and fun shops sell 25% more
+  nightMarketTo: 23,
+  nightMarketBoost: 0.25,
+  collectionGems: 5,             // a finished page of the collection book pays this many gems (once)
   contractTowns: 4,              // neighbour towns that offer standing contracts
   contractMinutes: 3,            // one hourly delivery pays this many minutes of the town's shop income...
   contractLevelPay: 0.25,        // ...plus this much per friendship level
@@ -456,18 +465,35 @@ export const GOALS = [
   { id: 'pop10',   text: 'Reach 10 residents',                    reward: { coins: 250, gems: 2 } },
   { id: 'allcats', text: 'Open one business of every kind',       reward: { coins: 500, gems: 2 } },
   { id: 'pop16',   text: 'Reach 16 residents',                    reward: { coins: 800, gems: 3 } },
+  { id: 'team3',   text: 'Get a 3-star team at a shop',           reward: { coins: 1000, gems: 2 } },
+  { id: 'star',    text: 'Welcome a star resident',               reward: { coins: 1000, gems: 2 } },
+  { id: 'vip1',    text: 'Send a VIP to a building',              reward: { coins: 1000, gems: 2 } },
   // milestones: the long game after the starter goals
   { id: 'recipe1', text: 'Grow 30 veggies for a recipe (a farmer grows 10/h)', reward: { coins: 300, gems: 1 } },
   { id: 'upgrade1', text: 'Upgrade a building',                    reward: { coins: 300, gems: 1 } },
   { id: 'trade1',  text: 'Sell crops at a Trading Post',          reward: { coins: 500, gems: 1 } },
+  { id: 'contract1', text: 'Sign a contract with a neighbour town', reward: { coins: 1000, gems: 2 } },
+  { id: 'upgrade3', text: 'Buy 3 upgrades in the Upgrades tab',    reward: { coins: 1500, gems: 2 } },
+  { id: 'yard',    text: 'Build a Construction Yard',             reward: { coins: 1500, gems: 2 } },
   { id: 'iq100',   text: 'Town IQ 100 with 10+ residents (a School helps)',    reward: { coins: 1000, gems: 2 } },
   { id: 'order1',  text: "Fill a neighbour town's order",         reward: { coins: 1000, gems: 2 } },
   { id: 'happy90', text: 'Make the town 90% happy',               reward: { coins: 2000, gems: 3 } },
+  { id: 'visitors50', text: 'Welcome 50 visitors',                reward: { coins: 2500, gems: 3 } },
+  { id: 'friend1', text: 'Make friends with a neighbour town (♥)', reward: { coins: 2500, gems: 3 } },
+  { id: 'festival1', text: 'Throw a festival',                    reward: { coins: 3000, gems: 3 } },
   { id: 'land1',   text: 'Buy more land',                         reward: { coins: 2000, gems: 3 } },
   { id: 'pop30',   text: 'Reach 30 residents',                    reward: { coins: 3000, gems: 3 } },
+  { id: 'dream10', text: 'Put 10 residents in their dream jobs',  reward: { coins: 4000, gems: 3 } },
+  { id: 'vip5',    text: 'Host 5 VIPs',                           reward: { coins: 5000, gems: 4 } },
+  { id: 'contract3', text: 'Hold 3 contracts at once',            reward: { coins: 6000, gems: 4 } },
   { id: 'recipes', text: 'Discover every recipe',                 reward: { coins: 5000, gems: 5 } },
   { id: 'pop60',   text: 'Reach 60 residents',                    reward: { coins: 10000, gems: 5 } },
+  { id: 'friend3', text: 'Become best friends with a town (♥♥♥)',  reward: { coins: 15000, gems: 6 } },
+  { id: 'pop100',  text: 'Reach 100 residents',                   reward: { coins: 25000, gems: 8 } },
+  { id: 'collect1', text: 'Complete a page of the collection book', reward: { coins: 25000, gems: 8 } },
   { id: 'land4',   text: 'Own five pieces of land',               reward: { coins: 20000, gems: 10 } },
+  { id: 'land8',   text: 'Own all the land',                      reward: { coins: 100000, gems: 15 } },
+  { id: 'pop150',  text: 'Reach 150 residents',                   reward: { coins: 100000, gems: 15 } },
 ];
 
 export const FIRST_NAMES = [
