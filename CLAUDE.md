@@ -84,7 +84,10 @@ covers running and publishing. This file holds the design decisions and the road
   names stay as they were so saves and links keep working: the folder, the repo and URL
   (camdenw1.github.io/bit-city), `SAVE_KEY`, the `BITCITY1:` backup prefix, `window.bitcity`.
 - Prices: each copy of a building you already own costs x1.35 more (`costOf` in sim).
-  This is what pushes variety. Demolish refunds 75% of what was actually paid (`b.paid`).
+  This is what pushes variety. Moving costs two-thirds of construction and upgrade spending
+  (`b.paid`), and demolition costs one-third. Round fees to whole coins. Moving keeps the
+  building ID, occupants, workers, stock and upgrades. Choose an empty legal lot, preview
+  the placement, and confirm. Keep enough coins for a Tent if demolition would leave no homes.
 - A shop can't be built before the first home (it would leave a new player stuck).
 - Landscape: sea, beach, mountains, forest, a river and a lake are generated around the
   town from `state.worldSeed` (`js/terrain.js`, pure). The first town is always all grass.
@@ -232,7 +235,6 @@ deliveries picking their own destination (red pin), jobs as map bubbles, the Upg
 Construction Yard, goal progress, forgiving taps, the name Mini Mayor, the Build button removed.
 
 Still to build, in his order (propose a design and get his yes before each one):
-1. Moving buildings for a hefty price, and demolition that costs coins (see below).
 2. A stock market that can lose coins, kept simple.
 3. About five raw materials, Catan-style (build sources, use them, trade them). The biggest
    threat to "really simple": push back if it gets heavy. A crew upgrade and the Yard exist.
@@ -241,11 +243,8 @@ Still to build, in his order (propose a design and get his yes before each one):
 Also open: more "other sports" places if he names them, away income (shops only earn the 10x
 boost while open), more goals (he likes goals as the guide; a keen bot clears all 23 in a week)
 and maybe a Goals list in Menu (offered, not asked for).
-His calls on the contested ideas (2026-11-10), still to build:
-- Demolition costs coins instead of refunding 75%.
-- The stock market can lose coins.
-The tests "nothing ever takes coins away" and the 75% refund test encode the old rule and
-change when these are built.
+Camden also asked for residents who go to work and visit shops and parks, larger trade with
+other towns, comparable mission payouts for the time they take, and optional VIP visits.
 
 ## How a session usually goes (what Camden expects)
 
@@ -272,7 +271,7 @@ change when these are built.
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (54 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (55 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.
@@ -286,7 +285,6 @@ change when these are built.
   Harmless; offered to quiet it.
 - ChatGPT (Codex) finished the surprise-shop menu and added deliveries and restock-all. It
   also wrote jobs-board rules with no screens; the screens were built on 2026-11-10.
-- Removing a surprise shop refunds 75%, so a reroll costs 25%. Left as is.
 - `bitcity.skip()` of more than about a minute counts as time away (no play boost). The skip
   is forgotten on reload, so a save made after skipping sits frozen until real time catches up.
 - After an update the preview (and the phone) can need two loads before new files show.

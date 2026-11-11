@@ -369,19 +369,25 @@ export function categoryUnlocked(state, cat) {
   return at != null && population(state) >= at;
 }
 
+function placementIssue(state, x, y) {
+  if (!Number.isInteger(x) || !Number.isInteger(y) || !parcelAt(x, y)) {
+    return "That spot is outside of town.";
+  }
+  if (!ownsTile(state, x, y)) return "You don't own that land yet. Tap it to buy it!";
+  if (isRoadAt(state, x, y)) return "That's a road. Pick a grassy lot!";
+  if (isPlazaAt(state, x, y)) return "That's the town square. It stays open for everyone!";
+  const ground = terrainOf(state, x, y);
+  if (ground === 'water') return "That's water. Homes next to it pay extra rent, though!";
+  if (ground === 'mountain') return "That's a mountain. Pick a flatter lot!";
+  if (tileAt(state, x, y)) return 'Something is already built here.';
+  return '';
+}
+
 export function canBuild(state, type, x, y, cat = null) {
   const def = BUILDINGS[type];
   if (!def) return fail("Hmm, we don't know how to build that.");
-  if (!Number.isInteger(x) || !Number.isInteger(y) || !parcelAt(x, y)) {
-    return fail("That spot is outside of town.");
-  }
-  if (!ownsTile(state, x, y)) return fail("You don't own that land yet. Tap it to buy it!");
-  if (isRoadAt(state, x, y)) return fail("That's a road. Pick a grassy lot!");
-  if (isPlazaAt(state, x, y)) return fail("That's the town square. It stays open for everyone!");
-  const ground = terrainOf(state, x, y);
-  if (ground === 'water') return fail("That's water. Homes next to it pay extra rent, though!");
-  if (ground === 'mountain') return fail("That's a mountain. Pick a flatter lot!");
-  if (tileAt(state, x, y)) return fail('Something is already built here.');
+  const issue = placementIssue(state, x, y);
+  if (issue) return fail(issue);
   if (!isUnlocked(state, type)) {
     return fail(population(state) < def.unlockAt ? `${def.name} unlocks at ${def.unlockAt} residents.` : `${def.name}: ${unlockHint(state, type)}.`);
   }
@@ -502,41 +508,82 @@ function clearRide(state, now, quiet = false) {
   if (!quiet) events.emit('rideGone', {});
 }
 
-export function demolish(state, buildingId, now) {
-  const b = buildingById(state, buildingId);
-  if (!b) return fail("That building isn't there any more.", { refund: 0 });
-  const def = defOf(b);
-  if (def.kind === 'home' && residentsOf(state, b.id).length > 0) {
-    return fail('People live here! Homes can only be removed when they are empty.', { refund: 0 });
+export function buildingWorkFee(b, action) {
+  const rate = action === 'move' ? TUNING.moveFeeRate : TUNING.demolishFeeRate;
+  return Math.max(1, Math.round((b.paid ?? defOf(b).cost) * rate));
+}
+
+function buildingInUse(state, b, now) {
+  const ride = state.ride;
+  if (ride && ride.state !== 'waiting' && (ride.fromId === b.id || ride.toId === b.id)) {
+    return 'Wait for the current trip to finish.';
   }
-  const refund = Math.floor((b.paid ?? def.cost) * TUNING.refundRate);
+  if (b.type === 'trade' && state.trucks.some((truck) => truck.arriveAt > now)) {
+    return 'Wait for the trade trucks to finish their trips.';
+  }
+  if (state.job?.shopId === b.id || state.job?.stops?.includes(b.id)) {
+    return 'Finish or skip the current town job first.';
+  }
+  return '';
+}
+
+export function canMoveBuilding(state, id, x, y, now) {
+  const b = buildingById(state, id);
+  if (!b) return fail("That building isn't there any more.");
+  const issue = buildingInUse(state, b, now) || placementIssue(state, x, y);
+  if (issue) return fail(issue);
+  if (!nearOk(state, b.type, x, y)) return fail(`A ${defOf(b).name} ${nearHint(b.type).toLowerCase()}.`);
+  const cost = buildingWorkFee(b, 'move');
+  if (state.coins < cost) return fail(`You need ${Math.ceil(cost - state.coins)} more coins to move this.`);
+  return { ok: true, cost };
+}
+
+export function moveBuilding(state, id, x, y, now) {
+  const check = canMoveBuilding(state, id, x, y, now);
+  if (!check.ok) return check;
+  const b = buildingById(state, id);
+  const from = { x: b.x, y: b.y };
+  state.coins -= check.cost;
+  b.x = x;
+  b.y = y;
+  events.emit('spend', { amount: check.cost, reason: 'move' });
+  events.emit('moved', { building: b, from });
+  checkGoals(state, now);
+  return { ok: true, cost: check.cost, building: b };
+}
+
+export function canDemolish(state, id, now) {
+  const b = buildingById(state, id);
+  if (!b) return fail("That building isn't there any more.");
+  if (isHome(b) && residentsOf(state, id).length) return fail('Empty this home before removing it.');
+  const issue = buildingInUse(state, b, now);
+  if (issue) return fail(issue);
+  const cost = buildingWorkFee(b, 'demolish');
+  if (state.coins < cost) return fail(`You need ${Math.ceil(cost - state.coins)} more coins to remove this.`);
+  if (!state.buildings.some((other) => other.id !== id && isHome(other)) && state.coins - cost < BUILDINGS.tent.cost) {
+    return fail(`Keep ${BUILDINGS.tent.cost} coins for a starter home.`);
+  }
+  return { ok: true, cost };
+}
+
+export function demolish(state, buildingId, now) {
+  const check = canDemolish(state, buildingId, now);
+  if (!check.ok) return check;
+  const b = buildingById(state, buildingId);
+  state.coins -= check.cost;
   for (const t of state.tenants) {
     if (t.jobId === b.id) {
       t.jobId = null;
       events.emit('job', { tenant: t, building: null, dream: false });
     }
   }
-  if (state.ride && (state.ride.fromId === b.id || state.ride.toId === b.id)) {
-    // Never lose a fare that was already earned.
-    if (state.ride.state === 'driving') completeRide(state, now);
-    else clearRide(state, now);
-  }
-  if (state.job?.shopId === b.id && state.job.kind !== 'courier') state.job = null;
+  if (state.ride?.fromId === b.id || state.ride?.toId === b.id) clearRide(state, now);
   state.buildings.splice(state.buildings.indexOf(b), 1);
   state.problems = state.problems.filter((p) => p.buildingId !== b.id);
-  if (refund > 0) {
-    state.coins += refund;
-    events.emit('coins', { amount: refund, buildingId: null, reason: 'refund' });
-  }
+  events.emit('spend', { amount: check.cost, reason: 'demolish' });
   events.emit('demolished', { id: b.id, x: b.x, y: b.y });
-  // Safety net: an empty town can always afford a fresh start.
-  if (state.buildings.length === 0 && state.coins < TUNING.safetyNetCoins) {
-    const gift = TUNING.safetyNetCoins - state.coins;
-    state.coins += gift;
-    events.emit('coins', { amount: gift, buildingId: null, reason: 'refund' });
-  }
   checkGoals(state, now);
-  return { ok: true, reason: '', refund };
+  return { ok: true, reason: '', cost: check.cost };
 }
 
 // ---- income ---------------------------------------------------------------

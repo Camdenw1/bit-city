@@ -69,7 +69,7 @@ const COIN = '#f2c14e';
 sim.events.on('coins', ({ amount, buildingId, reason }) => {
   if (quiet || amount <= 0) return;
   const t = tileOf(buildingId);
-  if (t && (reason === 'sales' || reason === 'refund')) renderer.floatText(t.x, t.y, `+${Math.round(amount)}`, COIN);
+  if (t && reason === 'sales') renderer.floatText(t.x, t.y, `+${Math.round(amount)}`, COIN);
 });
 sim.events.on('built', ({ building }) => {
   if (quiet) return;
@@ -83,6 +83,12 @@ sim.events.on('opened', ({ building }) => {
   ui.toast(`${sim.buildingName(building)} is ready!`);
 });
 sim.events.on('demolished', ({ x, y }) => { if (!quiet) renderer.burst(x, y, 'dust'); });
+sim.events.on('moved', ({ building, from }) => {
+  if (quiet) return;
+  renderer.burst(from.x, from.y, 'dust');
+  renderer.burst(building.x, building.y, 'dust');
+  audio.play('build');
+});
 sim.events.on('moveIn', ({ tenant }) => {
   if (quiet) return;
   const t = tileOf(tenant.homeId);
@@ -213,6 +219,7 @@ function resumeRide() {
 renderer.onTap(({ x, y, building, parcel, activity, kind }) => {
   audio.unlock();
   if (ui.isModalOpen()) return;
+  if (ui.pickMoveLot(x, y)) return;
   if (parcel) { if (state.ride?.state !== 'choosing') { audio.play('tap'); ui.openLand(parcel); } return; }
   if (activity === 'newcomers') { audio.play('tap'); ui.openNewcomers(); return; }
   if (activity === 'job' && building) { audio.play('tap'); ui.startJob(kind, building.id); return; }

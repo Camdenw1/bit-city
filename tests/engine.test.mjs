@@ -355,7 +355,7 @@ test('construction timing, opened event, hurry', () => {
   assert.equal(sim.hurry(s, 12345, now).ok, false);
 });
 
-test('demolish: 75% refund, homes must be empty, workers become unemployed, safety net', () => {
+test('demolition charges one-third of investment, frees workers and keeps a starter-home reserve', () => {
   const s = fresh();
   const tent = put(s, 'tent', T0);
   const diner = put(s, 'diner', T0);
@@ -363,17 +363,17 @@ test('demolish: 75% refund, homes must be empty, workers become unemployed, safe
   assert.ok(sim.assignJob(s, t.id, diner.id, T0).ok);
   assert.equal(diner.dreamStars, 1);
   const no = sim.demolish(s, tent.id, T0);
-  assert.equal(no.ok, false); assert.equal(no.refund, 0); assert.equal(s.buildings.length, 2);
+  assert.equal(no.ok, false); assert.equal(s.buildings.length, 2);
   const before = s.coins;
-  const refund = Math.floor(BUILDINGS.diner.cost * 0.75);
+  const cost = 40;
   const log = record(() => {
     const r = sim.demolish(s, diner.id, T0);
-    assert.deepEqual(r, { ok: true, reason: '', refund });
+    assert.deepEqual(r, { ok: true, reason: '', cost });
   });
-  assert.equal(s.coins, before + refund);
+  assert.equal(s.coins, before - cost);
   assert.equal(t.jobId, null); assert.deepEqual(sim.unemployed(s), [t]);
   assert.ok(log.some((e) => e.type === 'demolished' && e.id === diner.id && e.x === diner.x && e.y === diner.y));
-  assert.ok(log.some((e) => e.type === 'coins' && e.reason === 'refund' && e.amount === refund));
+  assert.ok(log.some((e) => e.type === 'spend' && e.reason === 'demolish' && e.amount === cost));
   assert.equal(sim.tileAt(s, diner.x, diner.y), null);
   assert.equal(sim.demolish(s, diner.id, T0).ok, false);
   // the dream gem is not paid twice after the business is rebuilt
@@ -383,11 +383,46 @@ test('demolish: 75% refund, homes must be empty, workers become unemployed, safe
   assert.equal(s.gems, gems); assert.equal(diner2.dreamStars, 1);
 
   // safety net: an empty town can always start again
-  const p = gridGame(T0);
-  sim.build(p, 'well', 0, 0, T0); sim.build(p, 'tent', 1, 0, T0);
-  p.coins = 0;
-  for (const b of [...p.buildings]) sim.demolish(p, b.id, T0);
-  assert.ok(p.coins >= BUILDINGS.tent.cost + BUILDINGS.diner.cost);
+  const p = fresh();
+  const starter = put(p, 'tent', T0);
+  p.coins = 106;
+  assert.equal(sim.demolish(p, starter.id, T0).ok, false);
+  assert.equal(p.coins, 106);
+  p.coins = 107;
+  assert.equal(sim.demolish(p, starter.id, T0).cost, 27);
+  assert.equal(p.coins, 80);
+  assert.ok(sim.build(p, 'tent', 0, 0, T0).ok);
+});
+
+test('moving preserves residents, workers, upgrades and stock and only charges on a valid move', () => {
+  const s = fresh();
+  const home = put(s, 'tent', T0);
+  const shop = put(s, 'diner', T0);
+  const worker = person(s, home, T0, { dream: 'diner' });
+  sim.assignJob(s, worker.id, shop.id, T0);
+  sim.upgrade(s, shop.id, T0);
+  allGoalsDone(s);
+  shop.stock -= 10;
+  const before = { ...shop };
+  const coins = s.coins;
+  const oldHome = { x: home.x, y: home.y };
+  assert.equal(sim.moveBuilding(s, home.id, shop.x, shop.y, T0).ok, false);
+  assert.equal(sim.moveBuilding(s, home.id, 3, 0, T0).ok, false);
+  assert.equal(s.coins, coins);
+  s.ride = { fromId: home.id, toId: shop.id, state: 'driving' };
+  assert.equal(sim.moveBuilding(s, shop.id, 2, 1, T0).ok, false);
+  assert.equal(sim.demolish(s, shop.id, T0).ok, false);
+  s.ride = null;
+  const homeMove = sim.moveBuilding(s, home.id, 1, 1, T0);
+  assert.equal(homeMove.cost, 53);
+  assert.equal(sim.tileAt(s, oldHome.x, oldHome.y), null);
+  assert.equal(worker.homeId, home.id);
+  const shopMove = sim.moveBuilding(s, shop.id, 2, 1, T0);
+  assert.equal(shopMove.cost, 240);
+  assert.equal(s.coins, coins - 53 - 240);
+  assert.deepEqual(shop, { ...before, x: 2, y: 1 });
+  assert.equal(worker.jobId, shop.id);
+  assert.equal(sim.buildingWorkFee(shop, 'demolish'), 120);
 });
 
 // ---- people and jobs --------------------------------------------------------
@@ -1319,7 +1354,7 @@ test('land: parcels, prices, terrain lots, waterfront; upgrades: cost, effect, c
   assert.ok(Math.abs(sim.ratePerMin(s, diner) - rate1 * (1 + TUNING.levelBonus)) < 1e-9);
   assert.ok(sim.homeBoost(s, tent) > boost1);
   assert.ok(sim.rentPerDay(s) > rent1 * (1 + TUNING.levelBonus) - 1);
-  assert.equal(diner.paid, BUILDINGS.diner.cost + BUILDINGS.diner.cost * TUNING.upgradeCost[1], 'refund covers the upgrade');
+  assert.equal(diner.paid, BUILDINGS.diner.cost + BUILDINGS.diner.cost * TUNING.upgradeCost[1], 'investment includes the upgrade');
   assert.equal(sim.upgrade(s, diner.id, T0).ok, true); assert.equal(diner.level, 3);
   assert.equal(sim.upgradeCost(s, diner), 0); assert.equal(sim.upgrade(s, diner.id, T0).ok, false);
   // restocking a bigger shop fills the bigger shelf

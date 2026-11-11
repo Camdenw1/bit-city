@@ -68,7 +68,8 @@ export const TUNING = {
   traitChance: 0.4,              // share of newcomers with a trait (each trait has an upside and a downside)
   starChance: 0.05,              // share of newcomers who are stars: high skills, a gold card
   skillRangeWidth: 3,            // a newcomer's skills show as a range this wide (a star's as 1)
-  refundRate: 0.75,              // demolish refund (of what was paid)
+  moveFeeRate: 2 / 3,            // share of construction and upgrade spending
+  demolishFeeRate: 1 / 3,
   copyCostGrowth: 1.35,          // each copy of a building you already own multiplies its price by this
   hurryGems: 1,
   staffFactor: [0, 1.25, 1.85, 2.35, 2.75, 3.05],   // sales by number of workers: each one adds a little less
@@ -140,7 +141,6 @@ export const TUNING = {
   adSalesBonus: 0.25,            // extra coins from every sale while it runs
   adCostMinutes: 20,             // an ad costs this many minutes of shop income (at least adMinCost)
   adMinCost: 300,
-  safetyNetCoins: 200,           // an empty town never has less than this (tent + diner)
 };
 
 // Small troubles a shop can run into. `fixer` is the need whose town buildings sort it out for free.

@@ -125,6 +125,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   const particles = [];
   let taxi = null;
   let selection = null;
+  let movePreview = null;
   let reach = null;        // { x, y, r }: the area a town building serves, shown while its sheet is open
   const tapFns = [];
   let lastRt = clock();
@@ -994,6 +995,12 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         drawOutline(ax, ay, side, side, '#fff6c8', 0.9);
         ctx.globalAlpha = 1;
       }
+      if (movePreview?.building) {
+        const { tile, building } = movePreview;
+        ctx.globalAlpha = 0.65;
+        blit(getSprite(buildingSpriteId(building)), tile.x * TILE, tile.y * TILE - OVERLAP);
+        ctx.globalAlpha = 1;
+      }
       if (selection && inMap(selection.x, selection.y)) drawSelection(selection, rt);
 
       // job bubbles: a gold-rimmed bubble with the job's picture, gently bobbing
@@ -1262,6 +1269,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
 
   return {
     resize, draw, onTap, floatText, burst, driveTaxi, setGas, setSelection, setReach, focusTile, tileToScreen,
+    setMovePreview(preview) { movePreview = preview; },
     // extras beyond the spec
     gameClock,
     resetView() { userMoved = false; scale = fitScale; clampView(); },

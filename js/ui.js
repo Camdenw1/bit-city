@@ -120,6 +120,7 @@ export function createUI(root, api) {
   };
   const restockCostOf = (b) => call('restockCostOf', b) || 0;
   let wishBuild = null;
+  let movingId = null;
   let moveOutAsk = null;   // tenant id waiting for a yes on "Ask to move out"
   /** On move-in you learn the real skills and any trait. */
   function revealToast(t) {
@@ -271,7 +272,11 @@ export function createUI(root, api) {
     const goal = rideView ? null : call('nextGoal', s);
     // once the starter goals are done, the chip shows what the town wants most
     const want = goal || rideView ? null : (call('mostWanted', s, now) || [])[0];
-    if (wishBuild && !rideView) {
+    h.goal.dataset.act = movingId == null ? 'nav-town' : 'move-cancel';
+    if (movingId != null) {
+      setHTML(h.goal, `${icon('hammer', 1, 'i12')}<span class="goal-text">Choose an empty lot · Cancel</span>`, 'goal');
+      h.goal.hidden = false;
+    } else if (wishBuild && !rideView) {
       setHTML(h.goal, `${icon('hammer', 1, 'i12')}<span class="goal-text">Pick a lot · ${esc(wishBuild.title)}</span><span aria-hidden="true">×</span>`, 'goal');
       h.goal.hidden = false;
     } else if (goal) {
@@ -329,6 +334,7 @@ export function createUI(root, api) {
     els.backdrop.classList.add('on');
     els.sheet.setAttribute('aria-hidden', 'false');
     select(d.tile || null);
+    api.renderer.setMovePreview(d.kind === 'move' ? { tile: d.tile, building: byId(d.id) } : null);
   }
   function closeSheet() {
     if (!sheet) return;
@@ -336,7 +342,8 @@ export function createUI(root, api) {
     els.sheet.classList.remove('on');
     els.backdrop.classList.remove('on');
     els.sheet.setAttribute('aria-hidden', 'true');
-    select(null);
+    select(byId(movingId));
+    api.renderer.setMovePreview(null);
   }
   function goBack() { if (sheet && sheet.back) openSheet(sheet.back); else closeSheet(); }
   function select(tile) {
@@ -616,6 +623,19 @@ export function createUI(root, api) {
       };
     },
 
+    move(d) {
+      const b = byId(d.id);
+      if (!b) return null;
+      const check = call('canMoveBuilding', S(), b.id, d.tile.x, d.tile.y, N());
+      const cost = call('buildingWorkFee', b, 'move').toLocaleString('en-US');
+      return {
+        title: `Move ${esc(bName(b))}`,
+        html: `<div class="hero">${buildingArt(b, 3)}<p class="lead">Move here for ${cost} coins?</p></div>
+          ${check.ok ? '<button class="btn btn-coin btn-wide" data-act="move-confirm">Confirm move</button>'
+            : `<p class="note">${esc(check.reason)}</p>`}`,
+      };
+    },
+
     /* --- 3. Building --- */
     building(d) {
       const s = S(); const now = N();
@@ -623,11 +643,12 @@ export function createUI(root, api) {
       if (!b) return null;
       const c = def(b.type);
       const name = bName(b);
-      const demolish = (canRemove) => (!canRemove ? '' : d.confirmDemolish
-        ? `<div class="confirm"><span>Remove the ${esc(name)}? You get ${formatCoins(Math.floor((b.paid ?? c.cost ?? 0) * 0.75))} coins back.</span>
+      const buildingActions = (canRemove) => (d.confirmDemolish
+        ? `<div class="confirm"><span>Remove ${esc(name)} for ${call('buildingWorkFee', b, 'demolish').toLocaleString('en-US')} coins?</span>
             <div class="row"><button class="btn btn-quiet" data-act="demolish-cancel">Keep it</button>
-            <button class="btn btn-warn" data-act="demolish-yes" data-id="${b.id}">Remove</button></div></div>`
-        : `<button class="link" data-act="demolish-ask">Remove this building</button>`);
+            <button class="btn btn-warn" data-act="demolish-yes" data-id="${b.id}">Confirm demolition</button></div></div>`
+        : `<div class="row"><button class="link" data-act="move-start">Move building</button>
+            ${canRemove ? '<button class="link" data-act="demolish-ask">Demolish</button>' : ''}</div>`);
 
       // level stars and the upgrade button, shared by every kind of building
       const level = b.level || 1; const maxLevel = config.TUNING?.maxLevel ?? 3;
@@ -649,7 +670,7 @@ export function createUI(root, api) {
               <p class="lead">Building… <b>${formatDuration(left)}</b> to go</p>
               <div class="meter"><i style="width:${pct}%"></i></div></div></div>
             <button class="btn btn-gem btn-wide" data-act="hurry" data-id="${b.id}">Hurry ${icon('gem', 2)} 1</button>
-            ${demolish(true)}`,
+            ${buildingActions(true)}`,
         };
       }
 
@@ -672,7 +693,7 @@ export function createUI(root, api) {
               ? `<div class="confirm" data-key="mo${t.id}"><span>Ask ${esc(t.name)} to move out? It's free, but newcomers will take twice as long for 10 minutes.</span>
                   <div class="row"><button class="btn btn-quiet" data-act="move-out-no">Keep them</button><button class="btn btn-warn" data-act="move-out-yes" data-t="${t.id}">Move out</button></div></div>`
               : `<button class="link" data-act="move-out-ask" data-t="${t.id}" data-key="mo${t.id}">Ask ${esc(t.name)} to move out</button>`)).join('')}${beds.join('')}</div>
-            ${upgradeBlock}${demolish(res.length === 0)}`,
+            ${upgradeBlock}${buildingActions(res.length === 0)}`,
         };
       }
 
@@ -697,7 +718,7 @@ export function createUI(root, api) {
           title: esc(name),
           html: `<div class="hero">${buildingArt(b, 4)}<div class="hero-info">
               <p class="lead">${esc(c.blurb || '')}</p>${lines.map((l) => `<p class="note">${l}</p>`).join('')}</div></div>
-            ${c.kind === 'trade' ? upgradeBlock + tradePanel(s, now) + demolish(true) : upgradeBlock + demolish(true)}`,
+            ${upgradeBlock}${c.kind === 'trade' ? tradePanel(s, now) : ''}${buildingActions(true)}`,
         };
       }
 
@@ -780,7 +801,7 @@ export function createUI(root, api) {
             <p class="note">${team.serves ? `Keeps ${team.serves} residents happy with ${esc((CAT_LABEL[cat] || '').toLowerCase())}. ` : ''}${esc(team.tip || 'The best team this shop can have!')}</p></div>` : ''}
           ${hireBest ? `<button class="btn btn-go btn-wide" data-act="hire-pick" data-id="${b.id}" data-t="${hireBest.id}">${icon('briefcase', 2)} Hire best: ${esc(hireBest.name)} ${skillBadge(cat, (hireBest.skills && hireBest.skills[cat]) || 0)}</button>` : ''}
           <div class="list">${slots.join('')}</div>
-          ${upgradeBlock}${demolish(true)}`,
+          ${upgradeBlock}${buildingActions(true)}`,
       };
     },
 
@@ -1230,6 +1251,13 @@ export function createUI(root, api) {
     try { const at = byId(r.job.shopId) || r.job; if (at) api.renderer.focusTile({ x: at.x, y: at.y }); } catch (e) { /* cosmetic */ }
   }
   function openNewcomers() { openSheet({ kind: 'newcomers' }); }
+  function pickMoveLot(x, y) {
+    if (movingId == null) return false;
+    const check = call('canMoveBuilding', S(), movingId, x, y, N());
+    if (check.ok) openSheet({ kind: 'move', id: movingId, tile: { x, y } });
+    else toast(check.reason);
+    return true;
+  }
   function openLot(x, y) {
     const existing = call('tileAt', S(), x, y);
     if (existing) { openBuilding(existing); return; }
@@ -1388,11 +1416,41 @@ export function createUI(root, api) {
       const r = act('upgrade', Number(el.dataset.id));
       if (r && r.ok === false && r.reason) toast(r.reason);
     },
-    'demolish-ask': () => { if (sheet) { sheet.confirmDemolish = true; renderSheet(); els.body.scrollTop = els.body.scrollHeight; } },
+    'move-start': () => {
+      if (sheet?.kind !== 'building') return;
+      movingId = sheet.id;
+      wishBuild = null;
+      closeSheet();
+      refreshHUD();
+    },
+    'move-cancel': () => {
+      const b = byId(movingId);
+      movingId = null;
+      if (b) openBuilding(b);
+      else select(null);
+      refreshHUD();
+    },
+    'move-confirm': () => {
+      if (sheet?.kind !== 'move') return;
+      const r = act('moveBuilding', sheet.id, sheet.tile.x, sheet.tile.y);
+      if (!r.ok) return;
+      movingId = null;
+      openBuilding(r.building);
+      refreshHUD();
+      toast(`Moved · ${r.cost.toLocaleString('en-US')} coins`);
+    },
+    'demolish-ask': () => {
+      if (sheet?.kind !== 'building') return;
+      const check = call('canDemolish', S(), sheet.id, N());
+      if (!check.ok) { toast(check.reason); return; }
+      sheet.confirmDemolish = true;
+      renderSheet();
+      els.body.scrollTop = els.body.scrollHeight;
+    },
     'demolish-cancel': () => { if (sheet) { sheet.confirmDemolish = false; renderSheet(); } },
     'demolish-yes': (el) => {
       const r = act('demolish', Number(el.dataset.id));
-      if (r && r.ok !== false) { closeSheet(); toast(r.refund ? `Removed. +${formatCoins(r.refund)} coins back` : 'Removed'); }
+      if (r && r.ok !== false) { closeSheet(); toast(`Demolished · ${r.cost.toLocaleString('en-US')} coins`); }
       else if (sheet) { sheet.confirmDemolish = false; renderSheet(); }
     },
 
@@ -1491,6 +1549,7 @@ export function createUI(root, api) {
       const str = ta ? ta.value.trim() : '';
       try {
         api.importSave(str);
+        movingId = null;
         closeSheet();
         toast('Welcome back! Your town is restored.');
         coinShown = null;
@@ -1505,6 +1564,7 @@ export function createUI(root, api) {
     'reset-cancel': () => { sheet.reset = 0; renderSheet(); },
     'reset-yes': () => {
       try { api.resetGame(); } catch (e) { toast('Hmm, that didn’t work. Try again!'); return; }
+      movingId = null;
       closeSheet();
       coinShown = null;
       toast('A fresh new town!');
@@ -1540,7 +1600,7 @@ export function createUI(root, api) {
   refresh();
 
   return {
-    refresh, openLot, openLand, openNewcomers, startJob, openBuilding, showAway, showRide, hideRide, celebrateDream, toast,
+    refresh, openLot, openLand, openNewcomers, startJob, openBuilding, pickMoveLot, showAway, showRide, hideRide, celebrateDream, toast,
     isModalOpen: () => !!sheet || !!celeb || queue.length > 0,
   };
 }
