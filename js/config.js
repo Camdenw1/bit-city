@@ -161,6 +161,7 @@ export const TUNING = {
   matDiscount: 0.3,              // paying an upgrade with materials takes this much off the coins
   matPerLevel: [0, 0, 12, 30],   // wood and stone an upgrade to level 2 / 3 uses (bricks: half)
   seasonDays: 2,                 // each season lasts this many real days
+  promiseRewardMinutes: 20,      // keeping all three promises pays this many minutes of play income, + 3 gems
   ribbonMs: 60000,               // a new building's ribbon waits this long to be cut
   ribbonMinutes: 0.5,            // cutting it pays this many minutes of the town's play income
   tentRetirePop: 20,             // from this many residents, Tents are no longer built (Camden)
@@ -306,6 +307,18 @@ export const SEASONS = [
   { id: 'autumn', name: 'Autumn', emoji: '🍂', crops: { veggies: 1.1, fruit: 1.1 },   visitors: 1,    contracts: 1,    note: 'Harvest time: all crops grow 10% faster.' },
   { id: 'winter', name: 'Winter', emoji: '❄️', crops: { veggies: 0.8, fruit: 0.8 },   visitors: 1,    contracts: 1.25, note: 'Crops grow 20% slower, but contracts pay 25% more.' },
 ];
+
+// ---- The mayor's daily promises (Camden: "mayor's speech can be the daily goals") ----------
+// Three a day from this list; `stat` is the counter that counts towards it, `need` how many.
+export const PROMISES = {
+  rides:     { stat: 'rides',     need: 3,  text: (n) => `Give ${n} rides` },
+  restocks:  { stat: 'restocks',  need: 2,  text: (n) => `Restock ${n} shops` },
+  moveIns:   { stat: 'moveIns',   need: 2,  text: (n) => `Welcome ${n} newcomers` },
+  jobsDone:  { stat: 'jobsDone',  need: 2,  text: (n) => `Finish ${n} town jobs` },
+  visitors:  { stat: 'visitors',  need: 8,  text: (n) => `Welcome ${n} visitors`, pop: 6 },
+  vips:      { stat: 'vips',      need: 1,  text: () => 'Send a VIP somewhere', pop: 8 },
+  earned:    { stat: 'earned',    need: 0,  text: (n) => `Earn ${n.toLocaleString('en-US')} coins` },
+};
 
 // ---- Names ------------------------------------------------------------------------
 // The town's name starts as one of these pairs (picked from the map's seed); Camden can rename it.

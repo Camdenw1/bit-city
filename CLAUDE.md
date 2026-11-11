@@ -160,6 +160,10 @@ covers running and publishing. This file holds the design decisions and the road
 - Less writing (Camden, 2026-11-11: "too much writing"): the newcomer card is one compact row
   (face, name, two best skill ranges, dream, likely job, ✕ and Welcome!), and long notes on
   Upgrades, the Trading Post and the Stock Exchange were cut to a line. Keep new text short.
+- The mayor's daily promises (Camden: "mayor's speech can be the daily goals"): three a day from
+  `PROMISES` (rides, restocks, newcomers, town jobs, visitors, a VIP, coins earned), counted
+  from `state.stats` since the day began (`state.daily`); all three kept pays
+  `promiseRewardMinutes` (20) of play income, 3 gems and 5 mayor XP, once. Top of the Goals page.
 - Ribbon cutting (Camden picked it): a building that finishes gets a ribbon for `ribbonMs` (60 s,
   `state.ribbons`); tapping the building cuts it for `ribbonMinutes` (0.5) of play income,
   confetti and a feed post (`cutRibbon`). Uncut ribbons just go.
@@ -414,7 +418,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` and `VERSION` in config.js together when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (69 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (70 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

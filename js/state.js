@@ -149,7 +149,8 @@ export function newGame(now) {
     season: null,
     tierSeen: 0,
     townName: null,                    // set from the map's seed when missing; Camden can rename it
-    ribbons: [],                       // new buildings waiting for a ribbon cutting: { id, until }                       // the highest city tier announced                      // the last season seen (for the season-change toast)
+    ribbons: [],
+    daily: null,                       // today's promises: { day, tasks: [{ kind, need, base }], paid }                       // new buildings waiting for a ribbon cutting: { id, until }                       // the highest city tier announced                      // the last season seen (for the season-change toast)
     rivalSeen: {},                     // rival town -> the last population milestone posted                 // the local day the sister towns' care packages last came
     market: null,                      // stock market: { prices, prev, shares, paid } (made when first needed)
     vip: null,                         // a VIP waiting on the entry road: { kind, name, look, arrivedAt, leaveAt }
@@ -343,6 +344,7 @@ export function migrate(state) {
     if (typeof state.season !== 'string') state.season = null;
     if (!isNum(state.tierSeen)) state.tierSeen = 0;
     if (typeof state.townName !== 'string' || !state.townName.trim()) state.townName = townNameFromSeed(state.worldSeed);
+    if (!state.daily || typeof state.daily !== 'object' || !Array.isArray(state.daily.tasks)) state.daily = null;
     state.ribbons = (Array.isArray(state.ribbons) ? state.ribbons : []).filter((r) => r && isNum(r.id) && isNum(r.until));
     if (!state.rivalSeen || typeof state.rivalSeen !== 'object') state.rivalSeen = {};
     for (const k of Object.keys(PERM_PERKS)) { const r = (legacy.perks || {})[k]; if (isNum(r) && r > 0) state.legacy.perks[k] = Math.min(PERM_PERKS[k].max, Math.round(r)); }

@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES, SEASONS, RIVALS, TIERS, STREET_NAMES } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES, SEASONS, RIVALS, TIERS, STREET_NAMES, PROMISES } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick, newGame } from './state.js';
 
@@ -1895,6 +1895,45 @@ function openSpot(state, now) {
   if (state.nextApplicantAt <= now || state.nextApplicantAt > next) state.nextApplicantAt = next;
 }
 
+// ---- the mayor's daily promises --------------------------------------------------------
+// Three small goals a day; keep all three for a reward. Counted from the stats, so nothing new
+// needs tracking: each task remembers the counter's value when the day began.
+
+function ensurePromises(state, now) {
+  const day = localDay(now);
+  if (state.daily && state.daily.day === day) return state.daily;
+  const pop = state.tenants.length;
+  const kinds = Object.keys(PROMISES).filter((k) => !PROMISES[k].pop || pop >= PROMISES[k].pop);
+  const n = dayNumber(day);
+  const picks = [];
+  for (let i = 0; picks.length < Math.min(3, kinds.length) && i < 50; i++) {
+    const k = kinds[(n * 7 + (state.worldSeed % 11) + i) % kinds.length];
+    if (!picks.includes(k)) picks.push(k);
+  }
+  const earnNeed = Math.max(200, Math.round(townRatePerMin(state, now) * TUNING.activeBoost * 15 / 100) * 100);
+  state.daily = { day, paid: false, tasks: picks.map((k) => ({ kind: k, need: k === 'earned' ? earnNeed : PROMISES[k].need, base: state.stats[PROMISES[k].stat] || 0 })) };
+  return state.daily;
+}
+/** Today's promises with progress: [{ kind, text, have, need, done }], and whether all were kept. */
+export function promises(state, now) {
+  const d = ensurePromises(state, now);
+  const tasks = d.tasks.map((t) => {
+    const have = Math.max(0, Math.min(t.need, Math.floor((state.stats[PROMISES[t.kind].stat] || 0) - t.base)));
+    return { kind: t.kind, text: PROMISES[t.kind].text(t.need), have, need: t.need, done: have >= t.need };
+  });
+  return { tasks, kept: tasks.every((t) => t.done), paid: d.paid };
+}
+function keepPromises(state, now) {
+  const p = promises(state, now);
+  if (!p.kept || p.paid) return;
+  state.daily.paid = true;
+  const coins = Math.max(100, Math.round(townRatePerMin(state, now) * TUNING.activeBoost * TUNING.promiseRewardMinutes));
+  gain(state, coins, 'promise');
+  gainGems(state, 3);
+  addXp(state, 5);
+  events.emit('promisesKept', { coins });
+}
+
 // ---- ribbon cutting, names ---------------------------------------------------------
 
 /** Cut the ribbon on a building that just opened: a small bonus, if you're quick (a minute). */
@@ -2982,6 +3021,7 @@ export function advance(state, now, { live = true, active = false } = {}) {
   if (live) maybeProblem(state, now);
   if (live) { maybeVisitor(state, now); maybePost(state, now); maybeResidentBuy(state, now); maybeVip(state, now); }
   noteSeasonAndRivals(state, now, live);
+  keepPromises(state, now, live);
   if (state.ribbons.length) state.ribbons = state.ribbons.filter((r) => r.until > now && state.buildings.some((b) => b.id === r.id));
   if (state.vip && now >= state.vip.leaveAt) vipLeaves(state, now);
   else {                                   // visitors and posts only happen while you play

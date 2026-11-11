@@ -996,7 +996,10 @@ export function createUI(root, api) {
           <span class="goal-copy">${esc(g.text)}${gp ? ` <b>${formatCoins(gp.have)}/${formatCoins(gp.need)}</b>` : ''}</span>
           <span class="goal-reward">${rw.coins ? `${formatCoins(rw.coins)}${icon('coin', 1, 'i12')}` : ''}${rw.gems ? ` ${rw.gems}${icon('gem', 1, 'i12')}` : ''}</span></div>`;
       }).join('');
-      return { title: `Goals · ${done.size}/${(config.GOALS || []).length}`, html: `<p class="note">Goals finish by themselves when you get there, and pay out right away.</p>${rows}` };
+      const pr = call('promises', s, now) || { tasks: [] };
+      const today = pr.tasks.map((t) => `<div class="goal-row${t.done ? ' is-done' : ' is-next'}" data-key="pr-${t.kind}"><span class="goal-mark">${t.done ? '✓' : '🎤'}</span><span class="goal-copy">${esc(t.text)}${t.done ? '' : ` <b>${formatCoins(t.have)}/${formatCoins(t.need)}</b>`}</span></div>`).join('');
+      return { title: `Goals · ${done.size}/${(config.GOALS || []).length}`, html: `<h3 class="sec">Today's promises${pr.paid ? ' · kept ✓' : ''}</h3>${today}
+        <p class="note">${pr.paid ? 'New promises tomorrow.' : 'Keep all three today for coins, 3 gems and mayor XP.'}</p><h3 class="sec">Goals</h3>${rows}` };
     },
 
     /* --- The collection book --- */

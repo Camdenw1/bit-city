@@ -584,6 +584,7 @@ test('sales deplete stock, pay coins, and stop at zero', () => {
   sim.assignJob(s, a.id, diner.id, T0);
   allGoalsDone(s);
   const max = BUILDINGS.diner.stockMax;
+  s.daily = { day: S.localDay(T0), paid: true, tasks: [] };   // keep today's promises out of the coin maths
   const perMin = BUILDINGS.diner.baseRate * TUNING.staffFactor[1] * (1 + 9 / TUNING.skillAvgDivisor);
   const sold100 = Math.floor(perMin * 100 + 1e-9);
   const coins0 = s.coins;
@@ -2257,4 +2258,25 @@ test('ribbons, town name and street addresses', () => {
   sim.advance(s, s.lastTick + TUNING.ribbonMs + 1000);
   assert.ok(!s.ribbons.some((r) => r.id === b2.id));
   assert.match(sim.addressOf(s, b), /^\d+ \w+ (Street|Avenue)$/);
+});
+
+test("the mayor's daily promises: three a day, counted from stats, paid once when all are kept", () => {
+  const { s } = smallTown();
+  allGoalsDone(s);
+  const p = sim.promises(s, s.lastTick);
+  assert.equal(p.tasks.length, 3);
+  assert.equal(new Set(p.tasks.map((t) => t.kind)).size, 3);
+  assert.ok(p.tasks.every((t) => t.have === 0 && t.need > 0));
+  // do everything they ask by bumping the counters
+  for (const t of s.daily.tasks) s.stats[config.PROMISES[t.kind].stat] += t.need;
+  const coins = s.coins, gems = s.gems;
+  sim.advance(s, s.lastTick + 1000);
+  assert.ok(s.coins > coins); assert.equal(s.gems, gems + 3); assert.equal(s.daily.paid, true);
+  const c2 = s.coins;
+  sim.advance(s, s.lastTick + 1000);
+  assert.equal(s.coins >= c2, true);
+  assert.equal(s.daily.paid, true, 'paid once');
+  // a new day brings new promises
+  sim.advance(s, s.lastTick + DAY, { live: false });
+  assert.equal(sim.promises(s, s.lastTick).paid, false);
 });
