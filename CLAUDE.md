@@ -39,8 +39,10 @@ covers running and publishing. This file holds the design decisions and the road
 
 ## Decisions already made
 
-- Layout: top-down town map, tap-to-place, every building is one lot. Roads are fixed
-  (`isRoad` in `js/config.js`); the player never draws roads.
+- Layout: top-down town map, tap-to-place, every building is one lot. Roads are fixed and the
+  player never draws them: new towns use a street plan cut from `worldSeed` (`streetPlan` in
+  `js/terrain.js`, `state.streets = 'plan'`); towns founded before that keep the even grid
+  (`isRoad` in config, `streets = 'grid'`). Tests use the grid.
 - Platform: home-screen web app (PWA). Plain ES modules, canvas map, HTML menus,
   no build step, no dependencies, no network calls. The folder is the game.
 - Hosting: GitHub Pages from `main` (root) of the public repo Camdenw1/bit-city, live at
@@ -225,13 +227,41 @@ shop problems the government solves, the Mayor's desk, his own places, land-boun
 a jobs board with six ways to earn, the gas pedal, car upgrades and the welcome drive.
 Batch 1 (worker skill and count) and newcomers (arrivals on the entry road, traits, stars,
 moving out) are done. The game is now called Mini Mayor. Visitors and the feed are done.
-Suggested order for the rest (he has not confirmed it): visitors and a social feed; moving
-buildings and terrain-only buildings; raw materials and a construction crew; prestige trees.
+Also done on 2026-11-10 from his phone feedback: the entry road and trade trucks, the taxi and
+deliveries picking their own destination (red pin), jobs as map bubbles, the Upgrades tab and
+Construction Yard, goal progress, forgiving taps, the name Mini Mayor, the Build button removed.
+
+Still to build, in his order (propose a design and get his yes before each one):
+1. Moving buildings for a hefty price, and demolition that costs coins (see below).
+2. A stock market that can lose coins, kept simple.
+3. About five raw materials, Catan-style (build sources, use them, trade them). The biggest
+   threat to "really simple": push back if it gets heavy. A crew upgrade and the Yard exist.
+4. Prestige: points from the city's total value, a permanent upgrade tree and one that resets
+   each prestige. Car/taxi speed must be upgradable in both (his ask). Put it in the Upgrades tab.
+Also open: more "other sports" places if he names them, away income (shops only earn the 10x
+boost while open), more goals (he likes goals as the guide; a keen bot clears all 23 in a week)
+and maybe a Goals list in Menu (offered, not asked for).
 His calls on the contested ideas (2026-11-10), still to build:
 - Demolition costs coins instead of refunding 75%.
 - The stock market can lose coins.
 The tests "nothing ever takes coins away" and the 75% refund test encode the old rule and
 change when these are built.
+
+## How a session usually goes (what Camden expects)
+
+- He sends short asks from playing on his phone. Make each a batch: explain the plan in a few
+  lines first, build, then `node --test`, `node tools/playtest.mjs` (compare with the last run),
+  and a check in the browser preview at phone size. Report what was verified and what wasn't.
+- Commit each batch with CLAUDE.md updated. Then ask "push?"; he answers "Yes, push". Push,
+  wait for the Pages build (`gh run watch`), and confirm the live `sw.js` has the new CACHE.
+- Preview tips: the preview server is `python3 -m http.server 8000` in this folder
+  (`.claude/launch.json`, often already running). Before trusting it, unregister the service
+  worker, delete caches, re-fetch changed files with `{cache:'reload'}` and load twice. The local
+  pane can't register the service worker ("unknown error when fetching the script"); the live
+  site can. When the pane is hidden, animation frames don't run: call `bitcity.renderer.draw()`.
+  Taking a screenshot can count as leaving and returning, which tidies away a waiting ride.
+- New sim functions are reachable in the console as `bitcity.sim.*`; `import('/js/state.js')`
+  gives the same state module the game uses.
 
 ## Architecture rules
 
@@ -249,9 +279,11 @@ change when these are built.
 
 ## Known gaps at handoff
 
-- Live on GitHub Pages since 2026-11-10. Camden's first phone report: taps, text and edges
-  fine; zoom and scrolling not smooth, blue strip under the camera, taxi too fast (all three
-  addressed the same day, not yet rechecked on the phone). Sound and away time not checked.
+- Live on GitHub Pages since 2026-11-10 (v29 at this handoff). Fixed from his phone reports:
+  smooth zoom and glide, map under the camera, slower taxi, forgiving taps. He has not yet
+  reported on: sound, away time, the newcomers, the feed, visitors, the Upgrades tab.
+- Skipping a Lunch Rush also shows the "popped up on the map" toast (skipping clears the rest).
+  Harmless; offered to quiet it.
 - ChatGPT (Codex) finished the surprise-shop menu and added deliveries and restock-all. It
   also wrote jobs-board rules with no screens; the screens were built on 2026-11-10.
 - Removing a surprise shop refunds 75%, so a reroll costs 25%. Left as is.
