@@ -1058,3 +1058,12 @@ body { position: fixed; inset: 0; }
 .down { color: #a63d44; }
 .row.wrap { flex-wrap: wrap; gap: 6px; }
 .up-card.is-locked { opacity: 0.6; border-style: dashed; }
+
+/* ---------- compact newcomer card ---------- */
+.nc-card { display: flex; align-items: center; gap: 8px; padding: 8px; margin: 6px 0; border: 2px solid var(--ink); border-radius: 14px; background: #fffbee; }
+.nc-card.is-star { background: #fff4c8; border-color: #c99a1e; }
+.nc-mid { flex: 1; min-width: 0; }
+.nc-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 15px; }
+.nc-skill { display: inline-flex; align-items: center; gap: 2px; padding: 0 5px; border-radius: 999px; font-size: 12px; background: color-mix(in srgb, var(--c) 22%, white); }
+.nc-sub { font-size: 12px; opacity: 0.8; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nc-btns { display: flex; align-items: center; gap: 6px; }

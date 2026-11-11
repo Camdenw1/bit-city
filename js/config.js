@@ -1,6 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
-export const VERSION = 44;           // shown in Menu; keep in step with CACHE in sw.js
+export const VERSION = 45;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;
@@ -303,6 +303,16 @@ export const SEASONS = [
   { id: 'summer', name: 'Summer', emoji: '☀️', crops: { veggies: 1, fruit: 1.25 },    visitors: 1.25, contracts: 1,    note: 'Fruit grows 25% faster and 25% more visitors come.' },
   { id: 'autumn', name: 'Autumn', emoji: '🍂', crops: { veggies: 1.1, fruit: 1.1 },   visitors: 1,    contracts: 1,    note: 'Harvest time: all crops grow 10% faster.' },
   { id: 'winter', name: 'Winter', emoji: '❄️', crops: { veggies: 0.8, fruit: 0.8 },   visitors: 1,    contracts: 1.25, note: 'Crops grow 20% slower, but contracts pay 25% more.' },
+];
+
+// ---- City tiers ----------------------------------------------------------------------
+// As the town grows it becomes a Village, Town, City, then Metropolis: shops sell a little more
+// and the streets look grander (sidewalks, street lamps, zebra crossings).
+export const TIERS = [
+  { name: 'Village',    pop: 0,   sales: 0 },
+  { name: 'Town',       pop: 20,  sales: 0.05 },
+  { name: 'City',       pop: 60,  sales: 0.10 },
+  { name: 'Metropolis', pop: 120, sales: 0.15 },
 ];
 
 // ---- Rival towns -------------------------------------------------------------------

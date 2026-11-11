@@ -139,7 +139,8 @@ export function newGame(now) {
     mayor: { xp: 0, spent: {} },       // mayor XP and the town perks bought with mayor levels (reset on prestige)
     legacy: { points: 0, perks: {}, towns: 1, oldTowns: [] },   // prestige: points, permanent perks, towns founded, sister towns (kept for good)
     lastCareDay: null,
-    season: null,                      // the last season seen (for the season-change toast)
+    season: null,
+    tierSeen: 0,                       // the highest city tier announced                      // the last season seen (for the season-change toast)
     rivalSeen: {},                     // rival town -> the last population milestone posted                 // the local day the sister towns' care packages last came
     market: null,                      // stock market: { prices, prev, shares, paid } (made when first needed)
     vip: null,                         // a VIP waiting on the entry road: { kind, name, look, arrivedAt, leaveAt }
@@ -330,6 +331,7 @@ export function migrate(state) {
       oldTowns: (Array.isArray(legacy.oldTowns) ? legacy.oldTowns : []).filter((t) => t && typeof t.name === 'string' && isNum(t.income)) };
     if (typeof state.lastCareDay !== 'string') state.lastCareDay = null;
     if (typeof state.season !== 'string') state.season = null;
+    if (!isNum(state.tierSeen)) state.tierSeen = 0;
     if (!state.rivalSeen || typeof state.rivalSeen !== 'object') state.rivalSeen = {};
     for (const k of Object.keys(PERM_PERKS)) { const r = (legacy.perks || {})[k]; if (isNum(r) && r > 0) state.legacy.perks[k] = Math.min(PERM_PERKS[k].max, Math.round(r)); }
     // building materials (2026-11-11)

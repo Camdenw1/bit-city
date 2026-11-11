@@ -5,7 +5,7 @@
 import { MAP_W, MAP_H, TILE, isRoad, DAY_LENGTH_MS, BUILDINGS, WORLD, PARCELS, TUNING, parcelAt } from './config.js';
 import { initSprites, getSprite, getPerson, buildingSpriteId } from './sprites.js';
 import { makeWorld, terrainAt } from './terrain.js';
-import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots, vipSpot, festivalSpot, festivalIssue, seasonOf } from './sim.js';
+import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots, vipSpot, festivalSpot, festivalIssue, seasonOf, cityTier } from './sim.js';
 
 const SPRITE_H = 16;                 // building sprites are 16 x 16: each one fits its own lot
 const OVERLAP = SPRITE_H - TILE;     // 0: nothing pokes into the tile above
@@ -116,7 +116,8 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   let groundKey = null;                // worldSeed + owned land the cached ground was drawn for
   let lotList = [];                    // buildable tiles on owned land: { x, y, sand }
   let saleSigns = [];                  // parcels that can be bought next: { id, x, y }
-  let entryOut = [];                   // entry road tiles beyond the world's edge, nearest first
+  let entryOut = [];
+  let lampTiles = [];                  // street lamps (City tier and up), glowing at night                   // entry road tiles beyond the world's edge, nearest first
   const truckPaths = new Map();        // truck id → tile path it drives
 
   // local cosmetic state
@@ -237,7 +238,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   /** What the cached ground depends on: the town, its land, bike lanes and car-free streets. */
   function groundKeyOf(st) {
     const u = (st && st.upgrades) || {};
-    return `${st?.worldSeed ?? 0}|${(st?.land || ['home']).join(',')}|${u.bikes || 0}|${u.pedestrian || 0}|${seasonOf(getNow ? getNow() : Date.now()).id}`;
+    return `${st?.worldSeed ?? 0}|${(st?.land || ['home']).join(',')}|${u.bikes || 0}|${u.pedestrian || 0}|${seasonOf(getNow ? getNow() : Date.now()).id}|${st ? cityTier(st).level : 0}`;
   }
 
   function buildGround() {
@@ -273,7 +274,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       if (kind === 'sand' || kind === 'mountain') return kind;
       return kind === 'forest' ? 'tree' : grassId(x, y, true);
     };
-    lotList = [];
+    lotList = []; lampTiles = [];
     const seasonNow = seasonOf(getNow ? getNow() : Date.now()).id;
     for (let ty = WORLD.y0 - groundPad; ty <= WORLD.y1 + groundPad; ty++) {
       for (let tx = WORLD.x0 - groundPad; tx <= WORLD.x1 + groundPad; tx++) {
@@ -298,6 +299,21 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
           }
         }
         if (mine && state && roadAt(tx, ty)) {
+          const tier = cityTier(state).level;
+          const n = [roadAt(tx, ty - 1), roadAt(tx + 1, ty), roadAt(tx, ty + 1), roadAt(tx - 1, ty)];
+          // Town and up: pale sidewalks along each curb
+          if (tier >= 1) {
+            c.fillStyle = '#d8d2c6';
+            if (!n[0]) c.fillRect(px, py, TILE, 2);
+            if (!n[2]) c.fillRect(px, py + TILE - 2, TILE, 2);
+            if (!n[3]) c.fillRect(px, py, 2, TILE);
+            if (!n[1]) c.fillRect(px + TILE - 2, py, 2, TILE);
+          }
+          // City and up: a street lamp at every crossing (it glows at night)
+          const crossing = n.filter(Boolean).length >= 3;
+          if (tier >= 2 && crossing) { c.fillStyle = '#3b2f4a'; c.fillRect(px + 1, py + 1, 1, 5); c.fillStyle = '#fbe391'; c.fillRect(px, py, 3, 1); lampTiles.push({ x: tx, y: ty }); }
+          // Metropolis: zebra crossings at crossings
+          if (tier >= 3 && crossing) { c.fillStyle = 'rgba(255, 246, 224, 0.9)'; for (let i = 3; i < 13; i += 3) { c.fillRect(px + i, py + 3, 2, 1); c.fillRect(px + i, py + 12, 2, 1); } }
           // bike lanes: a green strip along each curb
           if ((state.upgrades || {}).bikes) {
             c.fillStyle = '#5bb450';
@@ -924,8 +940,17 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     const top = b.y * TILE - OVERLAP;
     if (f.built.get(b)) {
       blit(getSprite(buildingSpriteId(b)), b.x * TILE, top);
-      // upgraded buildings wear a gold star per level above the first
-      for (let i = 1; i < (b.level || 1); i++) blit(getSprite('pip'), b.x * TILE + (i - 1) * 6, b.y * TILE - 1);   // on the roof, clear of the shop's picture
+      const lv = b.level || 1, x0 = b.x * TILE;
+      if (lv >= 2) {                               // level 2: a striped awning and flower boxes
+        for (let i = 0; i < 7; i++) rect(x0 + 1 + i * 2, top + 5, 2, 1, i % 2 ? '#fff6e0' : '#d9574a');
+        rect(x0 + 1, top + 15, 3, 1, '#5bb450'); rect(x0 + 12, top + 15, 3, 1, '#5bb450');
+        rect(x0 + 2, top + 14, 1, 1, '#e85d8a'); rect(x0 + 13, top + 14, 1, 1, '#f2c14e');
+      }
+      if (lv >= 3) {                               // level 3: gold trim and a flag
+        rect(x0 + 1, top + 1, 14, 1, '#f2c14e');
+        rect(x0 + 14, top - 4, 1, 5, '#3b2f4a'); rect(x0 + 11, top - 4, 3, 2, '#e85d8a');
+      }
+      for (let i = 1; i < lv; i++) blit(getSprite('pip'), x0 + (i - 1) * 6, b.y * TILE - 1);   // gold stars for levels
       return;
     }
     blit(getSprite('site'), b.x * TILE, top);
@@ -1137,6 +1162,11 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
 
     if (f) {
       if (darkness > 0.35) for (const row of f.rows) for (const b of row) if (f.built.get(b)) drawGlow(b, darkness);
+      if (darkness > 0.3 && lampTiles.length) {     // street lamps
+        ctx.globalAlpha = Math.min(0.6, darkness);
+        for (const l of lampTiles) { rect(l.x * TILE - 1, l.y * TILE - 1, 5, 3, '#fbe391'); }
+        ctx.globalAlpha = 1;
+      }
 
       // destination candidates while the player is choosing where the rider wants to go
       if (f.ride && f.ride.state === 'choosing') {

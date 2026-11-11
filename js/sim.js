@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES, SEASONS, RIVALS } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, STOCKS, MATERIALS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES, SEASONS, RIVALS, TIERS } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick, newGame } from './state.js';
 
@@ -1052,7 +1052,13 @@ export function sellStock(state, id, now) {
 export const townPerk = (state, k) => Math.max(0, Math.min(TOWN_PERKS[k].max, ((state.mayor || {}).spent || {})[k] || 0));
 export const permPerk = (state, k) => Math.max(0, Math.min(PERM_PERKS[k].max, ((state.legacy || {}).perks || {})[k] || 0));
 const rentPerk = (state) => 1 + TOWN_PERKS.rent.per * townPerk(state, 'rent');
-const salesPerk = (state) => (1 + TOWN_PERKS.sales.per * townPerk(state, 'sales')) * (1 + PERM_PERKS.sales.per * permPerk(state, 'sales'));
+const salesPerk = (state) => (1 + TOWN_PERKS.sales.per * townPerk(state, 'sales')) * (1 + PERM_PERKS.sales.per * permPerk(state, 'sales')) * (1 + cityTier(state).sales);
+/** Village, Town, City or Metropolis, by population (index in TIERS as `level`). */
+export function cityTier(state) {
+  let level = 0;
+  for (let i = 0; i < TIERS.length; i++) if (state.tenants.length >= TIERS[i].pop) level = i;
+  return { ...TIERS[level], level };
+}
 /** What rides and deliveries pay, on top of the fare: your car and the Good tipper perk. */
 function farePay(state) {
   return carOf(state).pay * (1 + TOWN_PERKS.fares.per * townPerk(state, 'fares')) * (1 + 0.05 * upLevel(state, 'roads'));
@@ -1170,6 +1176,8 @@ export function visitorsMult(state, now) {
 
 /** Toast-worthy changes: a new season, and rivals passing 25/50/100/150/200 residents (a feed post). */
 function noteSeasonAndRivals(state, now, live) {
+  const tier = cityTier(state).level;
+  if (tier > (state.tierSeen || 0)) { state.tierSeen = tier; events.emit('tier', { tier: TIERS[tier] }); }
   const season = seasonOf(now).id;
   if (state.season !== season) {
     const first = state.season == null;

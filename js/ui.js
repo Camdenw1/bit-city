@@ -438,11 +438,11 @@ export function createUI(root, api) {
           : `<button class="btn btn-small ${signed < slots ? 'btn-go' : 'btn-quiet'}" data-act="contract-sign" data-town="${esc(o.town)}">Sign contract</button>`}</div>`;
     }).join('');
     const contracts = `<h3 class="sec">Contracts · ${signed} of ${slots}</h3>${contractRows}
-      <p class="note">Neighbours collect at the top of every hour with their own trucks, even while you're away. Every delivery builds friendship (♥): bigger contracts that pay more. Upgrade the Trading Post for more contracts.</p>`;
+      <p class="note">Collected every hour, even while you're away. Each delivery builds ♥.</p>`;
     const mats = config.MATERIALS || {};
     const matRows = Object.keys(mats).map((k) => `<button class="btn btn-small btn-quiet" data-act="buy-mat" data-k="${k}" data-qty="20">${mats[k].emoji} ${Math.floor((s.mats || {})[k] || 0)} · import 20 for ${formatCoins(20 * mats[k].price)}</button>`).join('');
-    const matBlock = `<h3 class="sec">Building materials</h3><div class="row wrap">${matRows}</div><p class="note">Materials take 30% off the coins of any upgrade. A Lumber Yard, Quarry or Brickworks makes them for free.</p>`;
-    return `${contracts}${matBlock}<h3 class="sec">Trucks</h3>${trucks}<p class="note">Trade drives in and out on the road from out of town. Sales pay when the truck leaves town; imports land when it arrives. A Trading Post near the entry road makes shorter trips; each level adds a truck.</p>
+    const matBlock = `<h3 class="sec">Building materials</h3><div class="row wrap">${matRows}</div><p class="note">Materials take 30% off upgrades.</p>`;
+    return `${contracts}${matBlock}<h3 class="sec">Trucks</h3>${trucks}
       <h3 class="sec">Your harvest</h3>${rows}<p class="note">Staffed farms fill the barn. Prices change every day.</p>
       <h3 class="sec">Orders from neighbours</h3>${orders || '<p class="note">Orders arrive soon.</p>'}<p class="note">Orders never run out of time.</p>`;
   }
@@ -471,7 +471,7 @@ export function createUI(root, api) {
           ${r.shares > 0 ? `<button class="btn btn-small btn-quiet" data-act="stock-sell" data-id="${r.id}">Sell all · ${formatCoins(r.value)}</button>` : ''}</div></div>`;
     }).join('');
     return `<h3 class="sec">Stocks · invested ${formatCoins(p.invested)} of ${formatCoins(p.cap)}</h3>${rows}
-      <p class="note">Prices change every hour, partly by luck and partly by how strong your town is in that business. You can lose coins. The most you can have invested is about an hour of your shops' income.</p>`;
+      <p class="note">Prices move every hour. You can lose coins.</p>`;
   }
   const dreamTag = (text = 'Dream job') => `<span class="tag tag-dream">${icon('star', 1, 'i12')}${text}</span>`;
   const empty = (iconId, text) => `<div class="empty">${icon(iconId, 4)}<p>${text}</p></div>`;
@@ -485,7 +485,7 @@ export function createUI(root, api) {
   }
 
   const arrivalText = (s) => { const ms = Math.max(0, (s.nextApplicantAt || 0) - N()); return ms > 0 ? `in ${formatDuration(Math.max(1000, ms))}` : 'soon'; };
-  const newcomerNote = (s) => `<p class="note">“Not now” is free; someone new drives in a minute later.${(s.slowArrivalsUntil || 0) > N() ? ' Newcomers are slower for a while: someone was asked to move out.' : ''}</p>`;
+  const newcomerNote = (s) => ((s.slowArrivalsUntil || 0) > N() ? '<p class="note">Newcomers are slower for a bit (someone moved out).</p>' : '');
   /** A newcomer's skills as ranges: you only learn the real numbers when they move in. */
   function rangeBars(t) {
     return `<div class="bars">${CATEGORIES.map((c) => {
@@ -500,21 +500,20 @@ export function createUI(root, api) {
   };
   /** A newcomer at the Welcome sign. With a home given, the card moves them in there. */
   function newcomerCard(t, i, home) {
-    const dd = def(t.dream);
     const inTown = S().buildings.some((b) => b.type === t.dream);
-    const hint = (config.HINTS || {})[t.hint] || '';
     const go = home
-      ? `<button class="btn btn-small btn-go" data-act="move-in" data-i="${i}" data-id="${home.id}">${icon('key', 1, 'i12')} Move in here</button>`
-      : `<button class="btn btn-small btn-go" data-act="welcome-one" data-i="${i}">${icon('key', 1, 'i12')} Welcome!</button>`;
+      ? `<button class="btn btn-small btn-go" data-act="move-in" data-i="${i}" data-id="${home.id}">Move in</button>`
+      : `<button class="btn btn-small btn-go" data-act="welcome-one" data-i="${i}">Welcome!</button>`;
     const lj = home ? null : call('likelyJob', S(), t, N());
-    return `<div class="app-card${t.star ? ' is-star' : ''}" data-key="a${t.id}">
-      <div class="app-who"><span class="avatar big">${person(t.look, 5)}</span><b>${esc(t.name)}</b>${t.star ? `<span class="tag tag-dream">${icon('star', 1, 'i12')}Star</span>` : ''}</div>
-      <div>${rangeBars(t)}<p class="app-hint">“${esc(hint)}”</p>
-        ${lj ? `<p class="app-hint">Likely job: <b>${esc(bName(lj.building))}</b>${lj.dream ? ' (dream job!)' : ''}</p>` : home ? '' : '<p class="app-hint">No open jobs right now</p>'}
-        ${home ? '' : `<button class="link" data-act="pick-home" data-i="${i}">Choose a home</button>`}</div>
-      <div class="app-dream">${bld(t.dream, 2)}<span class="tiny">${icon('star', 1, 'i12')}Dream</span><b>${esc(dd.name)}</b>
-        ${inTown ? '<span class="tag tag-ok">In town ✓</span>' : ''}</div>
-      <div class="app-actions"><button class="btn btn-small btn-quiet" data-act="send-away" data-i="${i}">Not now</button>${go}</div></div>`;
+    // only the two best skills, as the ranges you can see
+    const top2 = CATEGORIES.map((c) => ({ c, r: (t.seen && t.seen[c]) || [t.skills[c], t.skills[c]] }))
+      .sort((a, b) => b.r[1] + b.r[0] - a.r[1] - a.r[0]).slice(0, 2)
+      .map(({ c, r }) => `<span class="nc-skill" style="--c:${catColor(c)}">${icon('cat_' + c, 1, 'i12')}${r[0] === r[1] ? r[0] : `${r[0]}-${r[1]}`}</span>`).join('');
+    return `<div class="nc-card${t.star ? ' is-star' : ''}" data-key="a${t.id}">
+      <span class="avatar">${person(t.look, 4)}</span>
+      <div class="nc-mid"><div class="nc-name"><b>${esc(t.name)}</b>${t.star ? ' ⭐' : ''}${top2}</div>
+        <div class="nc-sub">${bld(t.dream, 1, 'mini')} ${esc(def(t.dream).name)}${inTown ? ' ✓' : ''}${lj ? ` · works at ${esc(bName(lj.building))}` : ''}</div></div>
+      <div class="nc-btns"><button class="icon-btn" data-act="send-away" data-i="${i}" aria-label="Not now">✕</button>${go}</div></div>`;
   }
 
   /** One tenant row used by the People sheet and home sheets. */
@@ -900,8 +899,7 @@ export function createUI(root, api) {
       const cards = list.map((t, i) => (t ? newcomerCard(t, i, null) : '')).join('');
       return {
         title: 'Newcomers',
-        html: `<p class="note">They drove in on the road from out of town. Skills show as a range; you find out the real numbers, and any trait, when they move in. "Welcome!" gives them your best free home and the best open job.</p>
-          ${cards || empty('person', `Nobody is waiting right now. Someone new drives in ${arrivalText(s)}.`)}${cards ? newcomerNote(s) : ''}`,
+        html: `${cards || empty('person', `Nobody is waiting right now. Someone new drives in ${arrivalText(s)}.`)}${cards ? newcomerNote(s) : ''}`,
       };
     },
 
@@ -1061,7 +1059,7 @@ export function createUI(root, api) {
       const adRow = `<div class="up-card" data-key="ad"><div class="up-head">${icon('star', 2)}<b>Run an ad</b>
           ${adOn ? `<span class="tag tag-ok">${formatDuration(Math.max(0, (s.adUntil || 0) - N()))} left</span>`
             : `<button class="btn btn-small ${adCost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="run-ad">${formatCoins(adCost)} ${icon('coin', 1, 'i12')}</button>`}</div>
-        <p class="note">An ad makes every sale pay +${Math.round((config.TUNING?.adSalesBonus ?? 0.25) * 100)}% and brings newcomers twice as fast, for ${formatDuration(call('adLengthMs', s) || 7200000)}. Marketing (below) makes ads last longer.</p></div>`;
+        <p class="note">+${Math.round((config.TUNING?.adSalesBonus ?? 0.25) * 100)}% sales and faster newcomers for ${formatDuration(call('adLengthMs', s) || 7200000)}.</p></div>`;
       // mayor level: perk points for this town's perks
       const ml = call('mayorLevel', s) || { level: 0, xp: 0, next: 5, from: 0 }; const pts = call('perkPoints', s) || 0;
       const perkRow = (k, p, rank, buy, costText, can) => `<div class="up-card" data-key="${buy}-${k}"><div class="up-head"><b>${esc(p.name)}</b><span class="up-pips">${'●'.repeat(rank)}${'○'.repeat(p.max - rank)}</span>
@@ -1070,7 +1068,7 @@ export function createUI(root, api) {
       const townRows = Object.entries(config.TOWN_PERKS || {}).map(([k, p]) => perkRow(k, p, call('townPerk', s, k) || 0, 'buy-town-perk', '1 point', pts > 0)).join('');
       const mayor = `<h3 class="sec">Mayor level ${ml.level} · ${pts} perk ${pts === 1 ? 'point' : 'points'}</h3>
         <div class="meter meter-team"><i style="width:${Math.round(((ml.xp - ml.from) / Math.max(1, ml.next - ml.from)) * 100)}%"></i></div>
-        <p class="note">${ml.xp}/${ml.next} XP. Goals, VIPs, festivals and finished collection pages give XP; each level is a perk point. These perks are for this town.</p>${townRows}`;
+        <p class="note">${ml.xp}/${ml.next} XP from goals, VIPs and festivals.</p>${townRows}`;
       // prestige: found a new town, keep points and permanent perks
       const lg = s.legacy || { points: 0, perks: {}, towns: 1 };
       const earn = call('prestigePoints', s) || 0; const why = call('prestigeIssue', s);
@@ -1081,11 +1079,11 @@ export function createUI(root, api) {
         : why ? `<p class="note">${esc(why)} This city is worth ${earn} ${earn === 1 ? 'point' : 'points'} so far.</p>`
           : `<button class="btn btn-go btn-wide" data-act="town-ask">Found a new town · +${earn} prestige ${earn === 1 ? 'point' : 'points'}</button>`;
       const prestige = `<h3 class="sec">New town (prestige) · ${lg.points} ${lg.points === 1 ? 'point' : 'points'}${lg.towns > 1 ? ` · town #${lg.towns}` : ''}</h3>
-        <p class="note">When your city is big, start a new town and turn this one's value into prestige points. Points buy permanent perks that help every town after. Your old town lives on as a sister town: a best friend to trade with that sends a care package every day.</p>${found}
+        <p class="note">Start over with points for perks you keep. Your old town becomes a sister town.</p>${found}
         ${(lg.oldTowns || []).length ? `<h3 class="sec">Sister towns</h3>${lg.oldTowns.map((t) => `<div class="want-row plain" data-key="sis-${esc(t.name)}">${icon('heart', 2)}<div><b>${esc(t.name)}</b><span>${t.pop} residents · sends ${formatCoins(Math.round(t.income * (config.TUNING?.careHours ?? 1)))} coins every day</span></div></div>`).join('')}` : ''}
         ${permRows}`;
       return { title: 'Upgrades', html: `<h3 class="sec">Your car</h3>${carRow}<h3 class="sec">Advertising</h3>${adRow}<h3 class="sec">City</h3>${rows}${mayor}${prestige}
-        <p class="note">Jobs now pop up on the map as gold bubbles: tap one to play. A Construction Yard (in Build) makes anything built near it go up twice as fast.</p>` };
+` };
     },
 
     /* --- A job played inside a sheet: Lunch Rush and Odd Jobs --- */

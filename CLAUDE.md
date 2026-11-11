@@ -157,6 +157,13 @@ covers running and publishing. This file holds the design decisions and the road
   lots (in `migrate`, before unknown types are dropped).
 - More places (2026-11-11): High-rise (home, 8 residents, 60k, 50 residents) and five shops:
   Bowling Alley, Climbing Gym, Bubble Tea, Pharmacy, Electronics.
+- Less writing (Camden, 2026-11-11: "too much writing"): the newcomer card is one compact row
+  (face, name, two best skill ranges, dream, likely job, ✕ and Welcome!), and long notes on
+  Upgrades, the Trading Post and the Stock Exchange were cut to a line. Keep new text short.
+- City tiers (`TIERS`, `cityTier`): Village, Town (20 residents, +5% sales, sidewalks), City (60,
+  +10%, street lamps that glow at night), Metropolis (120, +15%, zebra crossings), with a toast.
+  Upgraded buildings show it: level 2 a striped awning and flower boxes, level 3 gold trim and a
+  flag (drawn in `drawBuilding`), plus the gold stars.
 - Moving in (2026-11-11): each newcomer card says their likely job (judged only from what you can
   see, `likelyJob`) and "Welcome!" moves them into the best free home and the best open job in
   one tap (`welcomeNewcomer`); "Choose a home" stays as a link. Tents retire from
