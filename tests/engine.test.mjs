@@ -104,8 +104,8 @@ test('config: shape, roads, every type complete, balance targets', () => {
   assert.equal(config.isRoad(3, 0), true); assert.equal(config.isRoad(0, 2), true); assert.equal(config.isRoad(0, 0), false);
   assert.equal(lots().length, 90);
   const ids = Object.keys(BUILDINGS);
-  assert.equal(ids.length, 65);   // v48 dropped the Stock Exchange, Lumber Yard, Quarry and Brickworks
-  assert.equal(ids.filter((id) => BUILDINGS[id].kind === 'biz').length, 43);
+  assert.equal(ids.length, 69);   // v48 dropped four; v49 added Tennis Club, Skate Park, Soccer Field, Swimming Pool
+  assert.equal(ids.filter((id) => BUILDINGS[id].kind === 'biz').length, 47);
   assert.deepEqual([...config.BUILD_ORDER].sort(), [...ids].sort());
   for (const id of ids) {
     const d = BUILDINGS[id];
@@ -2257,4 +2257,30 @@ test('v48: neighbours, families, the upgrade tree, five levels, and old market a
   assert.equal(m.coins, 100 + 5000 + 1200 + 1200 + 120);
   assert.ok(!m.buildings.some((b) => ['exchange', 'quarry'].includes(b.type)));
   assert.equal(m.market, undefined); assert.equal(m.mats, undefined); assert.equal(m.daily, null);
+});
+
+test('v49: more Welcome spots for big towns, growth upgrades, the perk tree, family perk, and old towns kept to visit', () => {
+  const s = fresh();
+  const base = sim.maxApplicants(s);
+  for (let i = 0; i < 100; i++) s.tenants.push({ id: 600000 + i, name: 'X', homeId: null, jobId: null, skills: {}, dream: 'diner', look: {} });
+  assert.equal(sim.maxApplicants(s), base + 2, 'one more spot per 50 residents');
+  s.upgrades = { bikes: 1, welcome: 1, interview: 1, planning: 1, recruiters: 1 };
+  s.coins = 1e7;
+  assert.ok(sim.buyUpgrade(s, 'openhouse', T0).ok);
+  assert.equal(sim.maxApplicants(s), base + 2 + config.UPGRADES.openhouse.per);
+  // perk tree: Famous town needs Head start first
+  s.legacy.points = 20;
+  assert.match(sim.buyPermPerk(s, 'sales').reason, /Head start/);
+  assert.ok(sim.buyPermPerk(s, 'coins').ok); assert.ok(sim.buyPermPerk(s, 'sales').ok);
+  for (const br of config.PERM_TREE) for (const k of br.nodes) assert.ok(config.PERM_PERKS[k], k);
+  // founding a new town keeps a map of the old one
+  const t = fresh();
+  const home = put(t, 'tent', T0); put(t, 'diner', T0);
+  for (let i = 0; i < config.TUNING.prestigePop; i++) t.tenants.push({ id: 700000 + i, name: 'Y', homeId: home.id, jobId: null, skills: {}, dream: 'diner', look: {} });
+  t.coins = 1e9;
+  const r = sim.foundNewTown(t, T0);
+  assert.ok(r.ok, r.reason);
+  const old = r.state.legacy.oldTowns.at(-1);
+  assert.equal(old.map.buildings.length, 2); assert.equal(old.map.worldSeed, t.worldSeed);
+  assert.equal(S.migrate(JSON.parse(JSON.stringify(r.state))).legacy.oldTowns.at(-1).map.buildings.length, 2);
 });

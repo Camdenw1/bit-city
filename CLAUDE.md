@@ -434,6 +434,34 @@ said big changes that reset what he has are fine if the game gets better. All of
   residents, happy 75 -> 84%; casual 53-63 -> 67-73; one week 341 -> 362, happy 57 -> 69%. Shop income is about 1.6-2x (no restock cost, no sell-outs
   while away, neighbours); pacing is still capped by newcomers, not coins.
 
+## The follow-up batch (2026-11-11, v49; Camden: "Yes, do 1-10")
+- Late growth: the Welcome sign gets one more spot per `spotsPerPop` (50) residents, up to
+  `spotsFromPopMax` (4) (`maxApplicants`). Two Homes-branch tree nodes after Town planning: Recruiters
+  (newcomers 20% sooner a level, from 30 residents) and Open house (+2 spots a level, from 40). The map
+  draws at most 9 waiting newcomers. This is the coin sink for late towns.
+- Families: a home sheet with two grown-ups says "Room for a family" (free room) or "Leave a room
+  free and they may start a family". New-town perk Big families (`kin`): kids 25% more often a rank.
+- Taller art everywhere: `floorsFor`, `getGrown`, `grownURL` moved to sprites.js; sheets show the
+  extra floors too (`buildingArt` in ui; the mini icons stay flat).
+- Skipping a Lunch Rush no longer shows the "popped up on the map" toast (`jobRest` set to 0).
+- Sports places (Claude picked them, Camden didn't name any): Tennis Club, Skate Park, Soccer Field,
+  Swimming Pool, from 40 residents. First version had no unlock and 3-4 jobs: early creative/service
+  draws gave big shops and the keen bot fell from 188 to 146 residents at day 3; unlockAt 40 and
+  smaller teams put it back at 180.
+- New-town perks are a tree too (`PERM_TREE`: Money, Speed, People; `permTreeIssue`).
+- Weather, looks only (render `weatherAt`/`drawWeather`): per real hour from the map seed; snow on
+  about half of winter's hours, rain one hour in six otherwise, fog some mornings. Sized per CSS px.
+  `bitcity.renderer.setWeather('rain'|'snow'|'fog'|null)` forces it for testing.
+- Visiting old towns: `foundNewTown` stores `map` (seed, streets, land, built buildings) on the
+  sister town. The sister-town row in Upgrades has Visit; main swaps a frozen copy in for the renderer
+  only (`visiting`; taps ignored; the HUD still shows your town) and a bar at the top goes home.
+  Towns founded before v49 have no map and no Visit button.
+- Bot after v49: keen 3 days 180 residents (85% happy), casual 61-80, one week 363 (69%). The extra
+  Welcome spots barely moved the one-week town (362 -> 363) and it still never rebuilds a home: late
+  growth is not only the sign. Worth finding what caps it next (lots? homes? coins on levels?).
+- Fresh start checked in the preview at phone size: the first goals run in order and the new
+  neighbours goal (id 'restock') completes on the first shop next to the tent.
+
 ## Camden's idea list (2026-11-10)
 
 Done from it: hourly rent and rent/hour display, 10x play boost, distance fares, any-tent rides,
@@ -493,7 +521,7 @@ His calls on the next batch (2026-11-10, answers to a question card):
 - Sim functions return `{ ok: false, reason }` with a friendly sentence instead of throwing.
 - Bump `CACHE` in `sw.js` and `VERSION` in config.js together when shipping changes, and add any new file to its list,
   or the phone keeps serving the old version.
-- Tests: `node --test` from the project root (69 passing). `node --check js/x.js` does not
+- Tests: `node --test` from the project root (70 passing). `node --check js/x.js` does not
   catch module syntax errors here; copy to a .mjs file and check that, or import it in node.
   `node --test tests/` does not work on Node 22.
 - Browser console helpers: `bitcity.skip(minutes)`, `bitcity.give(coins, gems)`.

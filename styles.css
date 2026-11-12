@@ -1098,3 +1098,9 @@ body { position: fixed; inset: 0; }
 .tree-detail .note { margin: 4px 0 0; }
 .perk-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 8px 2px; margin: 8px 0; }
 @media (prefers-reduced-motion: reduce) { .tnode.is-ready .tnode-dot { animation: none; } }
+.tree-cols.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.tree-cols.cols-3::after { left: 17%; right: 17%; }
+.visit-bar { position: fixed; z-index: 30; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 64px);
+  padding: 8px 14px; border: 2px solid var(--ink); border-radius: 999px; background: #fff3c4; font: inherit; font-size: 13px; font-weight: 800;
+  white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 0 var(--ink); }
+.visit-bar[hidden] { display: none; }

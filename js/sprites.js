@@ -381,6 +381,42 @@ Object.assign(EMBLEM, {
     '  www  ',
     '       ',
   ],
+  tennis: [       // a racket and a ball
+    ' kkk   ',
+    'kwkwk  ',
+    'kkwkk  ',
+    'kwkwk  ',
+    ' kkk yy',
+    '  B  yy',
+    '  B    ',
+  ],
+  skate: [        // a skateboard
+    '       ',
+    '       ',
+    'kkkkkkk',
+    'kiiiiik',
+    ' kkkkk ',
+    ' A   A ',
+    '       ',
+  ],
+  soccer: [       // a ball
+    ' kkkkk ',
+    'kwwkwwk',
+    'kwkkkwk',
+    'kkwwwkk',
+    'kwkkkwk',
+    'kwwkwwk',
+    ' kkkkk ',
+  ],
+  pool: [         // a ladder over the water
+    'k   k  ',
+    'kkkkk  ',
+    'k   k  ',
+    'ccccccc',
+    'cCcCcCc',
+    'uuuuuuu',
+    'UuUuUuU',
+  ],
   bowling: [      // a pin and a ball
     '  w    ',
     ' wrw   ',
@@ -1356,6 +1392,57 @@ export function getSprite(id) {
     canvasCache.set(id, c);
   }
   return c;
+}
+
+// ---- taller buildings (levels 4 and 5) ----------------------------------------------------
+// Each level past 3 adds a floor: plain wall with two windows under the roof, and the roof rises
+// FLOOR_H px into the lot behind. Only real buildings grow: not towers, landmarks, tents, farms
+// (fields), parks or trees.
+export const FLOOR_AT = 6, FLOOR_H = 5;
+const TALL_TYPES = new Set(['highrise', 'skyscraper']);
+export function floorsFor(b) {
+  const d = BUILDINGS[b.type];
+  if (!d || TALL_TYPES.has(b.type) || b.type === 'tent' || d.crop || ['landmark', 'park'].includes(d.kind) || d.rentBoost) return 0;
+  return Math.max(0, (b.level || 1) - 3);
+}
+const grownCache = new Map();
+export function getGrown(id, floors) {
+  if (!floors) return getSprite(id);
+  const key = id + '/' + floors;
+  let c = grownCache.get(key);
+  if (c) return c;
+  const src = getSprite(id);
+  c = makeCanvas(src.width, src.height + floors * FLOOR_H);
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.drawImage(src, 0, 0, src.width, FLOOR_AT, 0, 0, src.width, FLOOR_AT);                       // roof
+  const px = src.getContext('2d').getImageData(0, FLOOR_AT, src.width, 1).data;
+  const at = (x) => `rgba(${px[x * 4]},${px[x * 4 + 1]},${px[x * 4 + 2]},${px[x * 4 + 3] / 255})`;
+  let l = 0; while (l < src.width && px[l * 4 + 3] === 0) l++;               // the wall's left and right edges
+  let r = src.width - 1; while (r > l && px[r * 4 + 3] === 0) r--;
+  const wall = at(Math.min(r, l + 2));
+  for (let i = 0; i < floors; i++) {
+    const y = FLOOR_AT + i * FLOOR_H;
+    g.fillStyle = at(l); g.fillRect(l, y, 1, FLOOR_H);
+    g.fillStyle = at(r); g.fillRect(r, y, 1, FLOOR_H);
+    g.fillStyle = wall; g.fillRect(l + 1, y, r - l - 1, FLOOR_H);
+    for (const wx of [l + 3, r - 5]) {
+      g.fillStyle = '#3b2f4a'; g.fillRect(wx, y + 1, 3, 3);
+      g.fillStyle = '#9fd3f0'; g.fillRect(wx + 1, y + 2, 1, 1);
+    }
+    g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(l + 1, y + FLOOR_H - 1, r - l - 1, 1);   // a faint floor line
+  }
+  g.drawImage(src, 0, FLOOR_AT, src.width, src.height - FLOOR_AT, 0, FLOOR_AT + floors * FLOOR_H, src.width, src.height - FLOOR_AT);
+  grownCache.set(key, c);
+  return c;
+}
+/** PNG data URL of a building as it stands (with any extra floors). */
+export function grownURL(id, floors, scale = 2) {
+  if (!floors) return spriteURL(id, scale);
+  const key = id + '/' + floors + '@' + scale;
+  let u = urlCache.get(key);
+  if (!u) { u = scaledURL(getGrown(id, floors), scale); urlCache.set(key, u); }
+  return u;
 }
 
 /** PNG data URL of a sprite, nearest-neighbour scaled. Cached. */

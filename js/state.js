@@ -326,7 +326,7 @@ export function migrate(state) {
     }
     state.applicants = (Array.isArray(state.applicants) ? state.applicants : []).map(fixPerson).filter(Boolean);
     for (const a of state.applicants) { a.homeId = null; a.jobId = null; }
-    state.applicants.length = Math.min(state.applicants.length, TUNING.applicantCount + 1);   // +1: the train station's spot
+    state.applicants.length = Math.min(state.applicants.length, TUNING.applicantCount + 1 + TUNING.spotsFromPopMax + 2 * (UPGRADES.openhouse?.costs.length || 0));   // the most spots a town can have
 
     let maxId = 0;
     for (const o of [...state.buildings, ...state.tenants, ...state.applicants, ...(Array.isArray(state.orders) ? state.orders : []).filter((x) => x && isNum(x.id)), ...(Array.isArray(state.trucks) ? state.trucks : []).filter((x) => x && isNum(x.id))]) maxId = Math.max(maxId, o.id);

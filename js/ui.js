@@ -91,7 +91,12 @@ export function createUI(root, api) {
   const img = (src, w, h, cls) => `<img class="spr${cls ? ' ' + cls : ''}" alt="" draggable="false" width="${w}" height="${h}" src="${src}">`;
   const icon = (id, s = 2, cls = '') => img(sprURL(id, s), 10 * s, 10 * s, cls);
   const bld = (type, s = 2, cls = '') => img(sprURL(type, s), 16 * s, 16 * s, cls);
-  const buildingArt = (b, s, cls) => bld(sprites.buildingSpriteId(b), s, cls);
+  const buildingArt = (b, s = 2, cls) => {
+    const fl = sprites.floorsFor ? sprites.floorsFor(b) : 0;         // levels 4-5 show their extra floors
+    if (!fl || cls === 'mini') return bld(sprites.buildingSpriteId(b), s, cls);
+    let src = BLANK; try { src = sprites.grownURL(sprites.buildingSpriteId(b), fl, s); } catch (e) { /* plain art */ }
+    return img(src, 16 * s, (16 + fl * sprites.FLOOR_H) * s, cls);
+  };
   const person = (look, s = 3, cls = '') => img(perURL(look, s), 8 * s, 12 * s, cls);
 
   /* ----- data helpers ----- */
@@ -182,6 +187,11 @@ export function createUI(root, api) {
   h.gas.addEventListener('pointerdown', (e) => { e.preventDefault(); try { h.gas.setPointerCapture(e.pointerId); } catch (err) { /* fine */ } gas(true); });
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) h.gas.addEventListener(type, () => gas(false));
   h.gas.addEventListener('contextmenu', (e) => e.preventDefault());
+  // visiting an old town (v49): a bar across the top with the way back
+  const visitBar = document.createElement('button');
+  visitBar.className = 'visit-bar'; visitBar.hidden = true;
+  visitBar.addEventListener('click', () => { try { api.endVisit(); } catch (e) { /* fine */ } });
+  root.appendChild(visitBar);
   const els = { backdrop: $('.backdrop'), sheet: $('.sheet'), head: $('.sheet-head'), body: $('.sheet-body'), celebrate: $('.celebrate') };
   const tpl = document.createElement('template');
   const setText = (el, text) => { if (el && el.textContent !== text) el.textContent = text; };
@@ -264,6 +274,9 @@ export function createUI(root, api) {
 
   function refreshHUD() {
     const s = S(); const now = N();
+    const vis = api.visiting ? api.visiting() : null;
+    if (visitBar.hidden === !!vis) visitBar.hidden = !vis;
+    if (vis) setText(visitBar, `Visiting ${vis} · tap to go home`);
     h.saveWarning.hidden = !api.saveFailed();
     const driving = !!(s.ride && s.ride.state === 'driving');
     if (h.gas.hidden === driving) { h.gas.hidden = !driving; if (!driving) h.gas.classList.remove('down'); }
@@ -730,6 +743,11 @@ export function createUI(root, api) {
       if (c.kind === 'home') {
         const res = residentsOf(b.id);
         const free = Math.max(0, (c.capacity || 0) - res.length);
+        // families (v49 hint): two grown-ups and a free room may have a kid
+        const adults = res.filter((t) => !t.kid).length;
+        const familyLine = adults < 2 ? '' : free > 0
+          ? `<p class="note">${icon('heart', 1, 'i12')}Room for a family: a kid may arrive soon</p>`
+          : `<p class="note">${icon('heart', 1, 'i12')}Leave a room free and they may start a family</p>`;
         const beds = [];
         for (let i = 0; i < free; i++) beds.push(`<div class="slot-empty" data-key="bed${i}">${icon('key', 2)}<span>Room for a friend</span></div>`);
         return {
@@ -740,7 +758,7 @@ export function createUI(root, api) {
                 <span class="fact">${icon('coin', 2)}<b>+${formatCoins(Math.round(res.length * (c.rentPerTenant || 0) * (config.levelMult ? config.levelMult(b.level) : 1) * (1 + (call('homeBoost', s, b) || 0))))}</b><small>rent/day</small></span>
               </div>
               <p class="note">${icon('coin', 1, 'i12')}${formatCoins(c.rentPerTenant || 0)} per resident each day, paid a little every hour</p>
-              ${(call('homeBoost', s, b) || 0) > 0 ? `<p class="note">${icon('cat_farming', 1, 'i12')}+${Math.round(call('homeBoost', s, b) * 100)}% from ${call('isWaterfront', s, b.x, b.y) ? 'the waterfront and parks' : 'parks'} nearby</p>` : ''}${hoodLine}</div></div>
+              ${(call('homeBoost', s, b) || 0) > 0 ? `<p class="note">${icon('cat_farming', 1, 'i12')}+${Math.round(call('homeBoost', s, b) * 100)}% from ${call('isWaterfront', s, b.x, b.y) ? 'the waterfront and parks' : 'parks'} nearby</p>` : ''}${hoodLine}${familyLine}</div></div>
             ${free > 0 ? `<button class="btn btn-go btn-wide" data-act="open-applicants" data-id="${b.id}">${icon('key', 2)} Move someone in</button>` : ''}
             <div class="list">${res.map((t) => personRow(t) + (moveOutAsk === t.id
               ? `<div class="confirm" data-key="mo${t.id}"><span>Ask ${esc(t.name)} to move out? It's free, but newcomers will take twice as long for 10 minutes.</span>
@@ -1037,12 +1055,14 @@ export function createUI(root, api) {
       // the detail panel for the picked node (or the cheapest one you can buy now)
       const all = tree.flatMap((br) => br.nodes.map((k) => ({ n: nodeOf(k), color: br.color })));
       const pickKey = sel || (all.filter((x) => x.n.can).sort((a, z) => a.n.cost - z.n.cost)[0] || all.find((x) => !x.n.issue && x.n.cost) || {}).n?.key;
-      const perkNode = (k, p, rank, buyAct, costText, can, color) => ({ key: `${buyAct}:${k}`, icon: p.icon || 'star', name: p.name, lvl: rank, max: p.max, cost: 0, costText, can,
-        buy: `data-act="${buyAct}" data-k="${k}"`, issue: '', now: rank ? p.says(rank) : '', next: rank < p.max ? p.says(rank + 1) : '', color });
+      const perkNode = (k, p, rank, buyAct, costText, can, color, issue = '') => ({ key: `${buyAct}:${k}`, icon: p.icon || 'star', name: p.name, lvl: rank, max: p.max, cost: 0, costText, can: can && !issue,
+        buy: `data-act="${buyAct}" data-k="${k}"`, issue, now: rank ? p.says(rank) : '', next: rank < p.max ? p.says(rank + 1) : '', color });
       const ml = call('mayorLevel', s) || { level: 0, xp: 0, next: 5, from: 0 }; const pts = call('perkPoints', s) || 0;
       const lg = s.legacy || { points: 0, perks: {}, towns: 1 };
       const townNodes = Object.entries(config.TOWN_PERKS || {}).map(([k, p]) => perkNode(k, p, call('townPerk', s, k) || 0, 'buy-town-perk', '1 point', pts > 0, '#9b6bd1'));
-      const permNodes = Object.entries(config.PERM_PERKS || {}).map(([k, p]) => perkNode(k, p, call('permPerk', s, k) || 0, 'buy-perm-perk', `${p.cost} ${p.cost === 1 ? 'point' : 'points'}`, lg.points >= p.cost, '#2aa6a0'));
+      const permOf = (k, color) => { const p = config.PERM_PERKS[k]; return perkNode(k, p, call('permPerk', s, k) || 0, 'buy-perm-perk', `${p.cost} ${p.cost === 1 ? 'point' : 'points'}`, lg.points >= p.cost, color, call('permTreeIssue', s, k) || ''); };
+      const permTree = config.PERM_TREE || [];
+      const permNodes = permTree.flatMap((br) => br.nodes.map((k) => permOf(k, br.color)));
       const picked = [...all.map((x) => ({ ...x.n, color: x.color })), ...townNodes, ...permNodes].find((n) => n.key === pickKey);
       const where = !picked ? '' : picked.key.startsWith('buy-town-perk') ? 'town' : picked.key.startsWith('buy-perm-perk') ? 'perm' : 'tree';
       const detail = picked ? `<div class="tree-detail" style="--c:${picked.color}" data-key="td">
@@ -1063,7 +1083,9 @@ export function createUI(root, api) {
         <p class="note">${ml.xp}/${ml.next} XP from goals, VIPs and festivals.</p><div class="perk-row">${townNodes.map((n) => nodeBtn(n, n.color)).join('')}</div>${where === 'town' ? detail : ''}`;
       // prestige: found a new town, keep points and permanent perks
       const earn = call('prestigePoints', s) || 0; const why = call('prestigeIssue', s);
-      const permRows = `<div class="perk-row">${permNodes.map((n) => nodeBtn(n, n.color)).join('')}</div>${where === 'perm' ? detail : ''}`;
+      const permCols = permTree.map((br) => `<div class="tree-col" style="--c:${br.color}"><span class="tree-branch">${esc(br.name)}</span>
+          ${br.nodes.map((k) => nodeBtn(permOf(k, br.color), br.color)).join('<i class="tree-link"></i>')}</div>`).join('');
+      const permRows = `<div class="tree"><div class="tree-root">${icon('heart', 2)}<b>Every town</b></div><div class="tree-cols cols-3">${permCols}</div></div>${where === 'perm' ? detail : ''}`;
       const found = d.confirmTown
         ? `<div class="confirm"><span>Found a new town? You'll start fresh on new land with ${earn} new prestige ${earn === 1 ? 'point' : 'points'}. You keep your prestige points, permanent perks and collection book.</span>
             <div class="row"><button class="btn btn-quiet" data-act="town-no">Not yet</button><button class="btn btn-warn" data-act="town-yes">Found a new town</button></div></div>`
@@ -1071,7 +1093,7 @@ export function createUI(root, api) {
           : `<button class="btn btn-go btn-wide" data-act="town-ask">Found a new town · +${earn} prestige ${earn === 1 ? 'point' : 'points'}</button>`;
       const prestige = `<h3 class="sec">New town (prestige) · ${lg.points} ${lg.points === 1 ? 'point' : 'points'}${lg.towns > 1 ? ` · town #${lg.towns}` : ''}</h3>
         <p class="note">Start over with points for perks you keep. Everything you've built and saved counts. Your old town becomes a sister town.</p>${found}
-        ${(lg.oldTowns || []).length ? `<h3 class="sec">Sister towns</h3>${lg.oldTowns.map((t) => `<div class="want-row plain" data-key="sis-${esc(t.name)}">${icon('heart', 2)}<div><b>${esc(t.name)}</b><span>${t.pop} residents · sends ${formatCoins(Math.round(t.income * (config.TUNING?.careHours ?? 1)))} coins every day</span></div></div>`).join('')}` : ''}
+        ${(lg.oldTowns || []).length ? `<h3 class="sec">Sister towns</h3>${lg.oldTowns.map((t, i) => `<div class="want-row plain" data-key="sis-${esc(t.name)}">${icon('heart', 2)}<div><b>${esc(t.name)}</b><span>${t.pop} residents · sends ${formatCoins(Math.round(t.income * (config.TUNING?.careHours ?? 1)))} coins every day</span></div>${t.map ? `<button class="btn btn-small btn-go" data-act="visit-town" data-i="${i}">Visit</button>` : ''}</div>`).join('')}` : ''}
         ${permRows}`;
       return { title: 'Upgrades', html: `${adRow}${treeHtml}${where === 'tree' ? detail : ''}${mayor}${prestige}` };
     },
@@ -1477,6 +1499,7 @@ export function createUI(root, api) {
     'buy-town-perk': (el) => { const r = act('buyTownPerk', el.dataset.k); if (r && r.ok === false && r.reason) toast(r.reason); },
     'buy-perm-perk': (el) => { const r = act('buyPermPerk', el.dataset.k); if (r && r.ok === false && r.reason) toast(r.reason); },
     'town-ask': () => { sheet.confirmTown = true; renderSheet(); },
+    'visit-town': (el) => { if (api.visitTown(Number(el.dataset.i))) closeSheet(); },
     'tree-pick': (el) => { sheet.node = el.dataset.k; renderSheet(); },
     'town-no': () => { sheet.confirmTown = false; renderSheet(); },
     'town-yes': () => {
@@ -1508,7 +1531,7 @@ export function createUI(root, api) {
     },
     'upgrade-car': () => { const r = act('upgradeCar'); if (r.ok) toast(`New car: the ${r.car.name}!`); },
     'start-job': (el) => startJob(el.dataset.kind, null),
-    'skip-job': () => { act('skipTownJob'); closeSheet(); },
+    'skip-job': () => { const k = S().job?.kind; act('skipTownJob'); if (k) jobRest.set(k, 0); closeSheet(); },   // no "popped up" toast for the job you just skipped
     serve: (el) => {
       const j = S().job; if (!j) return;
       const r = act('serveOrder', j.index, Number(el.dataset.i));

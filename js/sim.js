@@ -2,7 +2,7 @@
 // Time always comes in as `now` (ms epoch). Mutating functions change `state` in place
 // and return a result object; they never throw for a normal player action.
 
-import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES, SEASONS, RIVALS, TIERS, STREET_NAMES, PROMISES, TREE } from './config.js';
+import { BUILDINGS, CATEGORIES, GOALS, NEEDS, RECIPES, HAPPY_LINES, PARCELS, TUNING, CROP_PRICE, NEIGHBOURS, PRICE_MODES, SHOP_CATS, GOV, QUALITY, PROBLEMS, CARS, TOWN_JOBS, RUSH_MENUS, shopStats, isRoad, parcelAt, levelMult, WORLD, UPGRADES, VISITS, POSTS, FIRST_NAMES, DAY_LENGTH_MS, VIPS, TRAITS, MAYOR_XP, TOWN_PERKS, PERM_PERKS, SISTER_NAMES, SEASONS, RIVALS, TIERS, STREET_NAMES, PROMISES, TREE, PERM_TREE } from './config.js';
 import { makeWorld, terrainAt, isSeaAt, streetAt } from './terrain.js';
 import { localDay, makeApplicant, rand, randInt, pick, newGame } from './state.js';
 
@@ -794,7 +794,7 @@ function runFamilies(state, now) {
     const res = byHome.get(home.id) || [];
     const adults = res.filter((t) => !t.kid);
     if (adults.length < 2 || res.length >= defOf(home).capacity) continue;
-    if (rand(state) >= TUNING.familyChance) continue;
+    if (rand(state) >= TUNING.familyChance * (1 + PERM_PERKS.kin.per * permPerk(state, 'kin'))) continue;
     const [a, b] = adults;
     const kid = makeApplicant(state);
     for (const c of CATEGORIES) kid.skills[c] = Math.max(0, Math.min(9, Math.round(((a.skills[c] || 0) + (b.skills[c] || 0)) / 2) + randInt(state, 3) - 1));
@@ -1152,10 +1152,20 @@ export function buyTownPerk(state, k) {
   state.mayor.spent[k] = townPerk(state, k) + 1;
   return { ok: true, reason: '', rank: state.mayor.spent[k] };
 }
+/** The new-town perk tree: '' if this perk can be bought, else what to buy first. */
+export function permTreeIssue(state, k) {
+  for (const br of PERM_TREE) {
+    const i = br.nodes.indexOf(k);
+    if (i > 0 && permPerk(state, br.nodes[i - 1]) < 1) return `Buy ${PERM_PERKS[br.nodes[i - 1]].name} first.`;
+  }
+  return '';
+}
 export function buyPermPerk(state, k) {
   const p = PERM_PERKS[k];
   if (!p) return fail("We don't know that perk.");
   if (permPerk(state, k) >= p.max) return fail(`${p.name} is maxed out.`);
+  const issue = permTreeIssue(state, k);
+  if (issue) return fail(issue);
   if ((state.legacy.points || 0) < p.cost) return fail(`You need ${p.cost} prestige points. Found a new town to earn them.`);
   state.legacy.points -= p.cost;
   state.legacy.perks[k] = permPerk(state, k) + 1;
@@ -1205,7 +1215,10 @@ export function foundNewTown(state, now) {
   const taken = new Set(old.map((t) => t.name).concat(NEIGHBOURS));
   const fallback = SISTER_NAMES[old.length % SISTER_NAMES.length] + (old.length >= SISTER_NAMES.length ? ` ${Math.floor(old.length / SISTER_NAMES.length) + 1}` : '');
   old.push({ name: state.townName && !taken.has(state.townName) ? state.townName : fallback,
-    pop: state.tenants.length, income: Math.round(townRatePerMin(state, now) * 60), founded: now });
+    pop: state.tenants.length, income: Math.round(townRatePerMin(state, now) * 60), founded: now,
+    // v49: a picture of the town to visit later (buildings and land only; nothing runs there)
+    map: { worldSeed: state.worldSeed, streets: state.streets, land: state.land.slice(),
+      buildings: state.buildings.filter((b) => isBuilt(b, now)).map((b) => ({ id: b.id, type: b.type, x: b.x, y: b.y, level: b.level || 1, cat: b.cat, tier: b.tier, q: b.q })) } });
   next.legacy = { points: (state.legacy.points || 0) + earned, perks: { ...state.legacy.perks }, towns: (state.legacy.towns || 1) + 1, oldTowns: old };
   next.lastCareDay = localDay(now);                 // the first care packages come tomorrow
   next.seen = JSON.parse(JSON.stringify(state.seen || next.seen));
@@ -1225,7 +1238,9 @@ function has(state, type, now) {
 }
 /** How many newcomers can wait at the Welcome sign: one more with a train station. */
 export function maxApplicants(state) {
-  return TUNING.applicantCount + (upLevel(state, 'station') > 0 ? 1 : 0);
+  // v49: big towns get more spots (one per spotsPerPop residents) and Open house adds more
+  return TUNING.applicantCount + (upLevel(state, 'station') > 0 ? 1 : 0)
+    + Math.min(TUNING.spotsFromPopMax, Math.floor(population(state) / TUNING.spotsPerPop)) + UPGRADES.openhouse.per * upLevel(state, 'openhouse');
 }
 /** How much more often visitors come: the bus line, a station, an airport. */
 export function visitorsMult(state, now) {
@@ -1949,6 +1964,7 @@ function arrivalGap(state, at) {
   if (at < (state.adUntil || 0)) gap /= 2;
   if (at < (state.slowArrivalsUntil || 0)) gap *= 2;
   gap *= 1 - 0.15 * upLevel(state, 'station');
+  gap *= 1 - UPGRADES.recruiters.per * upLevel(state, 'recruiters');
   return gap;
 }
 

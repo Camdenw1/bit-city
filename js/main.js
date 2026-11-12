@@ -20,7 +20,9 @@ const getState = () => state;
 sprites.initSprites();
 
 const canvas = document.getElementById('map');
-const renderer = render.createRenderer(canvas, { getState, getNow });
+// Visiting an old town (v49): the map shows a frozen copy of it; your own town keeps running.
+let visiting = null;
+const renderer = render.createRenderer(canvas, { getState: () => visiting || state, getNow });
 if (!renderer.gameClock && render.gameClock) renderer.gameClock = render.gameClock;
 
 let ui = null;
@@ -38,6 +40,19 @@ function act(name, ...args) {
 
 const api = {
   getState, getNow, sim, config, sprites, renderer, act,
+  visiting: () => visiting && visiting.townName,
+  visitTown: (i) => {
+    const t = (state.legacy?.oldTowns || [])[i];
+    if (!t || !t.map) return false;
+    const v = store.newGame(getNow());
+    Object.assign(v, { worldSeed: t.map.worldSeed, streets: t.map.streets, land: t.map.land, townName: t.name,
+      buildings: t.map.buildings.map((b) => ({ ...b, readyAt: 0, paid: 0 })), tenants: [], applicants: [], trucks: [], ribbons: [], ride: null, vip: null, job: null, upgrades: {} });
+    visiting = v;
+    renderer.resetView();
+    ui.refresh();
+    return true;
+  },
+  endVisit: () => { visiting = null; renderer.resetView(); ui.refresh(); },
   startDrive: () => startDrive(),
   saveFailed: () => saveFailed,
   exportSave: () => store.exportSave(state),
@@ -300,6 +315,7 @@ function resumeRide() {
 // ---------- map taps ----------
 renderer.onTap(({ x, y, building, parcel, activity, kind }) => {
   audio.unlock();
+  if (visiting) return;                               // just looking: nothing to tap in an old town
   if (ui.isModalOpen()) return;
   if (ui.pickVipTarget(x, y, building)) return;
   if (ui.pickMoveLot(x, y)) return;

@@ -3,7 +3,7 @@
 // It only ever READS game state; all animation state here is cosmetic and local.
 
 import { MAP_W, MAP_H, TILE, isRoad, DAY_LENGTH_MS, BUILDINGS, WORLD, PARCELS, TUNING, parcelAt } from './config.js';
-import { initSprites, getSprite, getPerson, buildingSpriteId } from './sprites.js';
+import { initSprites, getSprite, getPerson, buildingSpriteId, floorsFor, getGrown, FLOOR_AT, FLOOR_H } from './sprites.js';
 import { makeWorld, terrainAt } from './terrain.js';
 import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots, vipSpot, festivalSpot, festivalIssue, seasonOf, cityTier, paradeRoute } from './sim.js';
 
@@ -928,48 +928,9 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
 
   // ---------- map pieces ----------
 
-  // Levels 4 and 5 (v48) grow the building a floor each: the slice of wall under the roof is
-  // repeated and the roof rises into the lot behind, like the towers do.
-  const FLOOR_AT = 6, FLOOR_H = 5;
-  const grownCache = new Map();
-  // only real buildings grow floors: not towers, landmarks, tents, farms (fields) or parks and trees
-  const floorsOf = (b) => {
-    const d = BUILDINGS[b.type];
-    if (!d || TALL[b.type] || b.type === 'tent' || d.crop || ['landmark', 'park'].includes(d.kind) || d.rentBoost) return 0;
-    return Math.max(0, (b.level || 1) - 3);
-  };
-  function grownSprite(id, floors) {
-    const key = id + '/' + floors;
-    let c = grownCache.get(key);
-    if (c) return c;
-    const src = getSprite(id);
-    c = document.createElement('canvas');
-    c.width = src.width; c.height = src.height + floors * FLOOR_H;
-    const g = c.getContext('2d');
-    g.imageSmoothingEnabled = false;
-    g.drawImage(src, 0, 0, src.width, FLOOR_AT, 0, 0, src.width, FLOOR_AT);                       // roof
-    // each new floor: the outline of the wall under the roof, filled with plain wall and two windows
-    // (repeating the slice itself would repeat a shop's picture)
-    const px = src.getContext('2d').getImageData(0, FLOOR_AT, src.width, 1).data;
-    const at = (x) => `rgba(${px[x * 4]},${px[x * 4 + 1]},${px[x * 4 + 2]},${px[x * 4 + 3] / 255})`;
-    let l = 0; while (l < src.width && px[l * 4 + 3] === 0) l++;               // the wall's left and right edges
-    let r = src.width - 1; while (r > l && px[r * 4 + 3] === 0) r--;
-    const wall = at(Math.min(r, l + 2));
-    for (let i = 0; i < floors; i++) {
-      const y = FLOOR_AT + i * FLOOR_H;
-      g.fillStyle = at(l); g.fillRect(l, y, 1, FLOOR_H);
-      g.fillStyle = at(r); g.fillRect(r, y, 1, FLOOR_H);
-      g.fillStyle = wall; g.fillRect(l + 1, y, r - l - 1, FLOOR_H);
-      for (const wx of [l + 3, r - 5]) {
-        g.fillStyle = '#3b2f4a'; g.fillRect(wx, y + 1, 3, 3);
-        g.fillStyle = '#9fd3f0'; g.fillRect(wx + 1, y + 2, 1, 1);
-      }
-      g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(l + 1, y + FLOOR_H - 1, r - l - 1, 1);   // a faint floor line
-    }
-    g.drawImage(src, 0, FLOOR_AT, src.width, src.height - FLOOR_AT, 0, FLOOR_AT + floors * FLOOR_H, src.width, src.height - FLOOR_AT);
-    grownCache.set(key, c);
-    return c;
-  }
+  // Levels 4 and 5 grow a floor each (v48): sprites.js draws the grown sprite, shared with the sheets
+  const floorsOf = (b) => floorsFor(b);
+  const grownSprite = (id, floors) => getGrown(id, floors);
 
   function drawBuilding(b, f) {
     const top = b.y * TILE - OVERLAP;
@@ -1088,6 +1049,48 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     }
   }
 
+  // ---------- weather (v49, looks only) ----------
+  // Picked per real hour from the map's seed: snow on half of winter's hours, rain on about one
+  // hour in six otherwise, and morning fog now and then. Drawn over the screen, never over menus.
+  let weatherForce = null;                 // for testing: renderer.setWeather('rain' | 'snow' | 'fog' | null)
+  function weatherAt(now, day) {
+    if (weatherForce) return weatherForce;
+    const hour = Math.floor(now / 3600000);
+    const h = hash2(hour, (getState && getState()?.worldSeed) | 0);
+    if (seasonOf(now).id === 'winter') return h < 0.45 ? 'snow' : 'clear';
+    const hod = day.t * 24;
+    if (h < 0.17) return 'rain';
+    if (h < 0.27 && hod >= 5 && hod < 10) return 'fog';
+    return 'clear';
+  }
+  function drawWeather(now, rt, day, W, H) {
+    const w = weatherAt(now, day);
+    if (w === 'clear') return;
+    const t = rt / 1000, px = Math.max(1, ratio);           // one CSS pixel
+    if (w === 'fog') {
+      ctx.fillStyle = 'rgba(240,244,248,0.22)'; ctx.fillRect(0, 0, W, H);
+      for (let i = 0; i < 4; i++) {                       // slow drifting bands
+        const y = ((hash2(i, 7) * H + t * 6 * (i % 2 ? 1 : -1)) % H + H) % H;
+        ctx.fillStyle = 'rgba(250,252,255,0.16)'; ctx.fillRect(0, y, W, H * 0.12);
+      }
+      return;
+    }
+    const n = Math.round((W / px) * (H / px) / (w === 'rain' ? 1300 : 1800));   // per screen area, any pixel density
+    ctx.fillStyle = w === 'rain' ? 'rgba(200,222,245,0.7)' : 'rgba(255,255,255,0.9)';
+    for (let i = 0; i < n; i++) {
+      const sx = hash2(i, 1) * W, sy = hash2(i, 2) * H;
+      if (w === 'rain') {
+        const y = (sy + t * H * 0.9) % H, x = (sx - t * W * 0.08 + W) % W;
+        ctx.fillRect(x, y, Math.max(1, px * 1.2), px * 8);
+      } else {
+        const y = (sy + t * H * 0.06 * (0.6 + hash2(i, 3))) % H;
+        const x = ((sx + Math.sin(t * 0.8 + i) * 6 * px) % W + W) % W;
+        const r = px * (2 + hash2(i, 4) * 1.5);
+        ctx.fillRect(x, y, r, r);
+      }
+    }
+  }
+
   function draw(now) {
     if (now == null) now = getNow ? getNow() : Date.now();
     const rt = clock();
@@ -1196,6 +1199,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
             if (pos) movers.push({ y: pos.y + 5, draw: () => blit(getSprite(`taxi_${pos.dir}`), Math.round(pos.x - 7), Math.round(pos.y - 5)) });
             return;
           }
+          if (i >= 9) return;                              // three little rows at most; the rest wait out of sight
           const px = spot.x * TILE + 2 + (i % 3) * 5, py = spot.y * TILE + 12 - Math.floor(i / 3) * 4 - (i % 2);   // two little rows
           movers.push({ y: py, draw: () => drawStanding(a, px, py, rt + i * 300) });
         });
@@ -1228,6 +1232,8 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       ctx.globalCompositeOperation = 'source-over';
       void hourF;
     }
+
+    drawWeather(now, rt, day, W, H);
 
     if (f) {
       if (darkness > 0.35) for (const row of f.rows) for (const b of row) if (f.built.get(b)) drawGlow(b, darkness);
@@ -1624,6 +1630,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     walkerStats: () => { const o = { walking: 0, inside: 0, strolling: 0, plans: {} }; for (const w of walkers.values()) { if (w.inside) o.inside++; else if (w.path) o.walking++; else o.strolling++; const p = (w.planKey || '').replace(/\d+$/, ''); o.plans[p] = (o.plans[p] || 0) + 1; } return o; },
     resize, draw, onTap, floatText, burst, driveTaxi, sendWalker, setGas, setSelection, setReach, focusTile, tileToScreen,
     setMovePreview(preview) { movePreview = preview; },
+    setWeather(w) { weatherForce = w || null; },
     setOverlay(marks, ms = 45000) { overlay = marks && marks.length ? { marks, until: (getNow ? getNow() : Date.now()) + ms } : null; },
     // extras beyond the spec
     gameClock,

@@ -1,6 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
-export const VERSION = 48;           // shown in Menu; keep in step with CACHE in sw.js
+export const VERSION = 49;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;
@@ -72,6 +72,8 @@ export const TUNING = {
   postGapMs: 4 * 60000,          // a resident posts a wish to the feed this often while you play
   feedMax: 40,                   // posts kept
   jobSpots: 2,                   // jobs that can sit on the map as bubbles at once
+  spotsPerPop: 50,               // v49: one more spot at the Welcome sign for every this many residents...
+  spotsFromPopMax: 4,            // ...up to this many (big towns stop being capped by the sign)
   applicantCount: 5,             // newcomers waiting at the Welcome sign at most (3 until v47: kept casual towns small)
   applicantEveryMs: 4 * 60000,   // (older saves) kept for the first arrival time of a new game
   arriveMs: 60000,               // an open spot at the Welcome sign fills this long after it opens
@@ -284,7 +286,14 @@ export const PERM_PERKS = {
   sales:  { name: 'Famous town',     per: 0.1,  max: 5, cost: 3, says: (r) => `+${Math.round(r * 10)}% shop sales, always` },
   vips:   { name: 'Guest list',      per: 0.15, max: 3, cost: 2, says: (r) => `VIPs come ${Math.round(r * 15)}% more often` },
   away:   { name: 'Night shift',     per: 0.1,  max: 5, cost: 2, says: (r) => `shops earn +${Math.round(r * 10)}% while you're away` },
+  kin:    { name: 'Big families',    per: 0.25, max: 3, cost: 2, says: (r) => `kids are born ${Math.round(r * 25)}% more often` },
 };
+// v49: the new-town perks as a tree too; each needs the one above it (rank 1+)
+export const PERM_TREE = [
+  { id: 'money',  name: 'Money',  color: '#2aa6a0', nodes: ['coins', 'sales', 'away'] },
+  { id: 'speed',  name: 'Speed',  color: '#4a90d9', nodes: ['drive', 'build'] },
+  { id: 'people', name: 'People', color: '#e85d8a', nodes: ['vips', 'kin'] },
+];
 
 // ---- Seasons --------------------------------------------------------------------------
 // Each lasts `seasonDays` real (local) days. Small effects only: crop growth, visitors, contract pay.
@@ -374,6 +383,10 @@ export const UPGRADES = {
                says: (l) => `Building upgrades cost ${l * 10}% less` },
   planning:  { group: 'city', name: 'Town planning',    icon: 'heart',  per: 0.25, unlockPop: 10, costs: [6000, 30000],
                says: (l) => `Neighbour bonuses are ${l * 25}% bigger` },
+  recruiters: { group: 'ops', name: 'Recruiters',      icon: 'person', per: 0.2,  unlockPop: 30, costs: [15000, 60000, 200000],
+               says: (l) => `Newcomers arrive ${l * 20}% sooner` },
+  openhouse: { group: 'ops', name: 'Open house',        icon: 'key',    per: 2,    unlockPop: 40, costs: [25000, 100000, 300000],
+               says: (l) => `${l * 2} more ${l * 2 === 1 ? 'spot' : 'spots'} at the Welcome sign` },
   outreach:  { group: 'city', name: 'Outreach',         icon: 'person', per: 1,    unlockPop: 20, costs: [8000, 40000],
                says: (l) => `Clinics, schools, police and parks reach ${l} more ${l === 1 ? 'lot' : 'lots'}` },
 };
@@ -382,7 +395,7 @@ export const UPGRADES = {
 // Five branches from the town hall. Each node needs the one above it bought (level 1+) and its
 // own `unlockPop`. 'car' is the car ladder (CARS); everything else is an UPGRADES id.
 export const TREE = [
-  { id: 'homes',     name: 'Homes',     color: '#5bb450', nodes: ['bikes', 'welcome', 'interview', 'planning'] },
+  { id: 'homes',     name: 'Homes',     color: '#5bb450', nodes: ['bikes', 'welcome', 'interview', 'planning', 'recruiters', 'openhouse'] },
   { id: 'shops',     name: 'Shops',     color: '#d9574a', nodes: ['marketing', 'pedestrian', 'trade', 'port'] },
   { id: 'transport', name: 'Transport', color: '#f2a93b', nodes: ['car', 'roads', 'trucks', 'bus', 'station', 'airport'] },
   { id: 'services',  name: 'Services',  color: '#4a90d9', nodes: ['repair', 'outreach'] },
@@ -511,6 +524,11 @@ export const BUILDINGS = {
   bubbletea: biz('bubbletea', 'Bubble Tea',   ['food'],              45, 'Chewy pearls in every cup.', { slots: 1 }),
   pharmacy: biz('pharmacy', 'Pharmacy',       ['service', 'retail'], 90, 'Plasters, vitamins and kind advice.'),
   electronics: biz('electronics', 'Electronics', ['retail'],         90, 'Gadgets, games and blinking lights.', { slots: 3 }),
+  // more sports (v49): mid-game places (from 40 residents), so early draws stay small and cheap
+  tennis:   biz('tennis',   'Tennis Club',    ['creative', 'service'], 120, 'Fuzzy yellow balls and a net to clear.', { slots: 2, unlockAt: 40 }),
+  skate:    biz('skate',    'Skate Park',     ['creative'],          90, 'Ramps, rails and scraped knees.', { slots: 1, unlockAt: 40 }),
+  soccer:   biz('soccer',   'Soccer Field',   ['creative', 'service'], 150, 'Bright green grass and a big goal.', { slots: 3, unlockAt: 40 }),
+  pool:     biz('pool',     'Swimming Pool',  ['service', 'creative'], 150, 'A cool blue splash on a hot day.', { slots: 2, unlockAt: 40 }),
 
   //            id          name        kind     cost  secs unlock
   tree:     town('tree',     'Tree',     'park',    150,   20,  5, { provides: { need: 'beauty', serves: 3 },  rentBoost: 0.05 }, 'A leafy tree. Nearby homes pay a little more rent.'),
