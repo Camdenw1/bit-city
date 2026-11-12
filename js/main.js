@@ -48,6 +48,7 @@ const api = {
     Object.assign(v, { worldSeed: t.map.worldSeed, streets: t.map.streets, land: t.map.land, townName: t.name,
       buildings: t.map.buildings.map((b) => ({ ...b, readyAt: 0, paid: 0 })), tenants: [], applicants: [], trucks: [], ribbons: [], ride: null, vip: null, job: null, upgrades: {} });
     visiting = v;
+    act('noteVisit');
     renderer.resetView();
     ui.refresh();
     return true;

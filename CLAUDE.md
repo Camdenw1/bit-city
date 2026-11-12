@@ -462,6 +462,24 @@ said big changes that reset what he has are fine if the game gets better. All of
 - Fresh start checked in the preview at phone size: the first goals run in order and the new
   neighbours goal (id 'restock') completes on the first shop next to the tent.
 
+## The growth batch (2026-11-11, v50; Camden: "Yes, do 1-5")
+- What capped late towns (found with the bot's new evening lines: empty rooms, waiting, free lots,
+  land, and which needs residents miss): not newcomers (the sign was always full) but price curves.
+  Homes x1.35 a copy (20th High-rise 24M) and government x1.8 a copy (15th 5.6M) meant big towns could
+  neither house nor serve people. Now `homeCopyGrowth` 1.22 for homes, parks and trees, and `GOV.growth`
+  1.4. Shops stay x1.8 a category (`SHOP_COST_GROWTH`): trying 1.5 sent income to 15M/h and filled
+  the map by day 2.5. Homes at 1.12 gave 765 residents in a week at 29% happy.
+- Bot v49 -> v50: keen 3 days 180 -> 289 residents (85 -> 70% happy); casual 61-80 -> 90-94 (about
+  74%); one week 363 -> 528 (69 -> 55%), the map fills on day 6.5 and Rebuild starts being used. Late
+  happiness is now limited by shops and jobs as much as services (the bot builds one service per
+  check-in; a player has the needs overlay). Kids: a few per run.
+- Upgrades sheet has three tabs (Town: ad and tree; Mayor: level and perks; New town: prestige,
+  sister towns, perk tree). `sheet.tab`, act 'up-tab'.
+- Seven goals (55 now): hood30, level5, sports1, kids3, tree10 (counts car levels), visit1
+  (`noteVisit`, `stats.visits`), placed through the list by difficulty.
+- Text trims: upgrade preview "Next: +50% sales, a new floor" (only where a floor grows), family
+  lines, the new-town confirm, the mayor XP line.
+
 ## Camden's idea list (2026-11-10)
 
 Done from it: hourly rent and rent/hour display, 10x play boost, distance fares, any-tent rides,

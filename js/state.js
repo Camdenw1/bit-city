@@ -128,7 +128,7 @@ export function newGame(now) {
     coins: TUNING.startCoins,
     gems: TUNING.startGems,
     nextId: 1,
-    stats: { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0, rebuilds: 0, kids: 0 },
+    stats: { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0, rebuilds: 0, kids: 0, visits: 0 },
     buildings: [],
     tenants: [],
     applicants: [],
@@ -265,7 +265,7 @@ export function migrate(state) {
     state.gems = isNum(state.gems) ? Math.max(0, Math.floor(state.gems)) : 0;
     const st = state.stats && typeof state.stats === 'object' ? state.stats : {};
     state.stats = {};
-    for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks', 'visitors', 'vips', 'festivals', 'moveIns', 'jobsDone', 'rebuilds', 'kids']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
+    for (const k of ['earned', 'rides', 'dreamJobs', 'rentCollected', 'restocks', 'visitors', 'vips', 'festivals', 'moveIns', 'jobsDone', 'rebuilds', 'kids', 'visits']) state.stats[k] = isNum(st[k]) ? st[k] : 0;
 
     // City infrastructure no longer takes lots (2026-11-11): placed bus stops, stations, ports and
     // airports become City levels (none lost) and their lots are freed

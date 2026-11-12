@@ -1104,3 +1104,5 @@ body { position: fixed; inset: 0; }
   padding: 8px 14px; border: 2px solid var(--ink); border-radius: 999px; background: #fff3c4; font: inherit; font-size: 13px; font-weight: 800;
   white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 0 var(--ink); }
 .visit-bar[hidden] { display: none; }
+.up-tabs { margin: 0 0 10px; }
+.up-tabs .seg-btn { min-height: 38px; }

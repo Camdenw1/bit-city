@@ -722,7 +722,7 @@ export function createUI(root, api) {
       const upgradeBlock = `<div class="up-top"><div class="up-row"><span class="up-level">${icon('star', 1, 'i12').repeat(level)} Level ${level}</span>${level >= maxLevel
         ? '<span class="tag tag-ok">Fully upgraded</span>'
         : `<button class="btn btn-small ${upCost > s.coins ? 'btn-quiet' : 'btn-coin'}" data-act="upgrade" data-id="${b.id}">Upgrade · ${formatCoins(upCost)} ${icon('coin', 1, 'i12')}</button>`}</div>
-        ${level >= maxLevel ? '' : `<p class="note up-note">Level ${level + 1}: ${c.kind === 'trade' ? 'one more truck and contract' : `+${upPct}% ${gives}${c.kind === 'biz' && level + 1 === (config.TUNING?.slotAtLevel ?? 3) ? ' and one more job' : ''}${level + 1 >= 4 && c.kind !== 'landmark' ? ', and it grows a floor' : ''}`}</p>`}</div>`;
+        ${level >= maxLevel ? '' : `<p class="note up-note">Next: ${c.kind === 'trade' ? 'one more truck and contract' : `+${upPct}% ${gives}${c.kind === 'biz' && level + 1 === (config.TUNING?.slotAtLevel ?? 3) ? ', one more job' : ''}${sprites.floorsFor && sprites.floorsFor({ ...b, level: level + 1 }) > 0 ? ', a new floor' : ''}`}</p>`}</div>`;
 
       const hood = call('neighbourBonus', s, b, now);
       const hoodLine = hood && hood.pct > 0 ? `<p class="note">${icon('heart', 1, 'i12')}Neighbours +${Math.round(hood.pct * 100)}% ${c.kind === 'home' ? 'rent' : 'sales'}: ${esc(hood.parts.map((p) => p.why).join(', '))}</p>` : '';
@@ -746,8 +746,8 @@ export function createUI(root, api) {
         // families (v49 hint): two grown-ups and a free room may have a kid
         const adults = res.filter((t) => !t.kid).length;
         const familyLine = adults < 2 ? '' : free > 0
-          ? `<p class="note">${icon('heart', 1, 'i12')}Room for a family: a kid may arrive soon</p>`
-          : `<p class="note">${icon('heart', 1, 'i12')}Leave a room free and they may start a family</p>`;
+          ? `<p class="note">${icon('heart', 1, 'i12')}Room for a family</p>`
+          : `<p class="note">${icon('heart', 1, 'i12')}A free room lets them start a family</p>`;
         const beds = [];
         for (let i = 0; i < free; i++) beds.push(`<div class="slot-empty" data-key="bed${i}">${icon('key', 2)}<span>Room for a friend</span></div>`);
         return {
@@ -1080,22 +1080,27 @@ export function createUI(root, api) {
       const treeHtml = `<div class="tree"><div class="tree-root">${icon('star', 2)}<b>${esc(s.townName || 'Town hall')}</b></div><div class="tree-cols">${cols}</div></div>`;
       const mayor = `<h3 class="sec">Mayor level ${ml.level} · ${pts} perk ${pts === 1 ? 'point' : 'points'}</h3>
         <div class="meter meter-team"><i style="width:${Math.round(((ml.xp - ml.from) / Math.max(1, ml.next - ml.from)) * 100)}%"></i></div>
-        <p class="note">${ml.xp}/${ml.next} XP from goals, VIPs and festivals.</p><div class="perk-row">${townNodes.map((n) => nodeBtn(n, n.color)).join('')}</div>${where === 'town' ? detail : ''}`;
+        <p class="note">${ml.xp}/${ml.next} XP · goals, VIPs and festivals</p><div class="perk-row">${townNodes.map((n) => nodeBtn(n, n.color)).join('')}</div>${where === 'town' ? detail : ''}`;
       // prestige: found a new town, keep points and permanent perks
       const earn = call('prestigePoints', s) || 0; const why = call('prestigeIssue', s);
       const permCols = permTree.map((br) => `<div class="tree-col" style="--c:${br.color}"><span class="tree-branch">${esc(br.name)}</span>
           ${br.nodes.map((k) => nodeBtn(permOf(k, br.color), br.color)).join('<i class="tree-link"></i>')}</div>`).join('');
       const permRows = `<div class="tree"><div class="tree-root">${icon('heart', 2)}<b>Every town</b></div><div class="tree-cols cols-3">${permCols}</div></div>${where === 'perm' ? detail : ''}`;
       const found = d.confirmTown
-        ? `<div class="confirm"><span>Found a new town? You'll start fresh on new land with ${earn} new prestige ${earn === 1 ? 'point' : 'points'}. You keep your prestige points, permanent perks and collection book.</span>
+        ? `<div class="confirm"><span>Start a new town with +${earn} prestige ${earn === 1 ? 'point' : 'points'}? Perks and the collection book come with you.</span>
             <div class="row"><button class="btn btn-quiet" data-act="town-no">Not yet</button><button class="btn btn-warn" data-act="town-yes">Found a new town</button></div></div>`
         : why ? `<p class="note">${esc(why)} This city is worth ${earn} ${earn === 1 ? 'point' : 'points'} so far.</p>`
           : `<button class="btn btn-go btn-wide" data-act="town-ask">Found a new town · +${earn} prestige ${earn === 1 ? 'point' : 'points'}</button>`;
       const prestige = `<h3 class="sec">New town (prestige) · ${lg.points} ${lg.points === 1 ? 'point' : 'points'}${lg.towns > 1 ? ` · town #${lg.towns}` : ''}</h3>
-        <p class="note">Start over with points for perks you keep. Everything you've built and saved counts. Your old town becomes a sister town.</p>${found}
+        <p class="note">Start again with points for perks you keep. Your old town becomes a sister town.</p>${found}
         ${(lg.oldTowns || []).length ? `<h3 class="sec">Sister towns</h3>${lg.oldTowns.map((t, i) => `<div class="want-row plain" data-key="sis-${esc(t.name)}">${icon('heart', 2)}<div><b>${esc(t.name)}</b><span>${t.pop} residents · sends ${formatCoins(Math.round(t.income * (config.TUNING?.careHours ?? 1)))} coins every day</span></div>${t.map ? `<button class="btn btn-small btn-go" data-act="visit-town" data-i="${i}">Visit</button>` : ''}</div>`).join('')}` : ''}
         ${permRows}`;
-      return { title: 'Upgrades', html: `${adRow}${treeHtml}${where === 'tree' ? detail : ''}${mayor}${prestige}` };
+      // v50: three tabs so the sheet isn't one long scroll
+      const tab = d.tab || 'town';
+      const tabBtn = (id, label) => `<button class="seg-btn${tab === id ? ' on' : ''}" data-act="up-tab" data-t="${id}">${label}</button>`;
+      const tabs = `<div class="seg up-tabs">${tabBtn('town', 'Town')}${tabBtn('mayor', `Mayor${pts ? ` · ${pts}` : ''}`)}${tabBtn('new', 'New town')}</div>`;
+      const body = tab === 'mayor' ? mayor : tab === 'new' ? prestige : `${adRow}${treeHtml}${where === 'tree' ? detail : ''}`;
+      return { title: 'Upgrades', html: `${tabs}${body}` };
     },
 
     /* --- A job played inside a sheet: Lunch Rush and Odd Jobs --- */
@@ -1500,6 +1505,7 @@ export function createUI(root, api) {
     'buy-perm-perk': (el) => { const r = act('buyPermPerk', el.dataset.k); if (r && r.ok === false && r.reason) toast(r.reason); },
     'town-ask': () => { sheet.confirmTown = true; renderSheet(); },
     'visit-town': (el) => { if (api.visitTown(Number(el.dataset.i))) closeSheet(); },
+    'up-tab': (el) => { sheet.tab = el.dataset.t; sheet.node = null; renderSheet(); },
     'tree-pick': (el) => { sheet.node = el.dataset.k; renderSheet(); },
     'town-no': () => { sheet.confirmTown = false; renderSheet(); },
     'town-yes': () => {

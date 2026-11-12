@@ -1,6 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
-export const VERSION = 49;           // shown in Menu; keep in step with CACHE in sw.js
+export const VERSION = 50;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;
@@ -84,6 +84,7 @@ export const TUNING = {
   moveFeeRate: 2 / 3,            // share of construction and upgrade spending
   demolishFeeRate: 1 / 3,
   copyCostGrowth: 1.35,          // each copy of a building you already own multiplies its price by this
+  homeCopyGrowth: 1.22,          // v50: homes, parks and trees grow gentler (x1.35 made the 20th high-rise cost 24M)
   hurryGems: 1,
   staffFactor: [0, 1.25, 1.85, 2.35, 2.75, 3.05],   // sales by number of workers: each one adds a little less
   skillAvgDivisor: 13.5,         // skill factor = 1 + average skill / 13.5 (a team of 9s sells 1.67x)
@@ -436,7 +437,7 @@ export const SHOP_CATS = {
   farming:  { cost: 400, rate: 0.75, unlockAt: 3, name: 'Farming' },
   creative: { cost: 800, rate: 1.0,  unlockAt: 6, name: 'Creative' },
 };
-export const SHOP_COST_GROWTH = 1.8;   // each further shop of a category costs this much more...
+export const SHOP_COST_GROWTH = 1.8;     // each further shop of a category costs this much more...
 export const SHOP_RATE_GROWTH = 1.3;   // ...and earns this much more
 
 /** Price and strength of the (tier+1)-th shop of a category. Stock lasts about 8 hours at factor 1. */
@@ -554,7 +555,8 @@ BUILDINGS.trade = town('trade', 'Trading Post', 'trade', 2000, 300, 10, {}, 'Tra
 BUILDINGS.fountain.unlockGoal = 'happy90';  // a milestone opens this one
 
 // Government buildings are a surprise too: you ask for one, the council decides which.
-export const GOV = { cost: 1500, growth: 1.8, unlockAt: 8, name: 'Government' };
+export const GOV = { cost: 1500, growth: 1.4,   // v50: was 1.8 (the 15th cost 5.6M, so big towns couldn't stay happy)
+  unlockAt: 8, name: 'Government' };
 
 export const CROPS = { veggies: 'Veggies', fruit: 'Fruit' };
 export const CROP_PRICE = { veggies: 6, fruit: 10 };    // usual coins per unit; the day's price drifts around it
@@ -630,6 +632,7 @@ export const GOALS = [
   { id: 'yard',    text: 'Build a Construction Yard',             reward: { coins: 1500, gems: 2 } },
   { id: 'iq100',   text: 'Town IQ 100 with 10+ residents (a School helps)',    reward: { coins: 1000, gems: 2 } },
   { id: 'order1',  text: 'Deliver crops on a contract',         reward: { coins: 1000, gems: 2 } },
+  { id: 'hood30',  text: 'Get a shop +30% from its neighbours',   reward: { coins: 2000, gems: 2 } },
   { id: 'happy90', text: 'Make the town 90% happy',               reward: { coins: 2000, gems: 3 } },
   { id: 'visitors50', text: 'Welcome 50 visitors',                reward: { coins: 2500, gems: 3 } },
   { id: 'friend1', text: 'Make friends with a neighbour town (♥)', reward: { coins: 2500, gems: 3 } },
@@ -639,9 +642,13 @@ export const GOALS = [
   { id: 'family1', text: 'Start a family (two people in a home with room)', reward: { coins: 3000, gems: 3 } },
   { id: 'dream10', text: 'Put 10 residents in their dream jobs',  reward: { coins: 4000, gems: 3 } },
   { id: 'vip5',    text: 'Host 5 VIPs',                           reward: { coins: 5000, gems: 4 } },
+  { id: 'level5',  text: 'Upgrade a building to level 5',         reward: { coins: 6000, gems: 4 } },
   { id: 'contract3', text: 'Hold 3 contracts at once',            reward: { coins: 6000, gems: 4 } },
   { id: 'recipes', text: 'Discover every recipe',                 reward: { coins: 5000, gems: 5 } },
   { id: 'pop60',   text: 'Reach 60 residents',                    reward: { coins: 10000, gems: 5 } },
+  { id: 'sports1', text: 'Open a sports place (tennis, skate, soccer or pool)', reward: { coins: 12000, gems: 4 } },
+  { id: 'kids3',   text: 'Welcome 3 kids into the town',          reward: { coins: 15000, gems: 5 } },
+  { id: 'tree10',  text: 'Buy 10 levels in the upgrade tree',     reward: { coins: 20000, gems: 6 } },
   { id: 'friend3', text: 'Become best friends with a town (♥♥♥)',  reward: { coins: 15000, gems: 6 } },
   { id: 'rival1',  text: 'Overtake a neighbour town',             reward: { coins: 15000, gems: 5 } },
   { id: 'pop100',  text: 'Reach 100 residents',                   reward: { coins: 25000, gems: 8 } },
@@ -657,6 +664,7 @@ export const GOALS = [
   { id: 'lmTop',   text: 'Finish a landmark (stage 3)',           reward: { coins: 150000, gems: 15 } },
   { id: 'lmAll',   text: 'Build all four landmarks',              reward: { coins: 250000, gems: 20 } },
   { id: 'pop250',  text: 'Reach 250 residents',                   reward: { coins: 400000, gems: 25 } },
+  { id: 'visit1',  text: 'Visit one of your old towns',           reward: { coins: 50000, gems: 10 } },
 ];
 
 export const FIRST_NAMES = [

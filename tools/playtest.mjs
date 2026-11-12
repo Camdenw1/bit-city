@@ -154,6 +154,11 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
     if (new Date(now).getHours() >= 21 && !seen.has('day' + new Date(now).getDate())) {
       seen.add('day' + new Date(now).getDate());
       mark(`evening: pop ${s.tenants.length}, ${s.buildings.length} buildings, ${Math.round(s.coins)} coins, shops ${Math.round(sim.townRatePerMin(s, now) * 60)}/h, rent ${sim.rentPerDay(s)}/day, happy ${sim.happiness(s, now)}%, IQ ${sim.townIQ(s)}, recipes ${s.recipes.length}/${config.RECIPES.length}`);
+      { let lots = 0; for (let y = config.WORLD.y0; y <= config.WORLD.y1; y++) for (let x = config.WORLD.x0; x <= config.WORLD.x1; x++) if (sim.isLot(s, x, y) && !sim.tileAt(s, x, y)) lots++;
+        mark(`   growth: empty rooms ${sim.vacancies(s)}, waiting ${s.applicants.length}/${sim.maxApplicants(s)}, free lots ${lots}, land ${s.land.length}/${config.PARCELS.length}, homes ${s.buildings.filter((b) => BUILDINGS[b.type].kind === 'home').length}, building now ${s.buildings.filter((b) => !sim.isBuilt(b, now)).length}`); }
+      { const miss = {}; const mood = sim.townMood(s, now);
+        for (const t of s.tenants) for (const n of sim.residentMood(s, t, now, mood).missing) miss[n.id] = (miss[n.id] || 0) + 1;
+        mark(`   missing: ${Object.entries(miss).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || 'nothing'}`); }
     }
   }
   sim.events.off('coins', onCoins); sim.events.off('problem', onProblem);

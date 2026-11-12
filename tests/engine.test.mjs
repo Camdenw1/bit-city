@@ -144,7 +144,7 @@ test('newGame: shape and JSON round trip', () => {
   assert.equal(s.v, 1); assert.equal(s.createdAt, T0); assert.equal(s.lastTick, T0);
   assert.equal(s.lastRentHour, Math.floor(T0 / HOUR)); assert.equal(s.rentCarry, 0);
   assert.equal(s.coins, 250); assert.equal(s.gems, 2);
-  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0, rebuilds: 0, kids: 0 });
+  assert.deepEqual(s.stats, { earned: 0, rides: 0, dreamJobs: 0, rentCollected: 0, restocks: 0, visitors: 0, vips: 0, festivals: 0, moveIns: 0, jobsDone: 0, rebuilds: 0, kids: 0, visits: 0 });
   assert.deepEqual(s.buildings, []); assert.deepEqual(s.tenants, []);
   assert.equal(s.applicants.length, 3);
   assert.equal(s.ride, null); assert.deepEqual(s.goalsDone, []); assert.deepEqual(s.settings, { sound: true });
@@ -954,7 +954,7 @@ test('goals: complete automatically, pay once, in any order; nextGoal walks the 
   assert.equal(sim.nextGoal(s).id, GOALS[1].id);
   log = record(() => { sim.build(s, 'tent', 1, 0, T0); sim.advance(s, T0 + 10000); sim.advance(s, T0 + 20000); });
   assert.equal(log.filter((e) => e.type === 'goal').length, 0, 'paid only once');
-  assert.equal(s.coins, 250 - BUILDINGS.tent.cost - Math.round(BUILDINGS.tent.cost * TUNING.copyCostGrowth) + goalCoins('tent'));
+  assert.equal(s.coins, 250 - BUILDINGS.tent.cost - Math.round(BUILDINGS.tent.cost * TUNING.homeCopyGrowth) + goalCoins('tent'));
 
   // out of order: diner before moving anyone in
   s.coins += 500;

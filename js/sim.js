@@ -329,6 +329,12 @@ const GOAL_TESTS = {
   lmTop: (s) => s.buildings.some((b) => defOf(b).kind === 'landmark' && (b.level || 1) >= 3),
   lmAll: (s) => LANDMARKS.every((id) => s.buildings.some((b) => b.type === id)),
   pop250: (s) => s.tenants.length >= 250,
+  hood30: (s, now) => builtBiz(s, now).some((b) => neighbourBonus(s, b, now).pct >= 0.3 - 1e-9),
+  level5: (s) => s.buildings.some((b) => (b.level || 1) >= 5),
+  sports1: (s, now) => builtBiz(s, now).some((b) => ['tennis', 'skate', 'soccer', 'pool'].includes(b.type)),
+  kids3: (s) => (s.stats.kids || 0) >= 3,
+  tree10: (s) => Object.values(s.upgrades || {}).reduce((a, b) => a + b, 0) + Math.max(0, (s.car || 1) - 1) >= 10,
+  visit1: (s) => (s.stats.visits || 0) >= 1,
 };
 
 /** How far along a goal is, for goals with a number to reach: { have, need }, or null. */
@@ -341,6 +347,8 @@ export function goalProgress(state, goal, now = state.lastTick) {
     case 'pop16': return n(pop, 16);
     case 'pop30': return n(pop, 30);
     case 'pop60': return n(pop, 60);
+    case 'kids3': return n(state.stats.kids || 0, 3);
+    case 'tree10': return n(Object.values(state.upgrades || {}).reduce((a, b) => a + b, 0) + Math.max(0, (state.car || 1) - 1), 10);
     case 'biz5': return n(builtBiz(state, now).length, 5);
     case 'allcats': return n(new Set(builtBiz(state, now).map((b) => catOf(b))).size, CATEGORIES.length);
     case 'recipe1': return n(state.crops.veggies || 0, RECIPES[0].needs.veggies);
@@ -446,7 +454,7 @@ export function costOf(state, type) {
   if (def.kind === 'biz') return categoryCost(state, def.category);
   if (def.gov) return categoryCost(state, 'gov');
   const owned = state.buildings.filter((b) => b.type === type).length;
-  return Math.round(def.cost * Math.pow(TUNING.copyCostGrowth, owned));
+  return Math.round(def.cost * Math.pow(def.kind === 'home' || def.kind === 'park' ? TUNING.homeCopyGrowth : TUNING.copyCostGrowth, owned));
 }
 
 /** What the next shop of a category ('food', ... or 'gov') costs. It only depends on how many you have. */
@@ -1907,6 +1915,13 @@ export function upLevel(state, id) {
 export function upgradeNextCost(state, id) {
   return UPGRADES[id] ? UPGRADES[id].costs[upLevel(state, id)] || 0 : 0;
 }
+/** You looked round an old town (counts for a goal). */
+export function noteVisit(state, now) {
+  state.stats.visits = (state.stats.visits || 0) + 1;
+  checkGoals(state, now);
+  return { ok: true };
+}
+
 /** The tree: '' if this node can be bought (the one above it has a level), else why not. */
 export function treeIssue(state, id) {
   for (const br of TREE) {
