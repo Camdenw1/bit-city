@@ -2284,3 +2284,56 @@ test('v49: more Welcome spots for big towns, growth upgrades, the perk tree, fam
   assert.equal(old.map.buildings.length, 2); assert.equal(old.map.worldSeed, t.worldSeed);
   assert.equal(S.migrate(JSON.parse(JSON.stringify(r.state))).legacy.oldTowns.at(-1).map.buildings.length, 2);
 });
+
+test('a first-shop match gives the starter a dream job and a welcome drive can recruit for it', () => {
+  const s = gridGame(T0);
+  const home = put(s, 'tent', T0);
+  const resident = sim.welcomeNewcomer(s, 0, T0).tenant;
+  const lot = freeLot(s);
+  const { categories } = BUILDINGS[resident.dream];
+  const cat = categories.find((c) => sim.categoryUnlocked(s, c) && sim.firstShopMatch(s, c, ...lot));
+  assert.ok(cat);
+  const { building } = sim.buildRandom(s, cat, ...lot, T0);
+  assert.equal(building.type, resident.dream);
+  assert.equal(resident.homeId, home.id);
+  sim.advance(s, building.readyAt, { live: false });
+  assert.ok(sim.startWelcome(s, resident.id, s.lastTick).ok);
+  const { referral } = sim.completeRide(s, s.lastTick);
+  assert.ok(s.applicants.includes(referral));
+  assert.equal(referral.dream, building.type);
+  assert.ok(referral.skills[cat] >= 6);
+  assert.equal(sim.completeRide(s, s.lastTick).ok, false, 'a ride can only award one referral');
+  assert.equal(sim.startWelcome(s, resident.id, s.lastTick).ok, false, 'one welcome trip per resident');
+  const placement = sim.assignJob(s, resident.id, building.id, s.lastTick);
+  assert.ok(placement.firstDream);
+  const serve = sim.shopServes(s, building);
+  resident.dream = resident.dream === 'market' ? 'diner' : 'market';
+  assert.equal(sim.shopServes(s, building), serve - TUNING.dreamServes);
+});
+
+test('first prestige keeps discoveries, counts upgrades, and pays Head start once when bought', () => {
+  const { s } = smallTown();
+  s.coins = 100000;
+  const value = sim.cityValue(s);
+  assert.ok(sim.buyUpgrade(s, 'crew', T0).ok);
+  assert.equal(sim.cityValue(s), value);
+  const recipe = config.RECIPES[0].id;
+  s.recipes.push(recipe);
+  s.seen.pages.push('people');
+  s.seen.traits.push(...Object.keys(config.TRAITS), 'star');
+  for (let i = s.tenants.length; i < TUNING.prestigePop; i++) {
+    s.tenants.push({ ...s.tenants[0], id: 800000 + i });
+  }
+  s.ride = { state: 'waiting' };
+  const r = sim.foundNewTown(s, s.lastTick);
+  assert.ok(r.ok, r.reason);
+  const next = S.migrate(JSON.parse(JSON.stringify(r.state)));
+  assert.ok(sim.collectionPages(next).find((p) => p.id === 'recipes').entries.find((e) => e.id === recipe).found);
+  assert.deepEqual(next.recipes, [], 'existing discoveries do not unlock sales bonuses in the new town');
+  sim.advance(next, next.lastTick + 1000);
+  assert.equal(next.coins, TUNING.startCoins, 'a carried collection page does not pay the town goal again');
+  assert.ok(sim.buyPermPerk(next, 'coins').ok);
+  const reloaded = S.migrate(JSON.parse(JSON.stringify(next)));
+  assert.equal(reloaded.coins, TUNING.startCoins + config.PERM_PERKS.coins.per);
+  assert.equal(reloaded.legacy.perks.coins, 1);
+});

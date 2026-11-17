@@ -139,7 +139,7 @@ export function newGame(now) {
     nextShopAt: now + TUNING.residentShopGapMs,  // residents' own shopping, also only while you play
     contracts: [],                     // standing hourly deliveries: { id, town, crop, signedAt, done, missed }
     friends: {},                       // town -> deliveries made (friendship)
-    seen: { types: [], traits: [], vips: [], pages: [] },   // collection book: what you've had in town, pages paid
+    seen: { types: [], traits: [], vips: [], pages: [], recipes: [] },   // collection book: what you've had in town, pages paid
     festivalUntil: 0,                  // a festival runs until then
     festivalReadyAt: 0,                // the next festival can start from then
     mayor: { xp: 0, spent: {} },       // mayor XP and the town perks bought with mayor levels (reset on prestige)
@@ -177,10 +177,12 @@ export function newGame(now) {
   };
   // The first three applicants are good at the three starter categories and dream of
   // a starter business, so the very first hires feel great.
-  const starters = BIZ_TYPES.filter((id) => BUILDINGS[id].unlockAt === 0);
+  const starters = BIZ_TYPES.filter((id) => BUILDINGS[id].unlockAt === 0 && !BUILDINGS[id].near);
   const cats = [...new Set(starters.map((id) => BUILDINGS[id].category))];
   for (let i = 0; i < 3; i++) {                     // three to start; the sign holds more later
-    state.applicants.push(makeApplicant(state, { best: cats[i % cats.length], dreamPool: starters }));
+    const best = cats[i % cats.length];
+    const dreamPool = starters.filter((id) => BUILDINGS[id].categories.includes(best));
+    state.applicants.push(makeApplicant(state, { best, dreamPool }));
   }
   state.townName = townNameFromSeed(state.worldSeed);
   return state;
@@ -390,6 +392,7 @@ export function migrate(state) {
     if (!validJob(state.job, byId, state.tenants) || state.ride) state.job = null;
     const known = new Set(GOALS.map((g) => g.id));
     state.goalsDone = (Array.isArray(state.goalsDone) ? state.goalsDone : []).filter((id) => known.has(id));
+    if (state.legacy.towns > 1 && state.seen.pages.length) state.goalsDone.push('collect1');
     state.goalsDone = [...new Set(state.goalsDone)];
     state.problems = (Array.isArray(state.problems) ? state.problems : []).filter((p) => p && typeof p === 'object' &&
       byId.has(p.buildingId) && PROBLEMS[p.kind] && isNum(p.at) && (p.fixAt === null || isNum(p.fixAt)));
@@ -415,6 +418,9 @@ export function migrate(state) {
     state.crops = { veggies: isNum(crops.veggies) ? Math.max(0, crops.veggies) : 0, fruit: isNum(crops.fruit) ? Math.max(0, crops.fruit) : 0 };
     const knownRecipes = new Set(RECIPES.map((r) => r.id));
     state.recipes = [...new Set((Array.isArray(state.recipes) ? state.recipes : []).filter((id) => knownRecipes.has(id)))];
+    // Old saves have current recipes; a paid Recipes page also proves the full set was found.
+    const pastRecipes = state.seen.pages.includes('recipes') ? [...knownRecipes] : Array.isArray(seen.recipes) ? seen.recipes : [];
+    state.seen.recipes = [...new Set([...pastRecipes, ...state.recipes].filter((id) => knownRecipes.has(id)))];
     if (!isNum(state.nextLessonAt)) state.nextLessonAt = state.lastTick + 1800000;
     const set = state.settings && typeof state.settings === 'object' ? state.settings : {};
     state.settings = { ...set, sound: set.sound !== false };

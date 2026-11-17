@@ -1,6 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
-export const VERSION = 50;           // shown in Menu; keep in step with CACHE in sw.js
+export const VERSION = 51;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;
@@ -122,6 +122,7 @@ export const TUNING = {
   pickupTipFastMs: 10000,        // a rider picked up this fast tips the most (the game picks where they go)
   pickupTipSlowMs: 60000,        // ...and this slow, no tip
   rideMinBuildings: 2,
+  dreamServes: 2,                // each worker in their dream job serves two extra neighbours
   needServes: 10,                // a shop with two average workers keeps this many residents happy with its kind of thing
   happyRentBonus: 0.5,           // extra rent from a resident who is 100% happy
   unhappyRentCut: 0.2,           // rent lost from a resident who is 0% happy (a straight line in between)
@@ -282,7 +283,7 @@ export const TOWN_PERKS = {
 };
 export const PERM_PERKS = {
   drive:  { name: 'Turbo taxi',      per: 0.15, max: 5, cost: 2, says: (r) => `taxi ${Math.round(r * 15)}% faster, in every town` },
-  coins:  { name: 'Head start',      per: 2000, max: 5, cost: 1, says: (r) => `new towns start with ${r * 2000} extra coins` },
+  coins:  { name: 'Head start',      per: 2000, max: 5, cost: 1, says: (r) => `+${r * 2000} starting coins in every town` },
   build:  { name: 'Master builders', per: 0.08, max: 5, cost: 2, says: (r) => `${Math.round(r * 8)}% faster building, always` },
   sales:  { name: 'Famous town',     per: 0.1,  max: 5, cost: 3, says: (r) => `+${Math.round(r * 10)}% shop sales, always` },
   vips:   { name: 'Guest list',      per: 0.15, max: 3, cost: 2, says: (r) => `VIPs come ${Math.round(r * 15)}% more often` },
@@ -609,9 +610,9 @@ export const HAPPY_LINES = [
 // ---- Goals (ordered; conditions live in sim.js keyed by id) ---------------
 export const GOALS = [
   { id: 'tent',    text: 'Tap an empty lot to build a Tent',  reward: { coins: 30 } },
-  { id: 'movein',  text: 'Move someone into a home',              reward: { coins: 30 } },
-  { id: 'diner',   text: 'Open a Food shop',                      reward: { coins: 40 } },
-  { id: 'hire',    text: 'Give a resident a job',                 reward: { coins: 40 } },
+  { id: 'movein',  text: 'Welcome your first resident',              reward: { coins: 30 } },
+  { id: 'diner',   text: 'Build your first shop',                      reward: { coins: 40 } },
+  { id: 'hire',    text: 'Hire a resident at your shop',                 reward: { coins: 40 } },
   { id: 'restock', text: 'Build a shop next to homes (it sells more)', reward: { coins: 30 } },   // id kept for saves
   { id: 'ride',    text: 'Give a resident a ride',                reward: { coins: 50, gems: 1 } },
   { id: 'pop4',    text: 'Reach 4 residents',                     reward: { coins: 50 } },

@@ -279,7 +279,7 @@ const builtBiz = (state, now) => state.buildings.filter((b) => isBiz(b) && isBui
 const GOAL_TESTS = {
   tent: (s) => s.buildings.some((b) => b.type === 'tent'),
   movein: (s) => s.tenants.length >= 1,
-  diner: (s) => s.buildings.some((b) => isBiz(b) && catOf(b) === 'food'),
+  diner: (s) => s.buildings.some(isBiz),
   hire: (s) => s.tenants.some((t) => t.jobId != null),
   restock: (s, now) => builtBiz(s, now).some((b) => neighbourBonus(s, b, now).parts.some((p) => p.why.includes('home'))),
   ride: (s) => s.stats.rides >= 1,
@@ -406,7 +406,7 @@ export function collectionPages(state) {
     page('buildings', 'Buildings', types.map((d) => ({ id: d.id, name: d.name, found: sn.types.includes(d.id) }))),
     page('people', 'Residents', TRAIT_ENTRIES().map((k) => ({ id: k, name: k === 'star' ? 'Star' : TRAITS[k].name, found: sn.traits.includes(k) }))),
     page('vips', 'VIPs', Object.keys(VIPS).map((k) => ({ id: k, name: VIPS[k].name, found: (sn.vips || []).includes(k) }))),
-    page('recipes', 'Recipes', RECIPES.map((r) => ({ id: r.id, name: r.name, found: state.recipes.includes(r.id) }))),
+    page('recipes', 'Recipes', RECIPES.map((r) => ({ id: r.id, name: r.name, found: (sn.recipes || []).includes(r.id) || state.recipes.includes(r.id) }))),
   ];
 }
 
@@ -436,11 +436,12 @@ function checkGoals(state, now) {
     const test = GOAL_TESTS[goal.id];
     if (!test || !test(state, now)) continue;
     state.goalsDone.push(goal.id);
-    events.emit('goal', { goal });
+    const coins = Math.round((goal.reward?.coins || 0) * (1 + 0.1 * landmarkLevel(state, 'cityhall')));
+    events.emit('goal', { goal, coins });
     addXp(state, MAYOR_XP.goal);
     // a milestone can open a building
     for (const d of Object.values(BUILDINGS)) if (d.unlockGoal === goal.id && population(state) >= d.unlockAt) events.emit('unlock', { type: d.id });
-    if (goal.reward && goal.reward.coins) gain(state, Math.round(goal.reward.coins * (1 + 0.1 * landmarkLevel(state, 'cityhall'))), 'goal');
+    if (coins) gain(state, coins, 'goal');
     if (goal.reward && goal.reward.gems) gainGems(state, goal.reward.gems);
   }
 }
@@ -541,11 +542,22 @@ function rollQuality(state) {
   return 0;
 }
 
+/** A resident can help choose the town's very first shop by following their dream. */
+export function firstShopMatch(state, cat, x, y) {
+  if (state.goalsDone.includes('diner') || state.buildings.some(isBiz) || !categoryUnlocked(state, cat)) return null;
+  return state.tenants.find((t) => {
+    const d = BUILDINGS[t.dream];
+    return !t.kid && d?.categories?.includes(cat) && isUnlocked(state, d.id) && nearOk(state, d.id, x, y);
+  }) || null;
+}
+
 /** The types a category can turn up, with how likely each is right now. */
 function drawPool(state, cat, now, x, y) {
   // only what this lot allows (a ski lodge needs mountains) and what the town is big enough for
   const all = Object.values(BUILDINGS).filter((d) => (cat === 'gov' ? d.gov : d.kind === 'biz' && d.categories.includes(cat)) &&
     population(state) >= d.unlockAt && nearOk(state, d.id, x, y));
+  const match = firstShopMatch(state, cat, x, y);
+  if (match) return [{ d: BUILDINGS[match.dream], weight: 1 }];
   const fresh = all.filter((d) => !state.buildings.some((b) => b.type === d.id));   // never a duplicate while something new is left
   const pool = fresh.length ? fresh : all;
   const needs = cat === 'gov' ? needsStatus(state, now) : [];
@@ -1177,6 +1189,7 @@ export function buyPermPerk(state, k) {
   if ((state.legacy.points || 0) < p.cost) return fail(`You need ${p.cost} prestige points. Found a new town to earn them.`);
   state.legacy.points -= p.cost;
   state.legacy.perks[k] = permPerk(state, k) + 1;
+  if (k === 'coins') gain(state, p.per, 'headStart');
   return { ok: true, reason: '', rank: state.legacy.perks[k] };
 }
 
@@ -1193,12 +1206,15 @@ function sendCare(state, now) {
   });
 }
 
-/** What the city is worth: everything spent on buildings and land, plus the coins in the bank
- *  (so a late town's savings are never wasted: they become prestige points). */
+/** What the city is worth: buildings, land, vehicle, permanent town upgrades and bank balance. */
 export function cityValue(state) {
   let land = 0;
   for (let i = 1; i < state.land.length; i++) land += Math.round(TUNING.landBasePrice * Math.pow(TUNING.landGrowth, i - 1));
-  return Math.round(state.buildings.reduce((n, b) => n + (b.paid ?? defOf(b).cost), 0) + land + Math.max(0, state.coins || 0));
+  let improvements = CARS.slice(0, state.car).reduce((sum, car) => sum + car.cost, 0);
+  for (const [id, upgrade] of Object.entries(UPGRADES)) {
+    for (const cost of upgrade.costs.slice(0, upLevel(state, id))) improvements += cost;
+  }
+  return Math.round(state.buildings.reduce((n, b) => n + (b.paid ?? defOf(b).cost), 0) + land + improvements + Math.max(0, state.coins || 0));
 }
 export function prestigePoints(state) {
   return Math.floor(Math.sqrt(cityValue(state) / TUNING.prestigeValuePerPoint));
@@ -1206,7 +1222,7 @@ export function prestigePoints(state) {
 export function prestigeIssue(state) {
   if (state.tenants.length < TUNING.prestigePop) return `Found a new town once you have ${TUNING.prestigePop} residents.`;
   if (prestigePoints(state) < 1) return 'Your city needs to be worth a little more first.';
-  if (state.ride || state.job) return 'Finish your current ride or job first.';
+  if ((state.ride && state.ride.state !== 'waiting') || state.job) return 'Finish your current ride or job first.';
   return '';
 }
 /**
@@ -1225,11 +1241,13 @@ export function foundNewTown(state, now) {
   old.push({ name: state.townName && !taken.has(state.townName) ? state.townName : fallback,
     pop: state.tenants.length, income: Math.round(townRatePerMin(state, now) * 60), founded: now,
     // v49: a picture of the town to visit later (buildings and land only; nothing runs there)
-    map: { worldSeed: state.worldSeed, streets: state.streets, land: state.land.slice(),
+    map: { worldSeed: state.worldSeed, streets: state.streets, land: state.land.slice(), upgrades: { ...state.upgrades },
       buildings: state.buildings.filter((b) => isBuilt(b, now)).map((b) => ({ id: b.id, type: b.type, x: b.x, y: b.y, level: b.level || 1, cat: b.cat, tier: b.tier, q: b.q })) } });
   next.legacy = { points: (state.legacy.points || 0) + earned, perks: { ...state.legacy.perks }, towns: (state.legacy.towns || 1) + 1, oldTowns: old };
   next.lastCareDay = localDay(now);                 // the first care packages come tomorrow
   next.seen = JSON.parse(JSON.stringify(state.seen || next.seen));
+  next.seen.recipes = [...new Set([...(next.seen.recipes || []), ...state.recipes])];
+  if (next.seen.pages.length) next.goalsDone.push('collect1');
   next.settings = { ...(state.settings || {}) };
   next.coins += PERM_PERKS.coins.per * permPerk(next, 'coins');
   events.emit('newTown', { earned, towns: next.legacy.towns });
@@ -1468,6 +1486,7 @@ function discoverRecipes(state) {
     if (state.recipes.includes(r.id)) continue;
     if (Object.keys(r.needs).every((crop) => (state.crops[crop] || 0) + CROP_EPSILON >= r.needs[crop])) {
       state.recipes.push(r.id);
+      if (!state.seen.recipes.includes(r.id)) state.seen.recipes.push(r.id);
       events.emit('recipe', { recipe: r });
     }
   }
@@ -1873,7 +1892,7 @@ export function assignJob(state, tenantId, bizId, now) {
     first = true;
     state.stats.dreamJobs++;
   }
-  events.emit('job', { tenant, building: b, dream });
+  events.emit('job', { tenant, building: b, dream, firstDream: first });
   if (first) { gainGems(state, 1); post(state, now, tenant, 'resident', POSTS.dream.replace('{shop}', buildingName(b)), 'good'); }
   checkGoals(state, now);
   return { ok: true, reason: '', dream, firstDream: first };
@@ -2436,7 +2455,8 @@ export function shopServes(state, b) {
   const ws = workersOf(state, b.id);
   if (!ws.length) return 0;
   const avg = ws.reduce((n, t) => n + (t.skills[catOf(b)] || 0), 0) / ws.length;
-  return Math.max(1, Math.round(TUNING.needServes * (staffOf(ws.length) / staffOf(2)) * (0.8 + 0.4 * avg / 9) * favOf(b)));
+  const regulars = ws.filter((t) => t.dream === b.type).length * TUNING.dreamServes;
+  return regulars + Math.max(1, Math.round(TUNING.needServes * (staffOf(ws.length) / staffOf(2)) * (0.8 + 0.4 * avg / 9) * favOf(b)));
 }
 
 /**
@@ -2952,9 +2972,17 @@ export function completeRide(state, now) {
   state.nextRideAt = now + rideGap(state);
   if (ride.kind !== 'delivery') state.stats.rides++;
   gain(state, fare, ride.kind === 'delivery' ? 'delivery' : 'ride', ride.toId);
-  events.emit('rideDone', { fare });
+  let referral = null;
+  if (ride.kind === 'welcome' && state.applicants.length < maxApplicants(state)) {
+    const openings = builtBiz(state, now).filter((b) => workersOf(state, b.id).length < slotsOf(b));
+    const shop = openings.length ? pick(state, openings) : null;
+    referral = makeApplicant(state, shop ? { best: catOf(shop), dreamPool: [shop.type] } : {});
+    referral.arrivedAt = now;
+    state.applicants.push(referral);
+  }
+  events.emit('rideDone', { fare, referral });
   checkGoals(state, now);
-  return { ok: true, reason: '', fare };
+  return referral ? { ok: true, reason: '', fare, referral } : { ok: true, reason: '', fare };
 }
 
 // ---- advance --------------------------------------------------------------

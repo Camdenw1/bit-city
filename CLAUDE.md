@@ -480,6 +480,41 @@ said big changes that reset what he has are fine if the game gets better. All of
 - Text trims: upgrade preview "Next: +50% sales, a new floor" (only where a floor grows), family
   lines, the new-town confirm, the mayor XP line.
 
+## First-prestige audit (2026-11-17, v51)
+
+- Opening: a translucent Tent marks a central legal lot and the first build sheet shows the
+  Tent. Starter applicants dream of an available business that uses a strong skill. When the
+  first shop category matches a resident's dream, its card previews that shop and the draw
+  delivers it. The existing first-shop goal ID ('diner') accepts any shop category.
+- Growth: the population HUD opens Goals. Its illustrated town card shows the next population
+  unlock, the 100-resident prestige target, and the current step (pick a lot, check construction,
+  wait for an arrival, or meet applicants). The rest of the goals stay under All goals.
+  Newcomers shows their dream place by name and points to housing when there are no rooms.
+  Most wanted comes before rival rankings. Goal payouts in the same action share a toast.
+- Active play: completing a welcome drive brings one referral if the sign has space. An open
+  job gives the referral a strong skill and a matching dream. Each worker in their dream job
+  serves two more residents as well as the existing sales bonus. A repeat placement shows the
+  correct gem payout.
+- Map and UI: roadside flowers from Town tier, pennants from 100 residents, stacked icons and
+  labels on the bottom bar. Town and founding postcards use sprites from the player's own
+  buildings. Sister-town visits retain the old population's street tier and available saved
+  streetscape upgrades. Resetting the camera recentres and restores the default zoom.
+- Prestige: the HUD opens the New town tab when first prestige is ready. An unaccepted taxi
+  request can wait. The confirmation spells out the reset and is followed by a founding
+  postcard with a direct path to permanent perks. City value includes town upgrades and
+  vehicles. Head Start pays coins on purchase as well as at future foundings. Recipe discoveries
+  stay in the Collection Book across prestige and migrate from old saves, while the restaurant
+  bonuses still unlock per town. Carried collection pages stop awarding the town goal again.
+- Playtest: `node tools/playtest.mjs --prestige` runs keen and casual schedules over three
+  seeds, founds town two and buys Head Start after save migration. It uses welcome drives on
+  both versions and the trade path available in the player UI. Keen v50 25–27h elapsed
+  changed to v51 23–25h with 60–65 min active. Casual 72–76h changed to 56–60h with 28–31 min
+  active. First prestige paid 18–21 points. Happiness at founding was 82–87% keen and 67–70%
+  casual, compared with 73–78% and 69–77% before. Faster move-ins can outpace service
+  coverage. These are seeded simulations with scripted spending and driving.
+- Verification: 72 engine tests, plus phone-sized Chromium checks of the opening and the
+  prestige path. Physical iPhone and live Pages checks follow deployment.
+
 ## Camden's idea list (2026-11-10)
 
 Done from it: hourly rent and rent/hour display, 10x play boost, distance fares, any-tent rides,

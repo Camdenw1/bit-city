@@ -1,16 +1,21 @@
 // Bot playtest: plays Mini Mayor the way a person would and prints pacing numbers.
-// Run: node tools/playtest.mjs            (pure sim, no browser)
+// Run: node tools/playtest.mjs, or add --prestige for six founding runs.
 // It plays an active first session, then short check-ins through three days.
 import * as config from '../js/config.js';
 import * as store from '../js/state.js';
 import * as sim from '../js/sim.js';
 
+const firstPrestige = process.argv.includes('--prestige');
 const { BUILDINGS, BUILD_ORDER, CATEGORIES } = config;
 const MIN = 60000, HOUR = 60 * MIN;
 
 function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedTime, detail = true }) {
   let now = seedTime;
   const s = store.newGame(now);
+  let activeMs = 0;
+  let founded = null;
+  let lastWelcome = null;
+  let referrals = 0;
   const income = { sales: 0, ride: 0, delivery: 0, job: 0, rent: 0, goal: 0, trade: 0, order: 0, visitor: 0, resident: 0, contract: 0, vip: 0 };
   const onCoins = sim.events.on('coins', ({ amount, reason }) => { if (income[reason] != null) income[reason] += amount; });
   let manualRestocks = 0; let rebuilds = 0; let fixes = 0; let problems = 0;
@@ -48,7 +53,9 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
         const v = (match ? 10 : 0) + Math.max(...Object.values(a.skills));
         if (v > score) { score = v; best = i; }
       });
-      if (!sim.moveIn(s, best, home.id, now).ok) break;
+      const moved = sim.moveIn(s, best, home.id, now);
+      if (!moved.ok) break;
+      lastWelcome = moved.tenant;
     }
     // jobs
     for (const t of s.tenants) {
@@ -56,16 +63,10 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
       if (j && (t.jobId == null || j.dream)) sim.assignJob(s, t.id, j.building.id, now);
     }
     if (!s.buildings.some((b) => b.type === 'trade') && sim.isUnlocked(s, 'trade') && s.coins >= sim.costOf(s, 'trade')) tryBuild('trade');
-    // trade: sell on good days (or when the barn is very full), fill any order that is ready
+    // The Trading Post sells surplus automatically. Sign contracts through its normal action.
     if (sim.hasTrade(s, now)) {
       // sign every contract there is room for (they run by themselves)
       for (const o of sim.contractOffers(s, now)) if (!o.signed && s.contracts.length < sim.contractSlots(s, now)) sim.signContract(s, o.town, now);
-      const prices = sim.tradePrices(s, now);
-      for (const o of [...s.orders]) if ((s.goods[o.crop] || 0) >= o.qty) sim.fillOrder(s, o.id, now);
-      for (const crop of Object.keys(prices)) {
-        const reserved = s.orders.filter((o) => o.crop === crop).reduce((n, o) => n + o.qty, 0);
-        if ((s.goods[crop] || 0) > reserved * 2 && (prices[crop].good || s.goods[crop] > reserved * 4)) sim.sellGoods(s, crop, now);
-      }
     }
     // land when it is affordable, then the cheapest upgrade
     for (const p of config.PARCELS) { const info = sim.parcelInfo(s, p.id); if (info.canBuy && s.coins >= info.price * 1.2) { sim.buyLand(s, p.id, now); mark(`bought ${info.name} (${info.lots} lots) for ${info.price}`); } }
@@ -115,10 +116,24 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
 
   function step(ms) {
     const end = now + ms;
-    while (now < end) {
+    const started = now;
+    while (now < end && !founded) {
       now = Math.min(end, now + 5000);
       sim.advance(s, now, { live: true, active: true });
       act();
+      if (firstPrestige && !sim.prestigeIssue(s)) {
+        founded = sim.foundNewTown(s, now);
+        if (!founded.ok) throw Error(founded.reason);
+        break;
+      }
+      if (firstPrestige && lastWelcome && !s.ride && !s.job && now + 15000 <= end) {
+        if (sim.startWelcome(s, lastWelcome.id, now).ok) {
+          now += 15000;
+          sim.advance(s, now, { live: true, active: true });
+          if (sim.completeRide(s, now).referral) referrals++;
+        }
+        lastWelcome = null;
+      }
       if (s.ride?.state === 'waiting' && now + 6000 <= end) {
         now += 4000; sim.advance(s, now, { live: true, active: true });   // a few seconds to notice and tap the taxi
         if (sim.pickupRide(s, now).ok && s.ride?.state === 'choosing') sim.chooseDestination(s, s.ride.toId, now);   // deliveries: tap the home
@@ -140,12 +155,14 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
       }
       for (const p of popMarks) if (s.tenants.length >= p && !seen.has('pop' + p)) { seen.add('pop' + p); mark(`${p} residents`); }
     }
+    activeMs += now - started;
+    lastWelcome = null;
   }
 
   step(firstSessionMin * MIN);
   mark(`end of first session: ${Math.round(s.coins)} coins, ${s.buildings.length} buildings, shops ${Math.round(sim.townRatePerMin(s, now) * 60)}/h, rent ${sim.rentPerDay(s)}/day`);
   const endAt = seedTime + days * 24 * HOUR;
-  while (now < endAt) {
+  while (now < endAt && !founded) {
     now = Math.min(endAt, now + checkinEveryMin * MIN);
     sim.advance(s, now, { live: false });
     const hour = new Date(now).getHours();
@@ -164,6 +181,13 @@ function play({ label, firstSessionMin, checkinEveryMin, checkinMin, days, seedT
   sim.events.off('coins', onCoins); sim.events.off('problem', onProblem);
   const total = Object.values(income).reduce((a, b) => a + b, 0) || 1;
   console.log(`\n=== ${label} ===`);
+  if (firstPrestige) {
+    if (!founded) throw Error('Profile did not found a town within the test horizon');
+    const next = store.migrate(JSON.parse(JSON.stringify(founded.state)));
+    if (next?.legacy.towns !== 2 || !sim.buyPermPerk(next, 'coins').ok) throw Error('First permanent perk unavailable after reload');
+    console.log(`First prestige at ${fmt(now - seedTime)}, ${fmt(activeMs)} active, ${s.tenants.length} residents, ${sim.happiness(s, now)}% happy, ${founded.earned} points, ${referrals} referrals. Town 2 after Head start: ${next.coins} coins.`);
+    return;
+  }
   if (detail) console.log(marks.join('\n'));
   console.log(`rebuilt homes ${rebuilds}, kids born ${s.stats.kids || 0}, kids now ${s.tenants.filter((t) => t.kid).length}, avg level ${(s.buildings.reduce((n, b) => n + (b.level || 1), 0) / Math.max(1, s.buildings.length)).toFixed(2)}`);
   console.log(`population ${s.tenants.length}, happy ${sim.happiness(s, now)}%, IQ ${sim.townIQ(s)}, manual restocks ${manualRestocks}, problems ${problems} (${fixes} paid for)`);
@@ -177,10 +201,19 @@ function fmt(ms) {
 }
 
 const start = new Date(2026, 0, 5, 9, 0, 0).getTime();
-play({ label: 'Keen: 30 min first session, 5 min every 2 h', firstSessionMin: 30, checkinEveryMin: 120, checkinMin: 5, days: 3, seedTime: start });
-play({ label: 'Casual: 10 min first session, 2 min every 4 h', firstSessionMin: 10, checkinEveryMin: 240, checkinMin: 2, days: 3, seedTime: start });
-play({ label: 'Keen, one week', firstSessionMin: 30, checkinEveryMin: 120, checkinMin: 5, days: 7, seedTime: start });
-for (const day of [6, 7]) {
-  const seedTime = new Date(2026, 0, day, 9).getTime();
-  play({ label: `Casual, alternate seed ${day - 5}`, firstSessionMin: 10, checkinEveryMin: 240, checkinMin: 2, days: 3, seedTime, detail: false });
+if (firstPrestige) {
+  for (const day of [5, 6, 7]) {
+    for (const keen of [true, false]) {
+      play({ label: `${keen ? 'Keen' : 'Casual'}, seed ${day}`, firstSessionMin: keen ? 30 : 10,
+        checkinEveryMin: keen ? 120 : 240, checkinMin: keen ? 5 : 2, days: 7, seedTime: new Date(2026, 0, day, 9).getTime() });
+    }
+  }
+} else {
+  play({ label: 'Keen: 30 min first session, 5 min every 2 h', firstSessionMin: 30, checkinEveryMin: 120, checkinMin: 5, days: 3, seedTime: start });
+  play({ label: 'Casual: 10 min first session, 2 min every 4 h', firstSessionMin: 10, checkinEveryMin: 240, checkinMin: 2, days: 3, seedTime: start });
+  play({ label: 'Keen, one week', firstSessionMin: 30, checkinEveryMin: 120, checkinMin: 5, days: 7, seedTime: start });
+  for (const day of [6, 7]) {
+    const seedTime = new Date(2026, 0, day, 9).getTime();
+    play({ label: `Casual, alternate seed ${day - 5}`, firstSessionMin: 10, checkinEveryMin: 240, checkinMin: 2, days: 3, seedTime, detail: false });
+  }
 }

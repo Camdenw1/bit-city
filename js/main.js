@@ -46,7 +46,8 @@ const api = {
     if (!t || !t.map) return false;
     const v = store.newGame(getNow());
     Object.assign(v, { worldSeed: t.map.worldSeed, streets: t.map.streets, land: t.map.land, townName: t.name,
-      buildings: t.map.buildings.map((b) => ({ ...b, readyAt: 0, paid: 0 })), tenants: [], applicants: [], trucks: [], ribbons: [], ride: null, vip: null, job: null, upgrades: {} });
+      visitPopulation: t.pop, visitTier: config.TIERS.filter((tier) => tier.pop <= t.pop).length - 1,
+      buildings: t.map.buildings.map((b) => ({ ...b, readyAt: 0, paid: 0 })), tenants: [], applicants: [], trucks: [], ribbons: [], ride: null, vip: null, job: null, upgrades: { ...t.map.upgrades } });
     visiting = v;
     act('noteVisit');
     renderer.resetView();
@@ -67,10 +68,12 @@ const api = {
   foundNewTown: () => {
     const res = sim.foundNewTown(state, getNow());
     if (!res.ok) return res;
+    visiting = null;
     state = res.state;
     persist();
     ui.hideRide();
     renderer.resetView();
+    audio.play('dream');
     ui.refresh();
     return res;
   },
@@ -128,12 +131,12 @@ sim.events.on('moveIn', ({ tenant }) => {
   if (t) renderer.burst(t.x, t.y, 'hearts');
   audio.play('movein');
 });
-sim.events.on('job', ({ tenant, building, dream }) => {
+sim.events.on('job', ({ tenant, building, dream, firstDream }) => {
   if (quiet || !building) return;
   if (dream) {
     renderer.burst(building.x, building.y, 'stars');
     audio.play('dream');
-    ui.celebrateDream(tenant, building);
+    ui.celebrateDream(tenant, building, firstDream);
   } else {
     renderer.burst(building.x, building.y, 'hearts');
     audio.play('tap');
@@ -161,12 +164,20 @@ sim.events.on('rent', ({ amount }) => {
   audio.play('rent');
   ui.toast(`Rent collected · +${formatCoins(amount)} coins`);   // hourly now, so a toast and not a full-screen card
 });
-sim.events.on('goal', ({ goal }) => {
+const earnedGoals = [];
+sim.events.on('goal', ({ goal, coins }) => {
   if (quiet) return;
-  audio.play('goal');
-  const r = goal.reward || {};
-  const bits = [r.coins ? `+${r.coins} coins` : '', r.gems ? `+${r.gems} gem${r.gems > 1 ? 's' : ''}` : ''].filter(Boolean);
-  ui.toast(`Goal done: ${goal.text}${bits.length ? ' · ' + bits.join(', ') : ''}`);
+  earnedGoals.push({ goal, coins });
+  if (earnedGoals.length !== 1) return;
+  queueMicrotask(() => {
+    const goals = earnedGoals.splice(0);
+    const coins = goals.reduce((sum, g) => sum + g.coins, 0);
+    const gems = goals.reduce((sum, g) => sum + (g.goal.reward?.gems || 0), 0);
+    const title = goals.length === 1 ? 'Goal complete' : `${goals.length} goals complete`;
+    const rewards = [coins ? `+${formatCoins(coins)} coins` : '', gems ? `+${gems} gem${gems > 1 ? 's' : ''}` : ''].filter(Boolean);
+    audio.play('goal');
+    ui.toast([title, ...rewards].join(' · '));
+  });
 });
 sim.events.on('land', ({ name }) => {
   audio.play('goal');
@@ -294,7 +305,7 @@ function startDrive() {
       audio.play('coin');
       const speedy = gas >= 0.5 ? ' Speedy!' : '';
       if (ride.kind === 'delivery') ui.toast(`Delivered · +${formatCoins(res.fare)} coins.${speedy}`);
-      else if (ride.kind === 'welcome') ui.toast(`Welcome home, ${who ? who.name : 'friend'}! +${formatCoins(res.fare)} coins.${speedy}`);
+      else if (ride.kind === 'welcome') ui.toast(`Welcome home, ${who ? who.name : 'friend'}! +${formatCoins(res.fare)} coins.${res.referral ? ` Their friend ${res.referral.name} is at the Welcome sign.` : speedy}`);
       else if (speedy) ui.toast(`Speedy driving! +${formatCoins(res.fare)} coins`);
     }
   };

@@ -116,6 +116,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   let ground = null, groundPad = 0, bgColor = '#8ecf7c';
   const roadTiles = [];                // owned road tiles, refilled by buildGround
   let groundKey = null;                // worldSeed + owned land the cached ground was drawn for
+  let starterLot = null;
   let lotList = [];                    // buildable tiles on owned land: { x, y, sand }
   let saleSigns = [];                  // parcels that can be bought next: { id, x, y }
   let entryOut = [];
@@ -238,10 +239,12 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     return h > 0.58 ? 'grass1' : 'grass0';
   }
 
-  /** What the cached ground depends on: the town, its land, bike lanes and car-free streets. */
+  const mapPopulation = (st) => st?.visitPopulation ?? st?.tenants.length ?? 0;
+  const mapTier = (st) => st?.visitTier ?? (st ? cityTier(st).level : 0);
+  /** What the cached ground depends on: the town, its land, tiers and road decorations. */
   function groundKeyOf(st) {
     const u = (st && st.upgrades) || {};
-    return `${st?.worldSeed ?? 0}|${(st?.land || ['home']).join(',')}|${u.bikes || 0}|${u.pedestrian || 0}|${seasonOf(getNow ? getNow() : Date.now()).id}|${st ? cityTier(st).level : 0}`;
+    return `${st?.worldSeed ?? 0}|${(st?.land || ['home']).join(',')}|${u.bikes || 0}|${u.pedestrian || 0}|${seasonOf(getNow ? getNow() : Date.now()).id}|${mapTier(st)}|${mapPopulation(st) >= TUNING.prestigePop}`;
   }
 
   function buildGround() {
@@ -250,6 +253,8 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     for (const id of state?.land || ['home']) OWNED.add(id);
     const seed = state?.worldSeed ?? 0;
     groundKey = groundKeyOf(state);
+    const tier = mapTier(state);
+    const showPennants = mapPopulation(state) >= TUNING.prestigePop;
     STREET = state ? (x, y) => isRoadAt(state, x, y) : (x, y) => isRoad(x, y);
     ENTRY.clear(); entryOut = [];
     const entry = state ? safe(() => entryRoute(state), null) : null;
@@ -302,7 +307,6 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
           }
         }
         if (mine && state && roadAt(tx, ty)) {
-          const tier = cityTier(state).level;
           const n = [roadAt(tx, ty - 1), roadAt(tx + 1, ty), roadAt(tx, ty + 1), roadAt(tx - 1, ty)];
           // Town and up: pale sidewalks along each curb
           if (tier >= 1) {
@@ -335,6 +339,12 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
               for (let i = 0; i < TILE; i += 4) { c.fillRect(px + i, py, 1, TILE); c.fillRect(px, py + i, TILE, 1); }
             }
           }
+          if (tier >= 1 && n[1] && n[3] && !n[0] && hash2(tx, ty) > 0.73) {
+            c.drawImage(getSprite('window_box'), px + 5, py);
+          }
+          if (showPennants && crossing && hash2(tx, ty) > 0.5) {
+            c.drawImage(getSprite('charter_flags'), px, py);
+          }
         }
         if (!mine) {                        // land that isn't yours yet is a touch deeper
           c.fillStyle = 'rgba(46, 92, 78, 0.16)';
@@ -344,6 +354,9 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         }
       }
     }
+    // Mark one central legal lot on an empty map. The player can still choose any lot.
+    const distanceToCentre = (l) => Math.abs(l.x + 0.5 - MAP_W / 2) + Math.abs(l.y + 0.5 - MAP_H / 2);
+    starterLot = lotList.reduce((best, l) => !best || distanceToCentre(l) < distanceToCentre(best) ? l : best, null);
     // a "for sale" sign in the middle of each parcel that can be bought next
     saleSigns = [];
     if (state) {
@@ -1137,6 +1150,13 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
         blit(l.sand ? lotSand : lot, l.x * TILE, l.y * TILE);
         if (snowy) { ctx.globalAlpha = 0.5; rect(l.x * TILE, l.y * TILE, TILE, TILE, '#ffffff'); ctx.globalAlpha = 1; }   // snow on empty lots too
       }
+      if (!state.buildings.length && starterLot) {
+        const { x, y } = starterLot;
+        drawRing(starterLot, rt);
+        ctx.globalAlpha = 0.52;
+        blit(getSprite('tent'), x * TILE, y * TILE);
+        ctx.globalAlpha = 1;
+      }
       // land you can buy next
       const sign = getSprite('sign');
       for (const sg of saleSigns) blit(sign, sg.x * TILE, sg.y * TILE + (Math.sin(rt / 400 + sg.x) > 0 ? -1 : 0));
@@ -1634,7 +1654,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     setOverlay(marks, ms = 45000) { overlay = marks && marks.length ? { marks, until: (getNow ? getNow() : Date.now()) + ms } : null; },
     // extras beyond the spec
     gameClock,
-    resetView() { userMoved = false; scale = fitScale; clampView(); },
+    resetView() { userMoved = false; resize(); },
     getView: () => ({ scale, ox, oy, fitScale, maxScale, ratio, width: W, height: H }),
   };
 }

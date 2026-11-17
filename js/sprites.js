@@ -1240,6 +1240,14 @@ function personGrid(look, frame) {
 const GRIDS = new Map();
 function def(id, make) { GRIDS.set(id, make); }
 
+// Curbside decorations mark the town's growth without covering a buildable lot.
+def('window_box', () => Grid.from([
+  '.i..y.', 'gGggGg', '.tttt.', '.bBBb.',
+]));
+def('charter_flags', () => Grid.from([
+  'Y..............Y', 'BKK..........KKB', 'BrrKKKK..KKKKuuB', 'B.r..yyKK..i.u.B',
+  'B.....y..g.i...B', 'B........g.....B', 'B..............B', 'b..............b',
+]));
 def('grass0', () => grassTile(0));
 def('grass1', () => grassTile(1));
 def('grass2', () => grassTile(2));
