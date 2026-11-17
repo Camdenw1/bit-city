@@ -515,6 +515,40 @@ said big changes that reset what he has are fine if the game gets better. All of
 - Verification: 72 engine tests, plus phone-sized Chromium checks of the opening and the
   prestige path. Physical iPhone and live Pages checks follow deployment.
 
+## Town operations and map art (2026-11-17, v52)
+
+- Town now links to Town jobs beside the Mayor's desk. The map still offers up to two jobs.
+  Their bubbles take the upper part of the lot tap, leaving the storefront below available
+  for normal management. Courier and Lost & Found start from the selected shop when possible.
+- Odd Jobs can send an adult to a shop with a current problem and no municipal help on the
+  way. The hammer bubble, Town jobs and the affected shop all offer the action. Each helper
+  shows the exact skill-based pay. A completion restores sales for free and pays the quote.
+  The job tracks the shop and the problem timestamp so it cannot clear a different incident.
+  Older saves with a kid in the candidate list retain eligible adult helpers.
+- Lunch Rush can start from a staffed Food shop. The team earns up to a 50% tip using
+  `teamPct`, quoted when the job starts. The new counter shows orders served and the total
+  including the tip. Finishing pops the payout at the shop. Board and map notices still
+  share the existing cooldown, and older active rush jobs keep their quoted pay.
+- Following Most wanted for health, safety or education limits the government draw to that
+  request, with the usual price and quality roll. Each suggested lot previews new resident
+  coverage at the standard quality. Park requests show the equivalent on their cards.
+  When someone is looking for work, shop needs can point to a partially staffed shop with
+  an open seat before suggesting new construction.
+- Art: striped Food awnings, Retail trim, Creative marquee lights, civic pediments,
+  shaded roofs and grounded storefronts. Matching art in the build sheets. Level trim
+  follows the actual roof instead of hovering over tents and fields. Empty lots have softer
+  markers. Plazas have brick patterns and planters. Woodland palettes change by season.
+  Water has animated glints and wood-deck crossings. Dusk is warmer and lights use the glass
+  pixels of the actual sprite, including extra floors. Tall sprite taps follow the visible
+  building. Window data is cached, the renderer counts staff and residents per frame pass,
+  and the jobs board shares one shop income calculation across its rows.
+- QA: 74 passing engine tests and touch checks at 390 and 320 CSS pixels in Chromium.
+  Checked the free repair and quoted pay, Rush from both the board and its shop, and the
+  targeted service preview and purchase. Visually compared the same saved city in daylight
+  and at night and inspected the waterfront. Six first-prestige runs completed. Keen
+  elapsed time was about 13–23h and casual 52–60h (v51: 23–25h and 56–60h). Seeded changes
+  in spending and staffing affect hours spent between check-ins. A real iPhone check is pending.
+
 ## Camden's idea list (2026-11-10)
 
 Done from it: hourly rent and rent/hour display, 10x play boost, distance fares, any-tent rides,

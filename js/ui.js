@@ -370,7 +370,7 @@ export function createUI(root, api) {
     const board = call('jobBoard', s, now) || [];
     const back = board.filter((j) => j.ok && (jobRest.get(j.kind) || 0) > 0);
     if (jobRest.size && back.length) {
-      toast(back.length === 1 ? `${back[0].name} popped up on the map · ${formatCoins(back[0].pay)} coins` : `${back.length} jobs popped up on the map`);
+      toast(back.length === 1 ? `${back[0].name} is ready` : `${back.length} town jobs are ready`);
     }
     jobRest.clear();
     for (const j of board) jobRest.set(j.kind, j.readyIn);
@@ -409,7 +409,12 @@ export function createUI(root, api) {
     try {
       if (api.renderer && api.renderer.setSelection) api.renderer.setSelection(tile);
       // a town building shows the area it serves while its sheet is open
-      const b = tile && sheet && sheet.kind === 'building' ? byId(sheet.id) : null;
+      let b = tile && sheet?.kind === 'building' ? byId(sheet.id) : null;
+      const wish = sheet?.kind === 'build' && sheet.wish;
+      if (tile && wish) {
+        const type = wish.cat === 'gov' ? call('serviceChoices', S(), wish.id)?.[0]?.id : wish.type;
+        if (type && def(type).provides) b = { type, ...tile, level: 1 };
+      }
       const reach = b && (def(b.type).provides || ['yard', 'transit'].includes(def(b.type).kind)) ? { x: b.x, y: b.y, r: call('reachOf', b, S()) || 0 } : null;
       if (api.renderer && api.renderer.setReach) api.renderer.setReach(reach);
     } catch (e) { /* cosmetic */ }
@@ -619,7 +624,10 @@ export function createUI(root, api) {
             <p class="note">Next rent in ${formatDuration(Math.max(60000, 3600000 - (now % 3600000)))}.</p>
             ${(() => { const sn = call('seasonOf', now); return sn ? `<p class="note">${sn.emoji} ${esc(sn.name)}: ${esc(sn.note)}</p>` : ''; })()}
           </div>
-          <button class="btn btn-quiet btn-wide" data-act="open-mayor">${icon('key', 2)} Mayor's desk${(s.problems || []).length ? ` · ${(s.problems || []).length} to sort out` : ''}</button>
+          <div class="town-actions">
+            <button class="btn btn-quiet" data-act="open-mayor">${icon('key', 2)} Mayor’s desk${s.problems.length ? ` · ${s.problems.length}` : ''}</button>
+            <button class="btn btn-quiet" data-act="nav-jobs">${icon('briefcase', 2)} Town jobs</button>
+          </div>
           <h3 class="sec">Most wanted</h3>
           ${wishes || `<p class="note">${s.tenants.length ? 'Everyone has what they need.' : 'Move someone in to see their wishes.'}</p>`}
           ${(() => {
@@ -682,6 +690,7 @@ export function createUI(root, api) {
       const spotTag = (cat) => spotPct(cat) > 0 ? `<span class="card-note hood">+${spotPct(cat)}% here</span>` : '';
       const order = (config.BUILD_ORDER || Object.keys(BUILDINGS)).filter((id) => BUILDINGS[id]);
       const pop = call('population', s) || 0;
+      const coverage = (id) => call('serviceCoverageAt', s, id, d.x, d.y, N()) || 0;
       const card = (id) => {
         const b = BUILDINGS[id];
         const unlocked = call('isUnlocked', s, id);
@@ -697,7 +706,7 @@ export function createUI(root, api) {
           ${bld(id, 3)}<b class="card-name">${esc(b.name)}</b>
           <span class="card-meta">${b.kind === 'home'
             ? `${icon('person', 1, 'i12')}×${b.capacity}`
-            : b.provides ? `${icon('person', 1, 'i12')}Serves ${b.provides.serves}`
+            : b.provides ? `${icon('person', 1, 'i12')}${d.wish && call('nearOk', s, id, d.x, d.y) ? `Helps ${coverage(id)} here` : `Serves ${b.provides.serves}`}`
             : `${icon(needOf(b).icon, 1, 'i12')}${esc(needOf(b).name)}`}</span>
           ${b.near && !call('nearOk', s, id, d.x, d.y) ? `<span class="card-note">${esc(call('nearHint', id) || '')}</span>` : ''}
           <span class="price">${icon('coin', 1, 'i12')}${formatCoins(cost)}</span></button>`;
@@ -721,6 +730,18 @@ export function createUI(root, api) {
       const landmarks = order.filter((id) => BUILDINGS[id].kind === 'landmark');
       if (d.wish) {
         const w = d.wish;
+        if (w.cat === 'gov') {
+          const choices = call('serviceChoices', s, w.id) || [];
+          const forecast = choices.map((b) => coverage(b.id));
+          const low = Math.min(...forecast), high = Math.max(...forecast);
+          const served = low === high ? high : `${low}–${high}`;
+          const cost = call('categoryCost', s, 'gov');
+          const target = choices.length === 1 ? choices[0].name : w.id === 'safety' ? 'Safety building' : 'Education building';
+          return { title: esc(w.title), html: `<p class="lead">${high > 0 ? `${served} residents could gain coverage here.` : 'No unserved residents in reach.'}</p>
+            ${choices.length ? `<button class="btn ${cost <= s.coins ? 'btn-coin' : 'btn-quiet'} btn-wide" data-act="build-category" data-cat="gov">
+              ${bld(choices.length === 1 ? choices[0].id : 'mystery_gov', 2, 'mini')} ${esc(target)} · ${coinAmt(cost)}</button>` : ''}
+            <button class="link" data-act="pick-another-lot">Pick another lot</button>` };
+        }
         const options = w.cat ? mystery(w.cat) : (w.id === 'beauty'
           ? town.filter((id) => BUILDINGS[id].kind === 'park' && unlocked(id)) : [w.type]).map(card).join('');
         return { title: esc(w.title), html: `<div class="grid">${options}</div>
@@ -859,11 +880,13 @@ export function createUI(root, api) {
       const cut = Math.round((config.TUNING?.problemSalesCut ?? 0.25) * 100);
       const fee = prob ? call('problemFee', s, now) || 0 : 0;
       const helper = prob && byId(prob.fixerId);
+      const volunteer = prob && prob.fixAt == null && call('jobBoard', s, now)?.some((j) => j.kind === 'odd' && j.ok);
       const trouble = !prob ? '' : `<div class="trouble">
           <p><b>${esc((config.PROBLEMS || {})[prob.kind]?.name || 'A problem')}!</b> Selling ${cut}% less until it is fixed.</p>
           ${prob.fixAt != null
             ? `<p class="note">${icon('star', 1, 'i12')}${helper ? esc(bName(helper)) : 'Help'} is on the way · ${formatDuration(Math.max(1000, prob.fixAt - now))}</p>`
-            : `<button class="btn ${fee <= s.coins ? 'btn-coin' : 'btn-quiet'} btn-wide" data-act="fix-problem" data-id="${b.id}">Fix it now ${coinAmt(fee, 2)}</button>
+            : `${volunteer ? `<button class="btn btn-go btn-wide" data-act="start-job" data-kind="odd" data-id="${b.id}">${icon('hammer', 2)} Send a helper · free</button>` : ''}
+               <button class="btn ${fee <= s.coins ? 'btn-coin' : 'btn-quiet'} btn-wide" data-act="fix-problem" data-id="${b.id}">Fix it now ${coinAmt(fee, 2)}</button>
                <p class="note">A ${(config.PROBLEMS || {})[prob.kind]?.fixer === 'health' ? 'clinic' : 'police or fire station'} within reach would fix this for free.</p>`}</div>`;
       const rate = (call('ratePerMin', s, b) || 0) * 60;
       const workers = workersOf(b.id);
@@ -874,6 +897,7 @@ export function createUI(root, api) {
       }[status] || '';
       const slots = [];
       const team = call('teamOf', s, b, now);
+      const rush = cat === 'food' && workers.length && call('jobBoard', s, now)?.some((j) => j.kind === 'rush' && j.ok);
       const nSlots = Math.max(slotsOf(b), workers.length);
       const addsOf = (t) => { const w = team && team.workers.find((x) => x.tenant.id === t.id); return w && w.adds != null ? Math.round(w.adds * 100) : null; };
       const hireBest = workers.length < slotsOf(b) ? call('bestHire', s, b.id, now) : null;
@@ -909,6 +933,7 @@ export function createUI(root, api) {
             <p class="note">${team.serves ? `Keeps ${team.serves} residents happy with ${esc((CAT_LABEL[cat] || '').toLowerCase())}. ` : ''}${esc(team.tip || 'The best team this shop can have!')}</p></div>` : ''}
           ${hireBest ? `<button class="btn btn-go btn-wide" data-act="hire-pick" data-id="${b.id}" data-t="${hireBest.id}">${icon('briefcase', 2)} Hire best: ${esc(hireBest.name)} ${skillBadge(cat, (hireBest.skills && hireBest.skills[cat]) || 0)}</button>` : ''}
           <div class="list">${slots.join('')}</div>
+          ${rush ? `<button class="btn btn-quiet btn-wide" data-act="start-job" data-kind="rush" data-id="${b.id}">${icon('cat_food', 2)} Play Lunch Rush</button>` : ''}
           ${buildingActions(true)}`,
       };
     },
@@ -1004,17 +1029,20 @@ export function createUI(root, api) {
     /* --- Jobs board: ways to earn right now --- */
     jobs() {
       const s = S(); const now = N();
+      const repair = call('volunteerRepair', s);
+      const shop = repair && byId(repair.buildingId);
       const rows = (call('jobBoard', s, now) || []).map((j) => {
-        const note = j.readyIn > 0 ? `Ready in ${formatDuration(j.readyIn)}` : j.why || j.hint;
+        const repairLabel = j.kind === 'odd' && shop ? `Help at ${bName(shop)}` : '';
+        const note = j.readyIn > 0 ? `Ready in ${formatDuration(j.readyIn)}` : j.why || (repairLabel ? 'Restore sales for free' : j.hint);
         return `<button class="want-row wish-button plain job-row${j.ok ? '' : ' is-off'}" data-act="start-job" data-kind="${j.kind}" data-key="${j.kind}">${icon(j.icon, 2)}
-          <span class="wish-copy"><b>${esc(j.name)}</b><span>${esc(note)}</span></span>
+          <span class="wish-copy"><b>${esc(repairLabel || j.name)}</b><span>${esc(note)}</span></span>
           <span class="price">${icon('coin', 1, 'i12')}${j.kind === 'taxi' || j.kind === 'odd' ? 'from ' : ''}${formatCoins(j.pay)}</span></button>`;
       }).join('');
       const car = call('carOf', s) || { name: 'Taxi', speed: 1, pay: 1 }; const next = call('nextCar', s);
       const carRow = `<div class="up-row"><span class="up-level">${icon('taxi', 2)} <b>${esc(car.name)}</b></span>
           ${next ? `<button class="btn btn-small ${next.cost <= s.coins ? 'btn-coin' : 'btn-quiet'}" data-act="upgrade-car">${esc(next.name)} · ${formatCoins(next.cost)} ${icon('coin', 1, 'i12')}</button>` : `<span class="tag tag-ok">Best car</span>`}</div>
         <p class="note up-note">${next ? `${esc(next.name)}: ${Math.round((next.speed / car.speed - 1) * 100)}% faster, fares +${Math.round((next.pay / car.pay - 1) * 100)}%. ` : ''}Hold GAS while driving to go faster and earn up to +${Math.round((config.TUNING?.gasBonus ?? 0.5) * 100)}%.</p>`;
-      return { title: 'Jobs', html: `<p class="note">Jobs pay more as your town grows. Each one rests a little after you do it.</p>${rows}${carRow}` };
+      return { title: 'Town jobs', html: `${rows}${carRow}` };
     },
 
     /* --- Goals: the guide through the game --- */
@@ -1173,20 +1201,24 @@ export function createUI(root, api) {
         const shop = byId(j.shopId);
         return {
           title: 'Lunch Rush',
-          html: `<p class="lead center">${shop ? esc(bName(shop)) : 'The shop'} · order ${j.index + 1} of ${j.orders.length}</p>
-            <div class="rush-want" data-key="o${j.index}"><span>${want[0]}</span><b>${esc(want[1])}, please!</b></div>
+          html: `<div class="rush-counter">
+            <div class="rush-head">${shop ? buildingArt(shop, 2, 'mini') : ''}<b>${shop ? esc(bName(shop)) : 'The shop'}</b><span>${j.index + 1}/${j.orders.length}</span></div>
+            <progress aria-label="Orders served" value="${j.index}" max="${j.orders.length}"></progress>
+            <div class="rush-want" data-key="o${j.index}"><span>${want[0]}</span><b>${esc(want[1])}, please!</b></div></div>
             <div class="rush-row">${menu.map((m, i) => `<button class="card rush-btn" data-act="serve" data-i="${i}" data-key="c${i}"><span class="rush-pic">${m[0]}</span><b class="card-name">${esc(m[1])}</b></button>`).join('')}</div>
-            <p class="note center">Serve all ${j.orders.length} for ${formatCoins(j.pay)} coins.</p>${skip}`,
+            <div class="job-reward">${coinAmt(j.pay, 2)}${j.tip ? `<small>Includes ${formatCoins(j.tip)} team tip</small>` : ''}</div>${skip}`,
         };
       }
       const cat = j.category;
-      const rows = j.candidates.map(tenantById).filter(Boolean).map((t) =>
+      const repair = call('activeJobRepair', s);
+      const shop = repair && byId(repair.buildingId);
+      const rows = j.candidates.map(tenantById).filter((t) => t && !t.kid).map((t) =>
         `<button class="want-row wish-button plain" data-act="send-helper" data-id="${t.id}" data-key="h${t.id}"><span class="avatar">${person(t.look, 3)}</span>
-          <span class="wish-copy"><b>${esc(t.name)}</b><span>${CAT_LABEL[cat] || ''} skill</span></span>${skillBadge(cat, t.skills[cat] || 0)}</button>`).join('');
+          <span class="wish-copy"><b>${esc(t.name)}</b><span>${CAT_LABEL[cat] || ''} ${t.skills[cat] || 0}</span></span>${coinAmt(call('helperPay', j, t), 2)}</button>`).join('');
       return {
-        title: 'Odd Jobs',
-        html: `<p class="lead center">${esc((config.ODD_JOBS || {})[cat] || 'Lend a hand')}</p>
-          <p class="note center">Who should go? Better ${(CAT_LABEL[cat] || '').toLowerCase()} skill earns more.</p>${rows}${skip}`,
+        title: shop ? 'Send a helper' : 'Odd Jobs',
+        html: `<p class="lead center">${shop ? esc(`${config.PROBLEMS[repair.kind].name} at ${bName(shop)}`) : esc(config.ODD_JOBS[cat])}</p>
+          <p class="note center">${shop ? 'Pick a helper to restore sales for free.' : 'Pick a helper.'}</p>${rows}${skip}`,
       };
     },
 
@@ -1459,7 +1491,8 @@ export function createUI(root, api) {
       return;
     }
     const shops = (call('townJobOptions', s, N()) || {}).shops || [];
-    const shop = shops.find((b) => b.id === anchorId) || shops[Math.floor(Math.random() * shops.length)];
+    const shop = shops.find((b) => b.id === anchorId)
+      || (kind === 'rush' ? shops.find((b) => categoryOf(b) === 'food') || shops[0] : null);
     const r = act('startTownJob', kind, shop ? shop.id : null);
     if (!r.ok) { if (r.reason) toast(r.reason); return; }
     if (kind === 'rush' || kind === 'odd') { openSheet({ kind: 'job' }); return; }
@@ -1587,7 +1620,7 @@ export function createUI(root, api) {
       const u = (config.UPGRADES || {})[el.dataset.id];
       toast(r && r.ok ? `${u.name} level ${r.level}! ${u.says(r.level)}.` : (r && r.reason) || '');
     },
-    'nav-jobs': () => openSheet(S().job && ['rush', 'odd'].includes(S().job.kind) ? { kind: 'job' } : { kind: 'jobs' }),
+    'nav-jobs': () => openSheet({ kind: ['rush', 'odd'].includes(S().job?.kind) ? 'job' : 'jobs', back: { kind: 'town' } }),
     'open-job': () => openSheet({ kind: 'job' }),
     'welcome-skip': () => { welcomeOffer = null; renderRide(); },
     'welcome-drive': () => {
@@ -1600,16 +1633,16 @@ export function createUI(root, api) {
       refresh();
     },
     'upgrade-car': () => { const r = act('upgradeCar'); if (r.ok) toast(`New car: the ${r.car.name}!`); },
-    'start-job': (el) => startJob(el.dataset.kind, null),
+    'start-job': (el) => startJob(el.dataset.kind, Number(el.dataset.id) || null),
     'skip-job': () => { const k = S().job?.kind; act('skipTownJob'); if (k) jobRest.set(k, 0); closeSheet(); },   // no "popped up" toast for the job you just skipped
     serve: (el) => {
       const j = S().job; if (!j) return;
       const r = act('serveOrder', j.index, Number(el.dataset.i));
-      if (r.ok && r.done) { toast(`Lunch Rush done! +${formatCoins(r.pay)} coins`); closeSheet(); }
+      if (r.ok && r.done) { toast(`Orders served! +${formatCoins(r.pay)} coins${j.tip ? ` · ${formatCoins(j.tip)} team tip` : ''}`); closeSheet(); }
     },
     'send-helper': (el) => {
       const r = act('sendHelper', Number(el.dataset.id));
-      if (r.ok) { toast(`Job done! +${formatCoins(r.pay)} coins`); closeSheet(); }
+      if (r.ok) { toast(`${r.fixed ? `${bName(r.fixed)} is fixed!` : 'Job done!'} +${formatCoins(r.pay)} coins`); closeSheet(); }
     },
     'nav-town': () => { wishBuild = null; openSheet({ kind: 'town' }); refreshHUD(); },
     'rename-town': () => {
@@ -1634,6 +1667,7 @@ export function createUI(root, api) {
       }
     },
     'all-buildings': () => openSheet({ ...sheet, wish: null }),
+    'pick-another-lot': () => { wishBuild = sheet.wish; closeSheet(); refreshHUD(); },
     'skip-delivery': () => act('skipDelivery'),
 
     'build-locked': (el) => {
@@ -1650,7 +1684,8 @@ export function createUI(root, api) {
     },
     'build-category': (el) => {
       if (sheet?.kind !== 'build') return;
-      const r = act('buildRandom', el.dataset.cat, sheet.x, sheet.y);
+      const { x, y, wish } = sheet;
+      const r = wish?.cat === 'gov' ? act('commissionService', wish.id, x, y) : act('buildRandom', el.dataset.cat, x, y);
       if (!r.ok) return;
       const name = bName(r.building);
       openBuilding(r.building);

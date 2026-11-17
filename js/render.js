@@ -5,7 +5,7 @@
 import { MAP_W, MAP_H, TILE, isRoad, DAY_LENGTH_MS, BUILDINGS, WORLD, PARCELS, TUNING, parcelAt } from './config.js';
 import { initSprites, getSprite, getPerson, buildingSpriteId, floorsFor, getGrown, FLOOR_AT, FLOOR_H } from './sprites.js';
 import { makeWorld, terrainAt } from './terrain.js';
-import { isBuilt, bizStatus, problemOf, homesWithVacancy, unemployed, workersOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots, vipSpot, festivalSpot, festivalIssue, seasonOf, cityTier, paradeRoute } from './sim.js';
+import { isBuilt, bizStatus, problemOf, slotsOf, tileAt, isLot, parcelInfo, isRoadAt, isPlazaAt, entryRoute, truckRoute, welcomeSpot, jobSpots, vipSpot, festivalSpot, festivalIssue, seasonOf, cityTier, paradeRoute } from './sim.js';
 
 const SPRITE_H = 16;                 // building sprites are 16 x 16: each one fits its own lot
 const NEED_FIX = { health: 'clinic', safety: 'police', education: 'school', beauty: 'park' };   // overlay: what to build
@@ -120,6 +120,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   let lotList = [];                    // buildable tiles on owned land: { x, y, sand }
   let saleSigns = [];                  // parcels that can be bought next: { id, x, y }
   let entryOut = [];
+  let waveTiles = [];
   let lampTiles = [];                  // street lamps (City tier and up), glowing at night                   // entry road tiles beyond the world's edge, nearest first
   const truckPaths = new Map();        // truck id → tile path it drives
 
@@ -135,8 +136,8 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   const tapFns = [];
   let overlay = null;       // { marks: [{ x, y, icon }], until }: homes missing something, from the Mayor's desk
   let lastRt = clock();
-  const alphaCache = new Map();        // sprite id → { w, h, data } | null
-  const glowCache = new Map();         // sprite id → [{x, y}] window pixels
+  const alphaCache = new WeakMap();    // rendered sprite → RGBA pixels
+  const glowCache = new WeakMap();     // rendered sprite → window pixels
 
   // ---------- geometry ----------
 
@@ -275,38 +276,33 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     const c = g.getContext('2d');
     c.imageSmoothingEnabled = false;
     const world = makeWorld(seed);
+    const season = seasonOf(getNow ? getNow() : Date.now()).id;
     const land = (x, y) => terrainAt(world, x, y) !== 'water';
     const sceneryId = (x, y) => {
       const kind = terrainAt(world, x, y);
       if (kind === 'water') return `water${(land(x, y - 1) ? 1 : 0) | (land(x + 1, y) ? 2 : 0) | (land(x, y + 1) ? 4 : 0) | (land(x - 1, y) ? 8 : 0)}`;
       if (kind === 'sand' || kind === 'mountain') return kind;
-      return kind === 'forest' ? 'tree' : grassId(x, y, true);
+      return kind === 'forest' ? 'forest_' + season : grassId(x, y, true);
     };
-    lotList = []; lampTiles = [];
-    const seasonNow = seasonOf(getNow ? getNow() : Date.now()).id;
+    lotList = []; lampTiles = []; waveTiles = [];
     for (let ty = WORLD.y0 - groundPad; ty <= WORLD.y1 + groundPad; ty++) {
       for (let tx = WORLD.x0 - groundPad; tx <= WORLD.x1 + groundPad; tx++) {
         const mine = inMap(tx, ty);
         // roads cross water as bridges; everything else on owned land keeps its terrain
-        const id = roadAt(tx, ty) ? `road${roadMask(tx, ty)}` : mine && state && isPlazaAt(state, tx, ty) ? 'plaza' : sceneryId(tx, ty);
+        const road = roadAt(tx, ty);
+        const bridge = road && !land(tx, ty);
+        const id = road ? `${bridge ? 'bridge' : 'road'}${roadMask(tx, ty)}`
+          : mine && state && isPlazaAt(state, tx, ty) ? 'plaza' : sceneryId(tx, ty);
+        if (id.startsWith('water') && hash2(tx, ty) > 0.68) waveTiles.push({ x: tx, y: ty });
         const px = (tx - WORLD.x0 + groundPad) * TILE, py = (ty - WORLD.y0 + groundPad) * TILE;
         c.drawImage(getSprite(id), px, py);
-        // the season: blossom in spring, orange woods in autumn, snow in winter (roads stay clear)
-        if (!roadAt(tx, ty) && !id.startsWith('water') && id !== 'plaza') {
-          const sz = seasonNow;
-          const h = hash2(tx * 3 + 1, ty * 7 + 2);
-          if (sz === 'winter') {
-            c.fillStyle = 'rgba(255, 255, 255, 0.55)'; c.fillRect(px, py, TILE, TILE);
-            c.fillStyle = '#ffffff';
-            for (let k = 0; k < 5; k++) c.fillRect(px + Math.floor(hash2(tx + k, ty - k) * 15), py + Math.floor(hash2(ty + k, tx + k * 3) * 15), 1, 1);
-          } else if (sz === 'autumn' && id === 'tree') {
-            c.fillStyle = h > 0.5 ? 'rgba(232, 128, 74, 0.6)' : 'rgba(242, 193, 78, 0.55)'; c.fillRect(px + 2, py + 1, 12, 10);
-          } else if (sz === 'spring' && id === 'tree') {
-            c.fillStyle = '#f7adc0';
-            for (let k = 0; k < 4; k++) c.fillRect(px + 3 + Math.floor(hash2(tx + k, ty) * 10), py + 2 + Math.floor(hash2(ty, tx + k) * 8), 1, 1);
-          }
+        if (season === 'winter' && !road && !id.startsWith('water') && !id.startsWith('forest_') && id !== 'plaza') {
+          c.fillStyle = 'rgba(255, 255, 255, 0.52)';
+          c.fillRect(px, py, TILE, TILE);
+          c.fillStyle = '#fff6e0';
+          for (let k = 0; k < 4; k++) c.fillRect(px + Math.floor(hash2(tx + k, ty - k) * 15), py + Math.floor(hash2(ty, tx + k * 3) * 15), 1, 1);
         }
-        if (mine && state && roadAt(tx, ty)) {
+        if (mine && state && road && !bridge) {
           const n = [roadAt(tx, ty - 1), roadAt(tx + 1, ty), roadAt(tx, ty + 1), roadAt(tx - 1, ty)];
           // Town and up: pale sidewalks along each curb
           if (tier >= 1) {
@@ -387,51 +383,35 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     ctx.fillRect(toDevX(ax), toDevY(ay), Math.round(w) * scale, Math.round(h) * scale);
   }
 
-  function alphaOf(id) {
-    if (alphaCache.has(id)) return alphaCache.get(id);
-    let res = null;
-    try {
-      const s = getSprite(id);
-      const d = s.getContext('2d').getImageData(0, 0, s.width, s.height);
-      res = { w: s.width, h: s.height, data: d.data };
-    } catch { res = null; }
-    alphaCache.set(id, res);
-    return res;
-  }
-  /** Is the sprite opaque at (px, py)? Padded by 1 px so thin outlines are easy to hit. */
-  function spriteOpaque(id, px, py) {
-    const a = alphaOf(id);
-    if (!a) return true;
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const x = Math.floor(px) + dx, y = Math.floor(py) + dy;
-        if (x < 0 || y < 0 || x >= a.w || y >= a.h) continue;
-        if (a.data[(y * a.w + x) * 4 + 3] > 40) return true;
-      }
+  function pixelsOf(sprite) {
+    let pixels = alphaCache.get(sprite);
+    if (!pixels) {
+      pixels = sprite.getContext('2d').getImageData(0, 0, sprite.width, sprite.height).data;
+      alphaCache.set(sprite, pixels);
     }
-    return false;
+    return pixels;
   }
 
-  /** Window pixels of a building sprite: cool, light "glass" coloured pixels in its body. */
-  function glowPixels(id) {
-    if (glowCache.has(id)) return glowCache.get(id);
+  /** Extract the glass pixels from the exact sprite being drawn, including added floors. */
+  function windowPixels(sprite, b) {
+    if (glowCache.has(sprite)) return glowCache.get(sprite);
     const out = [];
-    const a = alphaOf(id);
-    if (a) {
-      for (let y = 1; y < a.h - 1; y++) {
-        for (let x = 1; x < a.w - 1; x++) {
-          const i = (y * a.w + x) * 4;
-          const r = a.data[i], g = a.data[i + 1], b = a.data[i + 2];
-          if (a.data[i + 3] < 200) continue;
-          // exactly the two glass colours of the palette (sky, skyLight), so blue roofs and signs don't light up
-          if ((r === 0x8e && g === 0xd1 && b === 0xec) || (r === 0xcd && g === 0xef && b === 0xf5)) out.push({ x, y });
-        }
+    const raw = pixelsOf(sprite);
+    const def = BUILDINGS[b.type];
+    const storefront = (def.kind === 'biz' || def.gov) && !def.crop;
+    const entryY = sprite.height - TILE + 9;
+    for (let y = 1; y < sprite.height - 1; y++) {
+      for (let x = 1; x < sprite.width - 1; x++) {
+        const i = (y * sprite.width + x) * 4;
+        if (raw[i + 3] < 200) continue;
+        const colour = (raw[i] << 16) | (raw[i + 1] << 8) | raw[i + 2];
+        const glass = colour === 0x8ed1ec || colour === 0xcdeff5;
+        const addedFloor = colour === 0x9fd3f0;
+        if (addedFloor || (glass && (!storefront || (x >= 11 && x <= 12 && y >= entryY)))) out.push({ x, y });
       }
     }
-    // sprites that are mostly blue (e.g. water) are not "windows" — skip those
-    const res = out.length > 0 && out.length <= 40 ? out : [];
-    glowCache.set(id, res);
-    return res;
+    glowCache.set(sprite, out);
+    return out;
   }
 
   // ---------- per-frame derived info ----------
@@ -446,8 +426,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     if (cfg.kind === 'biz') {
       if (safe(() => problemOf(f.state, b.id), null)) return 'trouble';
       if (f.anyUnemployed) {
-        const slots = cfg.slots ?? 2;
-        if (safe(() => workersOf(f.state, b.id).length, slots) < slots) return 'briefcase';
+        if ((f.workers.get(b.id) || 0) < slotsOf(b)) return 'briefcase';
       }
     } else if (cfg.kind === 'home') {
       if (f.vacantIds.has(b.id)) return 'key';
@@ -458,12 +437,20 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   function frameInfo(state, now) {
     const f = { state, now, ride: state.ride || null, built: new Map(), bubbles: new Map(), rows: [] };
     for (let y = 0; y < WH; y++) f.rows.push([]);
-    f.vacantIds = new Set(safe(() => homesWithVacancy(state, now), []).map((h) => h.id));
-    f.anyUnemployed = safe(() => unemployed(state).length > 0, false);
+    const residents = new Map();
+    f.workers = new Map();
+    f.vacantIds = new Set();
+    for (const t of state.tenants) {
+      residents.set(t.homeId, (residents.get(t.homeId) || 0) + 1);
+      if (t.jobId != null) f.workers.set(t.jobId, (f.workers.get(t.jobId) || 0) + 1);
+      else if (!t.kid) f.anyUnemployed = true;
+    }
     for (const b of state.buildings || []) {
       if (!inMap(b.x, b.y)) continue;
       f.built.set(b, !!safe(() => isBuilt(b, now), now >= b.readyAt));
       f.rows[b.y - WORLD.y0].push(b);
+      const def = BUILDINGS[b.type];
+      if (def.kind === 'home' && f.built.get(b) && (residents.get(b.id) || 0) < def.capacity) f.vacantIds.add(b.id);
     }
     for (const b of state.buildings || []) {
       if (!inMap(b.x, b.y)) continue;
@@ -472,9 +459,14 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     }
     // jobs that pop up on the map: a bubble on the building, tap it to play
     f.jobs = new Map();
-    for (const j of safe(() => jobSpots(state, now), [])) {
+    const jobs = state.visitPopulation == null ? safe(() => jobSpots(state, now), []) : [];
+    for (const j of jobs) {
       const b = (state.buildings || []).find((x) => x.id === j.buildingId);
-      if (b && !f.bubbles.has(b)) f.jobs.set(b, j);
+      const hint = b && f.bubbles.get(b);
+      if (b && hint !== 'taxi' && hint !== 'parcel') {
+        f.jobs.set(b, j);
+        f.bubbles.delete(b);
+      }
     }
     return f;
   }
@@ -943,39 +935,45 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
 
   // Levels 4 and 5 grow a floor each (v48): sprites.js draws the grown sprite, shared with the sheets
   const floorsOf = (b) => floorsFor(b);
-  const grownSprite = (id, floors) => getGrown(id, floors);
+  const buildingSprite = (b) => TALL[b.type] ? getSprite(TALL[b.type]) : getGrown(buildingSpriteId(b), floorsOf(b));
 
   function drawBuilding(b, f) {
     const top = b.y * TILE - OVERLAP;
     if (f.built.get(b)) {
       const tall = TALL[b.type];
-      if (tall) {                                            // towers rise into the lot behind
-        const spr = getSprite(tall);
-        blit(spr, b.x * TILE, b.y * TILE + TILE - spr.height);
-      } else if (floorsOf(b)) {
-        const spr = grownSprite(buildingSpriteId(b), floorsOf(b));
-        blit(spr, b.x * TILE, top + TILE - spr.height);
-      } else blit(getSprite(buildingSpriteId(b)), b.x * TILE, top);
-      const lv = b.level || 1, x0 = b.x * TILE;
-      const kind = BUILDINGS[b.type]?.kind;
+      const sprite = buildingSprite(b);
+      const x0 = b.x * TILE, lv = b.level || 1;
+      const def = BUILDINGS[b.type];
+      const kind = def.kind;
+      const shopfront = kind === 'biz' && !def.crop;
+      if (shopfront || kind === 'civic' || kind === 'trade') {
+        rect(x0 + 1, top + 13, 14, 3, '#d9cdb5');
+        rect(x0 + 2, top + 15, 12, 1, '#aa9b90');
+      } else {
+        ctx.globalAlpha = 0.18;
+        rect(x0 + 4, top + 13, 11, 3, '#393044');
+        ctx.globalAlpha = 1;
+      }
+      blit(sprite, x0, top + TILE - sprite.height);
       if (kind === 'landmark') {                             // landmarks keep their stage stars
         const sy = tall ? b.y * TILE + TILE - getSprite(tall).height + 2 : b.y * TILE - 1;
         for (let i = 1; i < lv; i++) blit(getSprite('pip'), x0 + (i - 1) * 6, sy);
         return;
       }
-      // levels show in the building itself, kept quiet so a big town doesn't turn into a wall of
-      // gold: flower boxes at level 2, gold trim at level 3; shops add an awning and a flag
-      const shop = kind === 'biz';
-      if (lv >= 2) {
-        if (shop) for (let i = 0; i < 7; i++) rect(x0 + 1 + i * 2, top + 5, 2, 1, i % 2 ? '#fff6e0' : '#d9574a');
-        rect(x0 + 1, top + 15, 3, 1, '#5bb450'); rect(x0 + 12, top + 15, 3, 1, '#5bb450');
-        rect(x0 + 2, top + 14, 1, 1, '#e85d8a'); rect(x0 + 13, top + 14, 1, 1, '#f2c14e');
+      // Put the trim on the actual storefront. Pitched roofs and fields keep their silhouettes.
+      if (lv >= 2 && (shopfront || ['cabin', 'house', 'apartment', 'highrise'].includes(b.type))) {
+        rect(x0 + 2, top + 15, 3, 1, '#5bb450');
+        rect(x0 + 11, top + 15, 3, 1, '#5bb450');
+        rect(x0 + 3, top + 14, 1, 1, '#e85d8a');
+        rect(x0 + 12, top + 14, 1, 1, '#f2c14e');
       }
-      if (lv >= 3 && !tall) {
-        const up = top - floorsOf(b) * FLOOR_H;               // the roof line, raised by any new floors
-        rect(x0 + 1, up + 1, 14, 1, '#f2c14e');
-        if (shop) { rect(x0 + 14, up - 1, 1, 3, '#3b2f4a'); rect(x0 + 12, up - 1, 2, 1, lv >= 5 ? '#f2c14e' : '#e85d8a'); }
-        if (lv >= 5 && floorsOf(b)) { rect(x0 + 1, up + FLOOR_AT, 1, floorsOf(b) * FLOOR_H, '#f2c14e'); rect(x0 + 14, up + FLOOR_AT, 1, floorsOf(b) * FLOOR_H, '#f2c14e'); }
+      if (lv >= 3 && shopfront) {
+        const up = top + TILE - sprite.height;
+        rect(x0 + 2, up + 2, 12, 1, '#f2c14e');
+        if (lv >= 5) {
+          rect(x0 + 1, up + FLOOR_AT, 1, floorsOf(b) * FLOOR_H, '#f2c14e');
+          rect(x0 + 14, up + FLOOR_AT, 1, floorsOf(b) * FLOOR_H, '#f2c14e');
+        }
       }
       return;
     }
@@ -1022,20 +1020,19 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   }
 
   function drawGlow(b, darkness) {
-    const pts = glowPixels(buildingSpriteId(b));
-    if (!pts.length) return;
-    const top = b.y * TILE - OVERLAP;
-    // a few windows stay dark so the town doesn't look uniform
-    const seed = hashStr(b.id ?? `${b.x},${b.y}`);
+    const def = BUILDINGS[b.type];
+    if (def.kind === 'park' || def.crop) return;
+    const x = b.x * TILE, y = b.y * TILE;
+    if (toDevX(x + TILE) < 0 || toDevX(x) > W || toDevY(y + TILE) < 0 || toDevY(y - TILE) > H) return;
+    const sprite = buildingSprite(b);
+    const points = windowPixels(sprite, b);
+    const top = y + TILE - sprite.height;
+    const seed = Math.floor(hashStr(b.id) * 97);
     ctx.globalAlpha = clamp((darkness - 0.35) / 0.4, 0, 1) * 0.92;
-    for (let i = 0; i < pts.length; i++) {
-      const p = pts[i];
-      if (hash2(p.x + Math.floor(seed * 97), Math.floor(p.y / 3) * 7 + Math.floor(p.x / 4)) < 0.18) continue;
-      const col = (p.x + p.y) % 2 ? '#ffd97a' : '#ffe9a6';
-      const fl = floorsOf(b);
-      if (!fl || p.y >= FLOOR_AT + FLOOR_H) rect(b.x * TILE + p.x, top + p.y, 1, 1, col);
-      else if (p.y < FLOOR_AT) rect(b.x * TILE + p.x, top + p.y - fl * FLOOR_H, 1, 1, col);
-      else rect(b.x * TILE + p.x, top + p.y, 1, 1, col);
+    for (const p of points) {
+      // Groups of panes light together, so a window stays a recognisable shape.
+      if (hash2(Math.floor(p.x / 4) + seed, Math.floor(p.y / 4)) < 0.17) continue;
+      rect(x + p.x, top + p.y, 1, 1, (p.x + p.y) % 2 ? '#ffd97a' : '#ffe9a6');
     }
     ctx.globalAlpha = 1;
   }
@@ -1065,7 +1062,7 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
   // ---------- weather (v49, looks only) ----------
   // Picked per real hour from the map's seed: snow on half of winter's hours, rain on about one
   // hour in six otherwise, and morning fog now and then. Drawn over the screen, never over menus.
-  let weatherForce = null;                 // for testing: renderer.setWeather('rain' | 'snow' | 'fog' | null)
+  let weatherForce = null;                 // test override: rain, snow, fog, clear, or null for natural weather
   function weatherAt(now, day) {
     if (weatherForce) return weatherForce;
     const hour = Math.floor(now / 3600000);
@@ -1126,6 +1123,16 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       const p = groundPad * TILE * scale;
       ctx.drawImage(ground, ox + WORLD.x0 * TILE * scale - p, oy + WORLD.y0 * TILE * scale - p, ground.width * scale, ground.height * scale);
     }
+
+    // Sparse water glints use the cached terrain list and stay beneath bridges and sprites.
+    ctx.globalAlpha = 0.42;
+    for (const wave of waveTiles) {
+      const x = wave.x * TILE, y = wave.y * TILE;
+      if (toDevX(x + TILE) < 0 || toDevX(x) > W || toDevY(y + TILE) < 0 || toDevY(y) > H) continue;
+      const phase = (Math.floor(rt / 560) + Math.floor(hash2(wave.y, wave.x) * 5)) % 5;
+      if (phase < 3) rect(x + 3 + phase * 2, y + 7, phase === 1 ? 4 : 2, 1, '#e5f7eb');
+    }
+    ctx.globalAlpha = 1;
 
     const state = getState ? getState() : null;
     const day = gameClock(now);
@@ -1240,17 +1247,15 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
 
     // night: a gentle blue multiply over everything drawn so far (never darker than ~45% brightness)
     if (darkness > 0.01) {
-      const hourF = day.t * 24;
-      // warm blush around sunrise / sunset, cool blue at night
-      const warm = clamp(1 - Math.abs(darkness - 0.45) / 0.45, 0, 1) * 0.6;
-      const nr = lerp(255, lerp(168, 240, warm), darkness);
-      const ng = lerp(255, lerp(178, 190, warm), darkness);
-      const nb = lerp(255, lerp(228, 200, warm), darkness);
+      // Warm pink light around sunset, deeper indigo after dark.
+      const warm = clamp(1 - Math.abs(darkness - 0.45) / 0.45, 0, 1);
+      const nr = lerp(255, lerp(157, 255, warm), darkness);
+      const ng = lerp(255, lerp(165, 194, warm), darkness);
+      const nb = lerp(255, lerp(223, 193, warm), darkness);
       ctx.globalCompositeOperation = 'multiply';
       ctx.fillStyle = `rgb(${Math.round(nr)},${Math.round(ng)},${Math.round(nb)})`;
       ctx.fillRect(0, 0, W, H);
       ctx.globalCompositeOperation = 'source-over';
-      void hourF;
     }
 
     drawWeather(now, rt, day, W, H);
@@ -1258,8 +1263,15 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
     if (f) {
       if (darkness > 0.35) for (const row of f.rows) for (const b of row) if (f.built.get(b)) drawGlow(b, darkness);
       if (darkness > 0.3 && lampTiles.length) {     // street lamps
-        ctx.globalAlpha = Math.min(0.6, darkness);
-        for (const l of lampTiles) { rect(l.x * TILE - 1, l.y * TILE - 1, 5, 3, '#fbe391'); }
+        for (const l of lampTiles) {
+          const x = l.x * TILE, y = l.y * TILE;
+          if (toDevX(x + TILE) < 0 || toDevX(x) > W || toDevY(y + TILE) < 0 || toDevY(y) > H) continue;
+          ctx.globalAlpha = 0.09 * darkness;
+          rect(x - 2, y - 1, 7, 4, '#ffd888');
+          rect(x - 3, y, 9, 2, '#ffd888');
+          ctx.globalAlpha = darkness;
+          rect(x, y, 3, 1, '#ffdf8b');
+        }
         ctx.globalAlpha = 1;
       }
 
@@ -1449,16 +1461,21 @@ export function createRenderer(canvas, { getState, getNow } = {}) {
       const top = bubbleTop(b) + bobOf(b, clock());
       if (ax >= b.x * TILE + 1 && ax < b.x * TILE + 15 && ay >= top - 1 && ay < top + 13) return { ...hit(b), activity: kind };
     }
-    // 1b. a job bubble sits on its building: tapping that building starts the job
+    // 1b. the bubble starts the job, while the storefront below opens the sheet.
     const jb = at(tx, ty);
     if (jb && (state.ribbons || []).some((r) => r.id === jb.id && r.until > now)) return { ...hit(jb), activity: 'ribbon' };   // cut the ribbon
-    if (jb && f.jobs.has(jb)) return { ...hit(jb), activity: 'job', kind: f.jobs.get(jb).kind };
-    // 2. the tall sprite of the building just below pokes 8 px into this tile
+    if (jb && f.jobs.has(jb) && ay - ty * TILE < 12) {
+      return { ...hit(jb), activity: 'job', kind: f.jobs.get(jb).kind };
+    }
+    // 2. Taps on the visible upper floors go to the building that drew them.
     const below = at(tx, ty + 1);
-    if (below) {
-      const id = f.built.get(below) ? below.type : 'site';
-      const py = ay - (below.y * TILE - OVERLAP);
-      if (py >= 0 && py < OVERLAP && spriteOpaque(id, ax - below.x * TILE, py)) return hit(below);
+    if (below && f.built.get(below)) {
+      const sprite = buildingSprite(below);
+      const height = sprite.height - TILE;
+      const px = Math.floor(ax - below.x * TILE);
+      const py = Math.floor(ay - below.y * TILE + height);
+      if (py >= 0 && py < height && px >= 0 && px < sprite.width &&
+          pixelsOf(sprite)[(py * sprite.width + px) * 4 + 3] > 128) return hit(below);
     }
     // 3. the tapped tile itself
     // the festival bubble on the town square

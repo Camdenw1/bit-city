@@ -31,8 +31,11 @@ export const PALETTE = {
   green: '#5bb450',      // farming
   greenDark: '#3d8848',
   leafLight: '#bfe08c',
-  grass: '#a3cf72',
-  grassDark: '#86bb62',
+  grass: '#a8cf83',
+  grassDark: '#8fba70',
+  grassLight: '#b4d88e',
+  teal: '#65b6bc',
+  waterDeep: '#72b9d0',
   blue: '#4a90d9',       // retail
   blueDark: '#35629e',
   sky: '#8ed1ec',
@@ -44,7 +47,7 @@ export const PALETTE = {
   orangeLight: '#f8cfb0', // shopfront tints, one per category
   purpleLight: '#d9c8f2',
   blueLight: '#c4dcf6',
-  gray: '#8b8696',       // asphalt
+  gray: '#858396',       // asphalt
   grayDark: '#6c6779',
   grayLight: '#b8b4bc',
   stone: '#d8d2c6',
@@ -59,7 +62,7 @@ export const PALETTE = {
 const KEY = {
   k: 'ink', K: 'inkSoft', w: 'white', p: 'paper', s: 'sand', t: 'tan', b: 'brown', B: 'brownDark',
   r: 'red', R: 'redDark', o: 'orange', O: 'orangeDark', y: 'yellow', Y: 'yellowLight',
-  g: 'green', G: 'greenDark', l: 'leafLight', m: 'grass', M: 'grassDark',
+  g: 'green', G: 'greenDark', l: 'leafLight', m: 'grass', M: 'grassDark', L: 'grassLight', h: 'teal', H: 'waterDeep',
   u: 'blue', U: 'blueDark', c: 'sky', C: 'skyLight', v: 'purple', V: 'purpleDark',
   q: 'orangeLight', x: 'purpleLight', z: 'blueLight',
   i: 'pink', I: 'pinkLight', a: 'gray', A: 'grayDark', e: 'grayLight', E: 'stone',
@@ -149,16 +152,16 @@ class Grid {
 
 function grassTile(variant) {
   const g = new Grid(16, 16, 'm');
-  if (variant === 1) g.pts('M', 4, 5, 11, 11);
-  else if (variant === 2) g.pts('I', 5, 8).pts('w', 11, 5);   // two tiny flowers
+  if (variant === 1) g.pts('M', 4, 5, 11, 11).pts('L', 5, 4, 10, 11);
+  else if (variant === 2) g.pts('I', 5, 8).pts('w', 11, 5).pts('L', 6, 9, 10, 6);   // two tiny flowers
   return g;
 }
 
 function lotTile() {
-  // A soft, lighter square: "you can build here".
+  // A low-contrast plot with tiny corner markers keeps empty blocks readable.
   const g = new Grid(16, 16, 'm');
-  g.rect(2, 2, 13, 13, 'l');
-  g.pts('m', 2, 2, 13, 2, 2, 13, 13, 13);
+  g.rect(2, 2, 13, 13, 'L').hl(3, 12, 13, 'M');
+  g.pts('m', 2, 2, 13, 2, 2, 13, 13, 13).pts('l', 3, 3, 12, 3);
   return g;
 }
 
@@ -172,12 +175,12 @@ function sandTile() {
 
 // mask bits: N=1, E=2, S=4, W=8 (set when that neighbour is land): a pale foam line on those edges
 function waterTile(mask) {
-  const g = new Grid(16, 16, 'c');
-  g.hl(3, 5, 5, 'C').hl(9, 11, 11, 'C');                  // two small ripples
-  if (mask & 1) g.hl(0, 15, 0, 'C');
-  if (mask & 4) g.hl(0, 15, 15, 'C');
-  if (mask & 8) g.vl(0, 0, 15, 'C');
-  if (mask & 2) g.vl(15, 0, 15, 'C');
+  const g = new Grid(16, 16, 'H');
+  g.hl(2, 6, 5, 'c').hl(9, 13, 11, 'c').hl(4, 8, 14, 'h');
+  if (mask & 1) g.hl(0, 15, 1, 'h').hl(0, 15, 0, 'C');
+  if (mask & 4) g.hl(0, 15, 14, 'h').hl(0, 15, 15, 'C');
+  if (mask & 8) g.vl(1, 0, 15, 'h').vl(0, 0, 15, 'C');
+  if (mask & 2) g.vl(14, 0, 15, 'h').vl(15, 0, 15, 'C');
   return g;
 }
 
@@ -190,19 +193,26 @@ function mountainTile() {
   return g;
 }
 
-function treeTile() {
-  const g = new Grid(16, 16, 'm');
-  g.rect(4, 3, 11, 9, 'g').hl(5, 10, 2, 'g').hl(5, 10, 10, 'G').vl(11, 4, 9, 'G');
-  g.pts('m', 4, 3, 11, 3, 4, 9, 11, 9);
-  g.rect(7, 11, 8, 13, 'b');
+function forestTile(season) {
+  const winter = season === 'winter';
+  const [leaf, shade, light] = {
+    spring: ['g', 'G', 'I'], summer: ['g', 'G', 'l'],
+    autumn: ['o', 'O', 'y'], winter: ['G', 'h', 'w'],
+  }[season];
+  const g = new Grid(16, 16, winter ? 'E' : 'm');
+  g.rect(3, 12, 12, 13, winter ? 'e' : 'M').rect(7, 9, 8, 13, 'b');
+  g.rect(4, 4, 11, 9, leaf).hl(5, 10, 3, leaf).hl(6, 9, 2, light);
+  g.hl(5, 11, 10, shade).vl(11, 5, 9, shade).pts(light, 5, 5, 6, 4, 10, 6, 8, 7);
+  g.pts(winter ? 'w' : 'L', 2, 11, 12, 14, 4, 14);
   return g;
 }
 
 // The town square: pale paving with a planter in the middle of each slab.
 function plazaTile() {
   const g = new Grid(16, 16, 'E');
-  g.hl(0, 15, 0, 'e').vl(0, 0, 15, 'e').hl(0, 15, 8, 'e').vl(8, 0, 15, 'e');
-  g.rect(11, 3, 13, 5, 'g').pts('i', 12, 3).pts('G', 13, 5);
+  for (const y of [0, 5, 10, 15]) g.hl(0, 15, y, 'e');
+  g.vl(4, 1, 4, 'e').vl(12, 1, 4, 'e').vl(8, 6, 9, 'e').vl(4, 11, 14, 'e').vl(12, 11, 14, 'e');
+  g.rect(10, 3, 14, 6, 't').rect(11, 3, 13, 5, 'g').pts('i', 11, 3).pts('y', 13, 4);
   return g;
 }
 
@@ -236,8 +246,21 @@ function roadTile(mask) {
   if (S && W) g.set(0, 15, 'e');
   if (S && E) g.set(15, 15, 'e');
   // one faint centre dash on straight stretches; junctions stay plain
-  if (N && S && !E && !W) g.rect(7, 5, 8, 10, 'e');
-  if (E && W && !N && !S) g.rect(5, 7, 10, 8, 'e');
+  if (N && S && !E && !W) g.vl(7, 5, 10, 'e');
+  if (E && W && !N && !S) g.hl(5, 10, 7, 'e');
+  return g;
+}
+
+function bridgeTile(mask) {
+  const g = new Grid(16, 16, 't');
+  const across = mask & (2 | 8);
+  if (across) {
+    for (let x = 0; x < 16; x += 4) g.vl(x, 0, 15, 'b');
+    g.hl(0, 15, 0, 'B').hl(0, 15, 15, 'B').hl(0, 15, 1, 'p').hl(0, 15, 14, 'p');
+  } else {
+    for (let y = 0; y < 16; y += 4) g.hl(0, 15, y, 'b');
+    g.vl(0, 0, 15, 'B').vl(15, 0, 15, 'B').vl(1, 0, 15, 'p').vl(14, 0, 15, 'p');
+  }
   return g;
 }
 
@@ -578,13 +601,23 @@ const CAT_STYLE = {
 function shop(id, cat) {
   const c = CAT_STYLE[cat] || CAT_STYLE.food;
   const g = new Grid(B_W, B_H);
-  g.rect(1, 5, 14, 14, c.tint);                           // coloured wall
-  g.rect(1, 1, 14, 4, c.roof).hl(1, 14, 4, c.dark);       // deep roof in the strong colour
-  g.hl(1, 14, 1, 'w');                                    // a pale edge so roofs read against the road
-  g.rect(1, 5, 9, 13, 'w');                               // sign board...
-  g.stamp(2, 6, EMBLEM[id] || EMBLEM.mystery);            // ...showing what they sell
-  g.hl(1, 9, 14, c.dark);                                 // coloured step under the sign
-  g.rect(10, 8, 13, 14, c.dark).rect(11, 9, 12, 10, 'c').set(12, 12, 'y');   // door
+  g.rect(1, 5, 14, 14, c.tint).vl(14, 5, 14, c.roof);
+  g.rect(1, 2, 14, 4, c.roof).hl(1, 14, 4, c.dark);
+  g.hl(2, 13, 1, c.tint).hl(2, 13, 2, c.roof);
+  g.rect(1, 6, 9, 13, 'w').stamp(2, 6, EMBLEM[id] || EMBLEM.mystery);
+  g.hl(1, 9, 14, c.dark);
+  g.rect(10, 8, 13, 14, c.dark).rect(11, 9, 12, 11, 'c').set(11, 9, 'C').set(12, 13, 'y');
+  if (cat === 'food') {
+    for (let x = 1; x < 14; x += 2) g.hl(x, x + 1, 5, x % 4 === 1 ? 'w' : c.roof);
+  } else if (cat === 'retail') {
+    g.hl(2, 13, 3, c.tint).hl(10, 13, 7, 'w');
+  } else if (cat === 'creative') {
+    g.hl(4, 11, 1, c.roof).hl(5, 10, 2, c.dark).pts('Y', 3, 3, 5, 3, 7, 3, 9, 3, 11, 3);
+  } else if (cat === 'gov') {
+    g.hl(5, 10, 0, c.roof).hl(3, 12, 1, c.roof).hl(1, 14, 5, 'Y').hl(1, 14, 14, 'E');
+  } else {
+    g.hl(2, 8, 3, c.tint).pts('w', 11, 3, 12, 3);
+  }
   g.outline();
   return g;
 }
@@ -606,6 +639,7 @@ function roof(g, x0, x1, y0, y1, inset, base, lo) {
   for (let y = y0; y <= y1; y++) {
     const ins = Math.max(0, inset - (y - y0));
     g.hl(x0 + ins, x1 - ins, y, base);
+    if ((y - y0) % 2) g.hl(x0 + ins + 1, x1 - ins, y, lo);
   }
   g.hl(x0, x1, y1, lo);
   return g;
@@ -745,8 +779,8 @@ BUILD.tree = () => {
 
 BUILD.park = () => {
   const g = new Grid(B_W, B_H);
-  g.rect(1, 1, 14, 14, 'l');
-  g.rect(7, 1, 8, 14, 'p');                                     // path
+  g.rect(1, 1, 14, 14, 'l').hl(1, 14, 14, 'G').vl(14, 1, 14, 'G');
+  g.rect(7, 1, 8, 14, 'p').hl(2, 13, 8, 'p');                                     // path
   g.rect(2, 2, 5, 5, 'g').hl(2, 5, 5, 'G').rect(3, 6, 4, 7, 'b'); // little tree
   g.hl(10, 13, 10, 'b').pts('b', 10, 11, 13, 11);               // bench
   g.pts('i', 11, 3, 12, 5, 3, 11, 4, 12).pts('y', 10, 4, 3, 12);  // flowers
@@ -1279,7 +1313,8 @@ def('sand', sandTile);
 def('lot_sand', lotSandTile);
 def('sign', signTile);
 def('mountain', mountainTile);
-def('tree', treeTile);
+for (const season of ['spring', 'summer', 'autumn', 'winter']) def('forest_' + season, () => forestTile(season));
+for (let m = 0; m < 16; m++) def('bridge' + m, () => bridgeTile(m));
 for (let m = 0; m < 16; m++) def('water' + m, () => waterTile(m));
 def('taxi_e', () => Grid.from(TAXI_E));
 def('taxi_w', () => Grid.from(TAXI_E).flipH());

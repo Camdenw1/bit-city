@@ -201,7 +201,7 @@ function validJob(job, byId, tenants) {
   }
   if (job.kind === 'odd') {
     return CATEGORIES.includes(job.category) && Array.isArray(job.candidates) && job.candidates.length > 0 &&
-      job.candidates.every((id) => tenants.some((t) => t.id === id));
+      job.candidates.every((id) => tenants.some((t) => t.id === id && !t.kid));
   }
   if (!Number.isInteger(job.x) || !Number.isInteger(job.y)) return false;
   if (job.kind === 'lost') return byId.has(job.shopId) && ['north', 'south', 'east', 'west'].includes(job.direction);
@@ -389,6 +389,11 @@ export function migrate(state) {
       state.tenants.some((t) => t.id === r.tenantId) && ['waiting', 'choosing', 'driving'].includes(r.state);
     if (!rideOk) state.ride = null;
     else if (r.kind === 'delivery' && r.state !== 'waiting' && (!isNum(r.fare) || r.fare < 0)) state.ride = null;
+    // Older Odd Jobs could include kids. Keep the job and its quote when an adult can take it.
+    if (state.job?.kind === 'odd' && Array.isArray(state.job.candidates)) {
+      const adults = new Set(state.tenants.filter((t) => !t.kid).map((t) => t.id));
+      state.job.candidates = state.job.candidates.filter((id) => adults.has(id));
+    }
     if (!validJob(state.job, byId, state.tenants) || state.ride) state.job = null;
     const known = new Set(GOALS.map((g) => g.id));
     state.goalsDone = (Array.isArray(state.goalsDone) ? state.goalsDone : []).filter((id) => known.has(id));
@@ -396,6 +401,9 @@ export function migrate(state) {
     state.goalsDone = [...new Set(state.goalsDone)];
     state.problems = (Array.isArray(state.problems) ? state.problems : []).filter((p) => p && typeof p === 'object' &&
       byId.has(p.buildingId) && PROBLEMS[p.kind] && isNum(p.at) && (p.fixAt === null || isNum(p.fixAt)));
+    if (state.job?.kind === 'odd' && state.job.repair &&
+        !state.problems.some((p) => p.buildingId === state.job.repair.buildingId && p.at === state.job.repair.at)) delete state.job.repair;
+    if (state.job?.kind === 'rush' && (!Number.isInteger(state.job.tip) || state.job.tip < 0 || state.job.tip >= state.job.pay)) state.job.tip = 0;
     const cds = state.jobCooldowns && typeof state.jobCooldowns === 'object' && !Array.isArray(state.jobCooldowns) ? state.jobCooldowns : {};
     state.jobCooldowns = Object.fromEntries(Object.entries(cds).filter(([, v]) => isNum(v)));
     if (!isNum(state.nextProblemAt)) state.nextProblemAt = state.lastTick + TUNING.problemGapMaxMs;

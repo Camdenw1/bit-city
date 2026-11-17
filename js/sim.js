@@ -552,9 +552,9 @@ export function firstShopMatch(state, cat, x, y) {
 }
 
 /** The types a category can turn up, with how likely each is right now. */
-function drawPool(state, cat, now, x, y) {
+function drawPool(state, cat, now, x, y, need) {
   // only what this lot allows (a ski lodge needs mountains) and what the town is big enough for
-  const all = Object.values(BUILDINGS).filter((d) => (cat === 'gov' ? d.gov : d.kind === 'biz' && d.categories.includes(cat)) &&
+  const all = Object.values(BUILDINGS).filter((d) => (cat === 'gov' ? d.gov && (!need || d.provides.need === need) : d.kind === 'biz' && d.categories.includes(cat)) &&
     population(state) >= d.unlockAt && nearOk(state, d.id, x, y));
   const match = firstShopMatch(state, cat, x, y);
   if (match) return [{ d: BUILDINGS[match.dream], weight: 1 }];
@@ -579,12 +579,13 @@ function drawPool(state, cat, now, x, y) {
  * Open a shop of a category (or a government building with cat 'gov'). You choose the
  * kind; which one arrives, and how good it is, is the surprise.
  */
-export function buildRandom(state, cat, x, y, now) {
+export function buildRandom(state, cat, x, y, now, need = null) {
   if (cat !== 'gov' && !SHOP_CATS[cat]) return fail("Hmm, we don't know that kind of shop.", { building: null });
   if (!categoryUnlocked(state, cat)) {
     return fail(`${cat === 'gov' ? GOV.name : SHOP_CATS[cat].name} opens at ${cat === 'gov' ? GOV.unlockAt : SHOP_CATS[cat].unlockAt} residents.`, { building: null });
   }
-  const pool = drawPool(state, cat, now, x, y);
+  const pool = drawPool(state, cat, now, x, y, need);
+  if (!pool.length) return fail('There is no building for that request at this lot.', { building: null });
   // check the lot and the price before spending any luck, so a failed tap never changes the draw
   const probe = canBuild(state, pool[0].d.id, x, y, cat === 'gov' ? null : cat);
   if (!probe.ok) return { ok: false, reason: probe.reason, building: null };
@@ -592,6 +593,12 @@ export function buildRandom(state, cat, x, y, now) {
   let chosen = pool[pool.length - 1].d;
   for (const p of pool) { r -= p.weight; if (r < 0) { chosen = p.d; break; } }
   return build(state, chosen.id, x, y, now, { cat, q: rollQuality(state) });
+}
+
+/** Follow a town request while keeping the government draw and its price. */
+export function commissionService(state, need, x, y, now) {
+  if (!serviceChoices(state, need).length) return fail('No service for that request is available yet.');
+  return buildRandom(state, 'gov', x, y, now, need);
 }
 
 export function hurry(state, buildingId, now) {
@@ -1541,6 +1548,25 @@ export function reachOf(b, state = null) {
 const inReach = (state, b, x, y) => Math.max(Math.abs(b.x - x), Math.abs(b.y - y)) <= reachOf(b, state);
 const servesOf = (b) => Math.round(defOf(b).provides.serves * levelMult(b.level) * qualityOf(b) * favOf(b));
 
+/** The government buildings that can answer a specific town request. */
+export function serviceChoices(state, need) {
+  return Object.values(BUILDINGS).filter((d) => d.gov && d.provides.need === need && isUnlocked(state, d.id));
+}
+
+/** Residents currently missing this service who could gain it from a basic build here. */
+export function serviceCoverageAt(state, type, x, y, now) {
+  const site = { type, x, y, level: 1 };
+  const need = BUILDINGS[type]?.provides?.need;
+  if (!need) return 0;
+  const mood = townMood(state, now);
+  const homes = new Map(state.buildings.filter(isHome).map((b) => [b.id, b]));
+  const nearby = state.tenants.filter((t) => {
+    const home = homes.get(t.homeId);
+    return home && !mood.met.get(t.id)?.has(need) && inReach(state, site, home.x, home.y);
+  });
+  return Math.min(nearby.length, servesOf(site));
+}
+
 /**
  * Who has what. `needs` are the needs this town cares about so far, `met` maps a resident's id
  * to the set of needs they have, `have` counts residents per need, `served` counts residents
@@ -1727,10 +1753,18 @@ export function fixProblem(state, buildingId, now) {
   const cost = problemFee(state, now);
   if (state.coins < cost) return fail(`You need ${cost - Math.floor(state.coins)} more coins to fix this.`, { cost: 0 });
   state.coins -= cost;
-  state.problems.splice(state.problems.indexOf(p), 1);
   events.emit('spend', { amount: cost, reason: 'fix' });
-  events.emit('problemFixed', { building: buildingById(state, buildingId), problem: p, auto: false });
+  finishRepair(state, p);
   return { ok: true, reason: '', cost };
+}
+
+function finishRepair(state, problem) {
+  state.problems.splice(state.problems.indexOf(problem), 1);
+  events.emit('problemFixed', { building: buildingById(state, problem.buildingId), problem, auto: false });
+}
+
+export function volunteerRepair(state, buildingId = null) {
+  return state.problems.find((p) => p.fixAt == null && (buildingId == null || buildingId === p.buildingId) && buildingById(state, p.buildingId)) || null;
 }
 
 /**
@@ -1745,28 +1779,33 @@ export function mostWanted(state, now) {
   if (state.buildings.every((b) => !isHome(b))) {
     return [{ id: 'homes', icon: 'key', title: 'A first home', hint: 'Build a Tent so someone can move in.', type: 'tent', score: 0 }];
   }
+  const shops = builtBiz(state, now);
+  const hasJobSeekers = unemployed(state).length > 0;
   for (const n of needsStatus(state, now)) {
     if (n.score >= 1) continue;
     const short = n.want - n.have;
     if (n.id === 'jobs') {
-      const open = builtBiz(state, now).find((b) => workersOf(state, b.id).length < slotsOf(b));
+      const open = shops.find((b) => workersOf(state, b.id).length < slotsOf(b));
       out.push({ id: 'jobs', icon: n.icon, title: `Jobs for ${short} ${short === 1 ? 'resident' : 'residents'}`,
         hint: open ? `Hire at ${buildingName(open)}` : 'Open a shop',
         buildingId: open?.id, type: null, cat: open ? null : 'food', score: n.score });
     } else if (!CATEGORIES.includes(n.id)) {
       const direct = cheapest((d) => !d.gov && d.provides && d.provides.need === n.id);     // parks
-      const viaGov = Object.values(BUILDINGS).some((d) => d.gov && d.provides.need === n.id);
+      const viaGov = serviceChoices(state, n.id).length > 0 && categoryUnlocked(state, 'gov');
       out.push({ id: n.id, icon: n.icon, title: `More ${n.name.toLowerCase()}`,
-        hint: direct ? 'Choose a park or decoration' : viaGov && categoryUnlocked(state, 'gov') ? 'Open Government' : 'Unlocks as the town grows',
+        hint: direct ? 'Choose a park or decoration' : viaGov ? 'Choose a lot for this service' : 'Unlocks as the town grows',
         have: n.have, want: n.want,
-        type: direct?.id ?? null, cat: !direct && viaGov && categoryUnlocked(state, 'gov') ? 'gov' : null, score: n.score });
+        type: direct?.id ?? null, cat: !direct && viaGov ? 'gov' : null, score: n.score });
     } else {
-      const idle = state.buildings.find((b) => isBiz(b) && catOf(b) === n.id && isBuilt(b, now) && workersOf(state, b.id).length === 0);
+      const vacant = hasJobSeekers && shops.filter((b) => catOf(b) === n.id)
+        .map((b) => ({ b, workers: workersOf(state, b.id).length }))
+        .filter(({ b, workers }) => workers < slotsOf(b))
+        .sort((a, b) => a.workers - b.workers)[0]?.b;
       const can = categoryUnlocked(state, n.id);
       out.push({ id: n.id, icon: n.icon, title: `More ${n.name.toLowerCase()}`,
-        hint: idle ? `Hire at ${buildingName(idle)}` : can ? `Open ${SHOP_CATS[n.id].name}` : `Unlocks at ${SHOP_CATS[n.id].unlockAt} residents`,
-        buildingId: idle?.id, have: n.have, want: n.want,
-        type: null, cat: idle || !can ? null : n.id, score: n.score });
+        hint: vacant ? `Hire at ${buildingName(vacant)}` : can ? `Open ${SHOP_CATS[n.id].name}` : `Unlocks at ${SHOP_CATS[n.id].unlockAt} residents`,
+        buildingId: vacant?.id, have: n.have, want: n.want,
+        type: null, cat: vacant || !can ? null : n.id, score: n.score });
     }
   }
   if (vacancies(state) === 0) {
@@ -2557,9 +2596,9 @@ export function jobSuggestions(state, now, max = 8) {
 // ---- town jobs ------------------------------------------------------------
 
 /** What a job pays: so many minutes of the town's shop income, with a small floor for tiny towns. */
-export function jobPay(state, kind, now) {
+export function jobPay(state, kind, now, rate = townRatePerMin(state, now)) {
   const growth = Math.min(TUNING.jobMaxGrowth, Math.floor(population(state) * TUNING.jobPayPerResident));
-  return Math.round(Math.max(TOWN_JOBS[kind].pay + growth, townRatePerMin(state, now) * TOWN_JOBS[kind].minutes));
+  return Math.round(Math.max(TOWN_JOBS[kind].pay + growth, rate * TOWN_JOBS[kind].minutes));
 }
 
 /** Milliseconds until this job can be taken again (0 = ready). */
@@ -2569,7 +2608,6 @@ export function jobReadyIn(state, kind, now) {
 const restJob = (state, kind, now) => { state.jobCooldowns[kind] = now + TOWN_JOBS[kind].cooldownMs; };
 const waitText = (ms) => `Ready again in ${Math.ceil(ms / 1000)}s.`;
 
-/** The jobs board, one row per job: { kind, name, icon, hint, pay, readyIn, ok, why }. */
 /**
  * Jobs pop up on the map, like Tiny Tower: each ready job sits as a bubble on a building that
  * fits it (Lunch Rush on a shop, Odd Jobs on a home...). At most TUNING.jobSpots at once, and
@@ -2580,15 +2618,16 @@ export function jobSpots(state, now) {
   const o = townJobOptions(state, now);
   const homes = occupiedHomes(state, now);
   const food = o.shops.filter((b) => catOf(b) === 'food' && workersOf(state, b.id).length);
+  const repair = volunteerRepair(state);
   const places = {
     taxi: homes, delivery: o.shops, rush: food.length ? food : o.shops,
-    odd: homes, lost: o.shops, courier: o.shops.filter((b) => b.type === 'post').length ? o.shops.filter((b) => b.type === 'post') : o.shops,
+    odd: repair ? [buildingById(state, repair.buildingId)] : homes, lost: o.shops, courier: o.shops.filter((b) => b.type === 'post').length ? o.shops.filter((b) => b.type === 'post') : o.shops,
   };
   const hour = Math.floor(now / 3600000);
   const taken = new Set(state.ride ? [state.ride.fromId] : []);
   const out = [];
   // the jobs only found here come first; taxi rides and parcels also turn up on their own
-  const order = ['rush', 'odd', 'lost', 'courier', 'delivery', 'taxi'];
+  const order = repair ? ['odd', 'rush', 'lost', 'courier', 'delivery', 'taxi'] : ['rush', 'odd', 'lost', 'courier', 'delivery', 'taxi'];
   for (const j of jobBoard(state, now).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))) {
     if (out.length >= TUNING.jobSpots - (state.vip ? 1 : 0)) break;   // a waiting VIP takes one of the bubbles
     if (!j.ok) continue;
@@ -2596,14 +2635,16 @@ export function jobSpots(state, now) {
     if (!list.length) continue;
     const b = list[(hour * 7 + j.kind.length * 13) % list.length];
     taken.add(b.id);
-    out.push({ kind: j.kind, buildingId: b.id, icon: j.icon, name: j.name, pay: j.pay });
+    out.push({ kind: j.kind, buildingId: b.id, icon: j.kind === 'odd' && repair ? 'hammer' : j.icon, name: j.name, pay: j.pay });
   }
   return out;
 }
 
+/** The jobs board, one row per job: { kind, name, icon, hint, pay, readyIn, ok, why }. */
 export function jobBoard(state, now) {
   const o = townJobOptions(state, now);
   const busy = !!state.job || (state.ride && state.ride.state !== 'waiting');
+  const rate = o.shops.length ? townRatePerMin(state, now) : 0;
   return Object.keys(TOWN_JOBS).map((kind) => {
     const d = TOWN_JOBS[kind];
     let why = '';
@@ -2611,11 +2652,11 @@ export function jobBoard(state, now) {
     else if (kind === 'delivery') { if (!o.delivery) why = 'Needs an open shop and a resident'; }
     else if (!o.shops.length) why = 'Needs an open shop';
     else if (kind === 'courier' && !o.courier) why = 'Needs two homes with residents';
-    else if (kind === 'odd' && !state.tenants.length) why = 'Needs a resident';
+    else if (kind === 'odd' && !state.tenants.some((t) => !t.kid)) why = 'Needs a resident';
     const readyIn = jobReadyIn(state, kind, now);
-    const pay = kind === 'taxi' ? Math.round(Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.rideFareMinutes))
-      : kind === 'delivery' ? Math.round(Math.max(TUNING.rideMinFare, townRatePerMin(state, now) * TUNING.deliveryFareMinutes))
-      : jobPay(state, kind, now) * (kind === 'courier' ? TUNING.courierStops : 1);
+    const pay = kind === 'taxi' ? Math.round(Math.max(TUNING.rideMinFare, rate * TUNING.rideFareMinutes))
+      : kind === 'delivery' ? Math.round(Math.max(TUNING.rideMinFare, rate * TUNING.deliveryFareMinutes))
+      : jobPay(state, kind, now, rate) * (kind === 'courier' ? TUNING.courierStops : 1);
     return { kind, name: d.name, icon: d.icon, hint: d.hint, pay, readyIn, ok: !why && !busy && readyIn === 0, why: why || (busy ? 'Finish your current job first' : '') };
   });
 }
@@ -2670,28 +2711,37 @@ export function startTownJob(state, kind, shopId, now) {
   if (jobReadyIn(state, kind, now) > 0) return fail(waitText(jobReadyIn(state, kind, now)));
   const { shops, courier } = townJobOptions(state, now);
   if (!shops.length) return fail('Open a shop to start town jobs.');
+  const host = shops.find((b) => b.id === shopId);
   let job;
   if (kind === 'rush') {
-    const shop = shops.find((b) => b.id === shopId);
+    const shop = host;
     if (!shop) return fail('Choose an open shop.');
     const menu = RUSH_MENUS[shop.type] ? shop.type : catOf(shop);
     const orders = Array.from({ length: TUNING.rushOrders }, () => randInt(state, RUSH_MENUS[menu].length));
     job = { kind, shopId, menu, orders, index: 0 };
   } else if (kind === 'lost') {
-    const spots = nearbyDogSpots(state, shops);
+    const spots = nearbyDogSpots(state, host ? [host] : shops);
     if (!spots.length) return fail('Pip is staying home for now.');
     job = { kind, ...pick(state, spots) };
   } else if (kind === 'odd') {
-    if (!state.tenants.length) return fail('Move in a resident first.');
-    job = { kind, category: pick(state, CATEGORIES), candidates: takeRandom(state, state.tenants, 3).map((t) => t.id) };
+    const helpers = state.tenants.filter((t) => !t.kid);
+    if (!helpers.length) return fail('Move in a resident first.');
+    const problem = volunteerRepair(state, host?.id);
+    const category = problem ? PROBLEMS[problem.kind].skill : pick(state, CATEGORIES);
+    job = { kind, category, candidates: takeRandom(state, helpers, 3).map((t) => t.id) };
+    if (problem) job.repair = { buildingId: problem.buildingId, at: problem.at };
   } else if (kind === 'courier') {
     if (!courier) return fail('Fill at least two homes to plan a route.');
-    const shop = pick(state, shops);
+    const shop = host || pick(state, shops);
     const stops = takeRandom(state, occupiedHomes(state, now), TUNING.courierStops);
     job = { kind, shopId: shop.id, stops: stops.map((b) => b.id), x: shop.x, y: shop.y,
       distance: 0, best: shortestRoute(shop, stops) };
   } else return fail('That job is unavailable.');
   job.pay = jobPay(state, kind, now);
+  if (kind === 'rush') {
+    job.tip = Math.round(job.pay * teamPct(state, host) * TUNING.rushTeamTip);
+    job.pay += job.tip;
+  }
   clearRide(state, now);
   state.job = job;
   restJob(state, kind, now);
@@ -2705,9 +2755,11 @@ export function skipTownJob(state) {
 }
 
 function finishTownJob(state, pay) {
+  const job = state.job;
   state.job = null;
   state.stats.jobsDone = (state.stats.jobsDone || 0) + 1;
   gain(state, pay, 'job');
+  if (job.kind === 'rush') events.emit('rushDone', { shopId: job.shopId, pay });
   return { ok: true, done: true, pay };
 }
 
@@ -2725,11 +2777,24 @@ export function findDog(state, x, y) {
   return finishTownJob(state, job.pay);
 }
 
+export function activeJobRepair(state) {
+  const repair = state.job?.repair;
+  const problem = repair && problemOf(state, repair.buildingId);
+  return problem && problem.at === repair.at ? problem : null;
+}
+
+export function helperPay(job, tenant) {
+  return Math.round(job.pay * (1 + TUNING.oddSkillBonus * (tenant.skills[job.category] || 0)));
+}
+
 export function sendHelper(state, id) {
   const job = state.job;
   const tenant = tenantById(state, id);
-  if (job?.kind !== 'odd' || !tenant || !job.candidates.includes(id)) return fail('Choose one of the helpers.');
-  return finishTownJob(state, Math.round(job.pay * (1 + TUNING.oddSkillBonus * (tenant.skills[job.category] || 0))));
+  if (job?.kind !== 'odd' || !tenant || tenant.kid || !job.candidates.includes(id)) return fail('Choose one of the helpers.');
+  const problem = activeJobRepair(state);
+  const fixed = problem ? buildingById(state, problem.buildingId) : null;
+  if (fixed) finishRepair(state, problem);
+  return { ...finishTownJob(state, helperPay(job, tenant)), fixed };
 }
 
 export function deliverStop(state, id) {

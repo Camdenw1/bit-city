@@ -1495,6 +1495,9 @@ test('jobs board: every job can be played, pays with the town, and rests afterwa
   let coins = s.coins;
   let r = sim.startTownJob(s, 'rush', diner.id, now); assert.ok(r.ok);
   assert.equal(board().odd.ok, false, 'one job at a time');
+  const baseRush = sim.jobPay(s, 'rush', now);
+  assert.equal(s.job.tip, Math.round(baseRush * sim.teamOf(s, diner, now).pct * TUNING.rushTeamTip));
+  assert.equal(s.job.pay, baseRush + s.job.tip);
   const pay = s.job.pay;
   assert.equal(sim.serveOrder(s, 0, (s.job.orders[0] + 1) % 3).ok, false);
   while (s.job) r = sim.serveOrder(s, s.job.index, s.job.orders[s.job.index]);
@@ -2336,4 +2339,48 @@ test('first prestige keeps discoveries, counts upgrades, and pays Head start onc
   const reloaded = S.migrate(JSON.parse(JSON.stringify(next)));
   assert.equal(reloaded.coins, TUNING.startCoins + config.PERM_PERKS.coins.per);
   assert.equal(reloaded.legacy.perks.coins, 1);
+});
+
+test('an Odd Job can fix a specific shop and pays the chosen adult helper', () => {
+  const { s, diner } = smallTown();
+  const extra = put(s, 'market', T0);
+  s.problems.push(
+    { buildingId: diner.id, kind: 'leak', at: T0, fixAt: null, fixerId: null },
+    { buildingId: extra.id, kind: 'theft', at: T0, fixAt: null, fixerId: null },
+  );
+  s.tenants.push({ ...s.tenants[0], id: s.nextId++, kid: true, grownAt: T0 + HOUR, jobId: null });
+  const marker = sim.jobSpots(s, T0).find((j) => j.kind === 'odd');
+  assert.equal(marker.buildingId, diner.id);
+  assert.equal(marker.icon, 'hammer');
+  const { job } = sim.startTownJob(s, 'odd', extra.id, T0);
+  assert.equal(job.category, 'retail');
+  assert.ok(!job.candidates.includes(s.tenants.at(-1).id));
+  const saved = S.migrate(JSON.parse(JSON.stringify(s)));
+  assert.equal(saved.job.repair.buildingId, extra.id);
+  const helper = sim.tenantById(saved, saved.job.candidates[0]);
+  const before = saved.coins;
+  const result = sim.sendHelper(saved, helper.id);
+  assert.equal(result.fixed.id, extra.id);
+  assert.equal(saved.coins - before, sim.helperPay(job, helper));
+  assert.equal(sim.problemOf(saved, extra.id), null);
+  assert.ok(sim.problemOf(saved, diner.id), 'the other shop is a separate problem');
+  assert.equal(sim.sendHelper(saved, helper.id).ok, false, 'a job pays once');
+});
+
+test('following a service request forecasts coverage and draws only a matching facility', () => {
+  const s = fresh();
+  const home = put(s, 'tent', T0);
+  const resident = person(s, home, T0);
+  while (s.tenants.length < 14) s.tenants.push({ ...resident, id: s.nextId++ });
+  const lot = freeLot(s);
+  assert.equal(sim.serviceCoverageAt(s, 'clinic', ...lot, T0), BUILDINGS.clinic.provides.serves);
+  assert.equal(sim.serviceCoverageAt(s, 'clinic', home.x + 8, home.y + 8, T0), 0);
+  const seed = s.seed;
+  assert.equal(sim.commissionService(s, 'food', ...lot, T0).ok, false);
+  assert.equal(s.seed, seed);
+  const cost = sim.categoryCost(s, 'gov');
+  const result = sim.commissionService(s, 'safety', ...lot, T0);
+  assert.ok(result.ok, result.reason);
+  assert.equal(BUILDINGS[result.building.type].provides.need, 'safety');
+  assert.equal(result.building.paid, cost);
 });

@@ -1,6 +1,6 @@
 // Mini Mayor — config. Every balance number lives in this file. Pure data, no DOM.
 
-export const VERSION = 51;           // shown in Menu; keep in step with CACHE in sw.js
+export const VERSION = 52;           // shown in Menu; keep in step with CACHE in sw.js
 export const MAP_W = 11;
 export const MAP_H = 14;
 export const TILE = 16;
@@ -71,6 +71,7 @@ export const TUNING = {
   visitorMoveInChance: 0.15,     // a visitor who had a good time may join the newcomers (town 70%+ happy)
   postGapMs: 4 * 60000,          // a resident posts a wish to the feed this often while you play
   feedMax: 40,                   // posts kept
+  rushTeamTip: 0.5,              // maximum Lunch Rush tip as a share of the base payout
   jobSpots: 2,                   // jobs that can sit on the map as bubbles at once
   spotsPerPop: 50,               // v49: one more spot at the Welcome sign for every this many residents...
   spotsFromPopMax: 4,            // ...up to this many (big towns stop being capped by the sign)
@@ -186,9 +187,9 @@ export const TUNING = {
 
 // Small troubles a shop can run into. `fixer` is the need whose town buildings sort it out for free.
 export const PROBLEMS = {
-  leak:   { name: 'Burst pipe',      fixer: 'safety' },
-  theft:  { name: 'Shoplifters',     fixer: 'safety' },
-  sniffles: { name: 'Staff caught a cold', fixer: 'health' },
+  leak:   { name: 'Burst pipe',      fixer: 'safety', skill: 'service' },
+  theft:  { name: 'Shoplifters',     fixer: 'safety', skill: 'retail' },
+  sniffles: { name: 'Staff caught a cold', fixer: 'health', skill: 'food' },
 };
 
 // Your car. Each one is faster and earns a little more on every ride, delivery and welcome drive.
@@ -204,8 +205,8 @@ export const CARS = [
 export const TOWN_JOBS = {
   taxi:     { name: 'Taxi Ride',        icon: 'taxi',     hint: 'Drive a resident across town',  pay: 12, minutes: 4, cooldownMs: 60000 },
   delivery: { name: 'Package Delivery', icon: 'box',      hint: 'Take a parcel to a home',       pay: 14, minutes: 7, cooldownMs: 90000 },
-  rush:     { name: 'Lunch Rush',       icon: 'cat_food', hint: 'Serve five orders',             pay: 22, minutes: 12, cooldownMs: 120000 },
-  odd:      { name: 'Odd Jobs',         icon: 'person',   hint: 'Send the best resident to help', pay: 6,  minutes: 5, cooldownMs: 90000 },
+  rush:     { name: 'Lunch Rush',       icon: 'cat_food', hint: 'Serve orders and earn a team tip',             pay: 22, minutes: 12, cooldownMs: 120000 },
+  odd:      { name: 'Odd Jobs',         icon: 'person',   hint: 'Send a resident to lend a hand', pay: 6,  minutes: 5, cooldownMs: 90000 },
   lost:     { name: 'Lost & Found',     icon: 'dog',      hint: 'Find Pip the dog on the map',   pay: 14, minutes: 10, cooldownMs: 150000 },
   courier:  { name: 'Courier Route',    icon: 'box',      hint: 'Three homes: shortest route pays a bonus', pay: 7, minutes: 6, cooldownMs: 180000 },
 };

@@ -157,6 +157,15 @@ sim.events.on('problemFixed', ({ building, auto }) => {
   renderer.burst(building.x, building.y, 'stars');
   if (auto) ui.toast(`All fixed at the ${config.BUILDINGS[building.type].name}!`);
 });
+sim.events.on('rushDone', ({ shopId, pay }) => {
+  if (quiet) return;
+  const tile = tileOf(shopId);
+  if (tile) {
+    renderer.burst(tile.x, tile.y, 'coins');
+    renderer.floatText(tile.x, tile.y, `+${formatCoins(pay)}`, COIN);
+  }
+  audio.play('goal');
+});
 sim.events.on('rideRequest', () => { if (!quiet) audio.play('ride'); });
 sim.events.on('rideGone', () => ui.hideRide());
 sim.events.on('rent', ({ amount }) => {
